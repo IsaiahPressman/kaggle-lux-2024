@@ -8,19 +8,19 @@ py-lint:
 py-static:
 	rye run mypy python/rux_2024/
 
-r-format:
+rs-format:
 	cargo fmt
-r-test:
+rs-test:
 	cargo test
-r-lint:
-	cargo clippy
+rs-lint:
+	cargo clippy -- -D warnings
 
 build:
 	maturin develop --skip-install
 
-test: r-test py-test
-check: r-lint py-lint py-static
-prepare: build r-format py-format test check
+test: rs-test py-test
+check: rs-lint py-lint py-static
+prepare: build rs-format py-format test check
 
 clean:
 	rm -rf .mypy_cache .pytest_cache .ruff_cache

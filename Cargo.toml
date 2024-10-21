@@ -9,6 +9,7 @@ name = "_lowlevel"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+itertools = "0.13.0"
 numpy = "0.21.0"
 pyo3 = "0.21"
 
