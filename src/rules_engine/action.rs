@@ -4,5 +4,5 @@ pub enum Action {
     Right,
     Down,
     Left,
-    Sap([usize; 2]),
+    Sap([isize; 2]),
 }

@@ -1,8 +1,7 @@
 use super::action::Action;
 use super::params::Params;
-use super::state::{Pos, State};
+use super::state::State;
 use itertools::zip_eq;
-use numpy::ndarray::Array2;
 
 pub fn step(
     state: &mut State,
@@ -15,13 +14,9 @@ pub fn step(
         state.units = [Vec::new(), Vec::new()];
     }
     remove_dead_units(state);
-    move_units(
-        state,
-        actions,
-        params.unit_move_cost,
-        state.get_asteroid_mask(params.map_height, params.map_width),
-    );
-    unimplemented!("sap actions");
+    move_units(state, actions, params);
+    sap_units(state, actions, params);
+    unimplemented!();
 }
 
 fn remove_dead_units(state: &mut State) {
@@ -29,43 +24,108 @@ fn remove_dead_units(state: &mut State) {
     state.units[1].retain(|u| u.energy >= 0);
 }
 
-fn move_units(
-    state: &mut State,
-    actions: &[Vec<Action>; 2],
-    unit_move_cost: i32,
-    asteroid_mask: Array2<bool>,
-) {
+fn move_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
+    let asteroid_mask = state.get_asteroid_mask(params.map_size);
     for p in [0, 1] {
         for (u, a) in zip_eq(state.units[p].iter_mut(), actions[p].iter()) {
-            if u.energy <= unit_move_cost {
+            if u.energy < params.unit_move_cost {
                 continue;
             }
-
-            let new_pos = match a {
-                Action::Up => Pos {
-                    x: u.pos.x,
-                    y: u.pos.y.saturating_sub(1),
-                },
-                Action::Right => Pos {
-                    x: u.pos.x + 1,
-                    y: u.pos.y,
-                },
-                Action::Down => Pos {
-                    x: u.pos.x,
-                    y: u.pos.y + 1,
-                },
-                Action::Left => Pos {
-                    x: u.pos.x.saturating_sub(1),
-                    y: u.pos.y,
-                },
+            let deltas = match a {
+                Action::Up => [0, -1],
+                Action::Right => [1, 0],
+                Action::Down => [0, 1],
+                Action::Left => [-1, 0],
                 Action::NoOp | Action::Sap(_) => continue,
             };
+            let new_pos = u.pos.bounded_translate(deltas, params.map_size);
             if asteroid_mask[new_pos.as_index()] {
                 continue;
             }
-
             u.pos = new_pos;
-            u.energy -= unit_move_cost;
+            u.energy -= params.unit_move_cost;
         }
+    }
+}
+
+fn sap_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
+    let energy_before_sapping: [Vec<i32>; 2] = [
+        state.units[0].iter().map(|u| u.energy).collect(),
+        state.units[1].iter().map(|u| u.energy).collect(),
+    ];
+    for [p, opp] in [[0, 1], [1, 0]] {
+        let mut sap_count = vec![0; state.units[opp].len()];
+        let mut adjacent_sap_count = vec![0; state.units[opp].len()];
+        for ((unit_idx, &cur_energy), a) in zip_eq(
+            energy_before_sapping[p].iter().enumerate(),
+            actions[p].iter(),
+        ) {
+            if cur_energy < params.unit_sap_cost {
+                continue;
+            }
+            let Action::Sap(sap_deltas) = *a else {
+                continue;
+            };
+            if sap_deltas[0] > params.unit_sap_range || sap_deltas[1] > params.unit_sap_range {
+                continue;
+            }
+            let u = &mut state.units[p][unit_idx];
+            let Some(target_pos) = u.pos.maybe_translate(sap_deltas, params.map_size) else {
+                continue;
+            };
+            u.energy -= params.unit_sap_cost;
+            for (i, opp_u) in state.units[opp].iter().enumerate() {
+                match target_pos.subtract(opp_u.pos) {
+                    [0, 0] => sap_count[i] += 1,
+                    [-1..=1, -1..=1] => adjacent_sap_count[i] += 1,
+                    _ => continue,
+                }
+            }
+        }
+
+        for ((saps, adj_saps), opp_u) in zip_eq(
+            zip_eq(sap_count, adjacent_sap_count),
+            state.units[opp].iter_mut(),
+        ) {
+            opp_u.energy -= saps * params.unit_sap_cost;
+            let adj_sap_loss =
+                (adj_saps * params.unit_sap_cost) as f64 * params.unit_sap_dropoff_factor;
+            opp_u.energy -= adj_sap_loss as i32;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules_engine::state::{Pos, Unit};
+
+    fn mock_state_from_units(units: [Vec<Unit>; 2]) -> State {
+        let mut s = State::empty();
+        s.units = units;
+        s
+    }
+
+    #[test]
+    fn test_move_units() {
+        let params = Params::default();
+        let mut state = State::empty();
+        state.units = [
+            vec![
+                // Unit can't move without energy, costs no energy
+                Unit::new(Pos::new(0, 0), params.unit_move_cost - 1),
+                // Unit can't move off the bottom of the map, but still costs energy
+                Unit::new(Pos::new(0, 0), 100),
+                // Unit moves normally
+                Unit::new(Pos::new(0, 0), 100),
+            ],
+            vec![
+                // Unit can't move off the top of the map, but still costs energy
+                Unit::new(Pos::new(23, 23), 100),
+                // Unit can't move into an asteroid, costs no energy
+                Unit::new(Pos::new(23, 23), 100),
+            ],
+        ];
+        // TODO: let actions =
     }
 }
