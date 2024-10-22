@@ -100,12 +100,6 @@ mod tests {
     use super::*;
     use crate::rules_engine::state::{Pos, Unit};
 
-    fn mock_state_from_units(units: [Vec<Unit>; 2]) -> State {
-        let mut s = State::empty();
-        s.units = units;
-        s
-    }
-
     #[test]
     fn test_move_units() {
         let params = Params::default();
@@ -126,6 +120,98 @@ mod tests {
                 Unit::new(Pos::new(23, 23), 100),
             ],
         ];
-        // TODO: let actions =
+        state.asteroids.push(Pos::new(23, 22));
+        let actions = [
+            vec![Action::Left, Action::Left, Action::Right],
+            vec![Action::Down, Action::Up],
+        ];
+        let expected_moved_units = [
+            vec![
+                Unit::new(Pos::new(0, 0), params.unit_move_cost - 1),
+                Unit::new(Pos::new(0, 0), 100 - params.unit_move_cost),
+                Unit::new(Pos::new(1, 0), 100 - params.unit_move_cost),
+            ],
+            vec![
+                Unit::new(Pos::new(23, 23), 100 - params.unit_move_cost),
+                Unit::new(Pos::new(23, 23), 100),
+            ],
+        ];
+        move_units(&mut state, &actions, &params);
+        assert_eq!(state.units, expected_moved_units);
+    }
+
+    #[test]
+    fn test_sap_units() {
+        let mut params = Params::default();
+        let sap_cost = 5;
+        params.unit_sap_cost = sap_cost;
+        let mut state = State::empty();
+        state.units = [
+            vec![
+                // Can't sap off the edge of the map, costs no energy
+                Unit::new(Pos::new(0, 0), 100),
+                // Can't sap out of range, costs no energy
+                Unit::new(Pos::new(1, 1), 100),
+                // Can't sap without enough energy
+                Unit::new(Pos::new(2, 2), sap_cost - 1),
+                // Sap should work normally, hit all adjacent units, and not hit allied units
+                Unit::new(Pos::new(1, 2), 100),
+                // Sap should work normally at max range
+                Unit::new(
+                    Pos::new(
+                        1 + params.unit_sap_range as usize,
+                        1 + params.unit_sap_range as usize,
+                    ),
+                    100,
+                ),
+            ],
+            vec![
+                Unit::new(Pos::new(0, 0), 100),
+                Unit::new(Pos::new(1, 1), 100),
+                Unit::new(Pos::new(2, 2), 100),
+            ],
+        ];
+        let actions = [
+            vec![
+                Action::Sap([-1, -1]),
+                Action::Sap([params.unit_sap_range + 1, 0]),
+                Action::Sap([0, 0]),
+                Action::Sap([0, 0]),
+                Action::Sap([-params.unit_sap_range, -params.unit_sap_range]),
+            ],
+            vec![Action::NoOp, Action::NoOp, Action::NoOp],
+        ];
+
+        let expected_sapped_units = [
+            vec![
+                Unit::new(Pos::new(0, 0), 100),
+                Unit::new(Pos::new(1, 1), 100),
+                Unit::new(Pos::new(2, 2), sap_cost - 1),
+                Unit::new(Pos::new(1, 2), 100 - sap_cost),
+                Unit::new(
+                    Pos::new(
+                        1 + params.unit_sap_range as usize,
+                        1 + params.unit_sap_range as usize,
+                    ),
+                    100 - sap_cost,
+                ),
+            ],
+            vec![
+                Unit::new(
+                    Pos::new(0, 0),
+                    100 - (sap_cost as f64 * params.unit_sap_dropoff_factor) as i32,
+                ),
+                Unit::new(
+                    Pos::new(1, 1),
+                    100 - sap_cost - (sap_cost as f64 * params.unit_sap_dropoff_factor) as i32,
+                ),
+                Unit::new(
+                    Pos::new(2, 2),
+                    100 - (sap_cost as f64 * params.unit_sap_dropoff_factor * 2.) as i32,
+                ),
+            ],
+        ];
+        sap_units(&mut state, &actions, &params);
+        assert_eq!(state.units, expected_sapped_units);
     }
 }

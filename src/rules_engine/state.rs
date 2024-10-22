@@ -12,7 +12,7 @@ fn div_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (x / (d + 1.) + y) * z
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Pos {
     pub x: usize,
     pub y: usize,
@@ -65,7 +65,7 @@ impl Pos {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
     pub pos: Pos,
     pub energy: i32,
