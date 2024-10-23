@@ -1,9 +1,6 @@
 use numpy::ndarray::Array2;
 use std::cmp::{max, min};
 
-type EnergyFunc = fn(f32, f32, f32, f32) -> f32;
-const ENERGY_NODE_FNS: [EnergyFunc; 2] = [sin_energy_fn, div_energy_fn];
-
 fn sin_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (d * x + y).sin() * z
 }
@@ -97,7 +94,20 @@ impl Unit {
 #[derive(Debug, Clone)]
 pub struct EnergyNode {
     pub pos: Pos,
-    pub func: EnergyFunc,
+    func_id: u8,
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+impl EnergyNode {
+    pub fn apply_energy_fn(&self, d: f32) -> f32 {
+        match self.func_id {
+            0 => sin_energy_fn(d, self.x, self.y, self.z),
+            1 => div_energy_fn(d, self.x, self.y, self.z),
+            _ => panic!("Invalid energy_fn id {}", self.func_id),
+        }
+    }
 }
 
 // #[derive(Debug, Clone)]
