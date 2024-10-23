@@ -116,6 +116,7 @@ pub struct RelicNode {
 pub struct State {
     pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
+    pub nebulae: Vec<Pos>,
     pub energy_nodes: Vec<EnergyNode>,
     pub relic_nodes: Vec<RelicNode>,
     pub team_points: [u32; 2],
@@ -129,6 +130,7 @@ impl State {
         State {
             units: [Vec::new(), Vec::new()],
             asteroids: Vec::new(),
+            nebulae: Vec::new(),
             energy_nodes: Vec::new(),
             relic_nodes: Vec::new(),
             team_points: [0, 0],

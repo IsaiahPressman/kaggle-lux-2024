@@ -1,8 +1,9 @@
 use super::action::Action;
 use super::params::Params;
-use super::state::{Pos, State, Unit};
+use super::state::{EnergyNode, Pos, State, Unit};
 use itertools::{zip_eq, Itertools};
 use numpy::ndarray::{Array2, Array3};
+use std::cmp::{max, min};
 
 pub fn step(
     state: &mut State,
@@ -10,7 +11,6 @@ pub fn step(
     params: &Params,
     energy_node_deltas: Option<Vec<[usize; 2]>>,
 ) {
-    // TODO: Do we need to precompute energy features
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -23,7 +23,8 @@ pub fn step(
         &energy_before_sapping,
         params,
     );
-    unimplemented!();
+    apply_energy_field(state, params);
+    unimplemented!("spawn_units_in");
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
@@ -32,13 +33,11 @@ fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
 }
 
 fn move_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
-    let asteroid_mask = get_asteroid_mask(&state.asteroids, params.map_size);
+    let asteroid_mask = get_map_mask(&state.asteroids, params.map_size);
     for (u, a) in zip_eq(state.units.iter_mut(), actions.iter())
         .flat_map(|(us, acts)| zip_eq(us, acts))
+        .filter(|(u, _)| u.energy >= params.unit_move_cost)
     {
-        if u.energy < params.unit_move_cost {
-            continue;
-        }
         let deltas = match a {
             Action::Up => [0, -1],
             Action::Right => [1, 0],
@@ -55,9 +54,9 @@ fn move_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
     }
 }
 
-fn get_asteroid_mask(asteroids: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
+fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
     let mut result = Array2::default(map_size);
-    for a in asteroids.iter() {
+    for a in positions.iter() {
         result[a.as_index()] = true;
     }
     result
@@ -79,20 +78,21 @@ fn sap_units(
     for (t, opp) in [(0, 1), (1, 0)] {
         let mut sap_count = vec![0; units[opp].len()];
         let mut adjacent_sap_count = vec![0; units[opp].len()];
-        for ((unit_idx, &cur_energy), a) in
-            zip_eq(unit_energies[t].iter().enumerate(), actions[t].iter())
-        {
-            if cur_energy < params.unit_sap_cost {
-                continue;
+        for (unit_idx, sap_deltas) in zip_eq(
+            unit_energies[t].iter().copied().enumerate(),
+            actions[t].iter(),
+        )
+        .filter(|((_, cur_energy), _)| *cur_energy >= params.unit_sap_cost)
+        .filter_map(|((unit_idx, _), a)| {
+            if let Action::Sap(sap_deltas) = *a {
+                Some((unit_idx, sap_deltas))
+            } else {
+                None
             }
-            let Action::Sap(sap_deltas) = *a else {
-                continue;
-            };
-            if sap_deltas[0] > params.unit_sap_range
-                || sap_deltas[1] > params.unit_sap_range
-            {
-                continue;
-            }
+        })
+        .filter(|(_, [dx, dy])| {
+            *dx <= params.unit_sap_range && *dy <= params.unit_sap_range
+        }) {
             let u = &mut units[t][unit_idx];
             let Some(target_pos) =
                 u.pos.maybe_translate(sap_deltas, params.map_size)
@@ -104,7 +104,7 @@ fn sap_units(
                 match target_pos.subtract(opp_u.pos) {
                     [0, 0] => sap_count[i] += 1,
                     [-1..=1, -1..=1] => adjacent_sap_count[i] += 1,
-                    _ => continue,
+                    _ => {},
                 }
             }
         }
@@ -162,10 +162,10 @@ fn get_unit_aggregate_energy_void_map(
     map_size: [usize; 2],
 ) -> Array3<f32> {
     let mut result = Array3::zeros((2, map_size[0], map_size[1]));
-    for ((t, u, &energy), delta) in zip_eq(units, unit_energies)
+    for ((t, u, energy), delta) in zip_eq(units, unit_energies)
         .enumerate()
         .flat_map(|(t, (us, ues))| {
-            zip_eq(us, ues).map(move |(u, ue)| (t, u, ue))
+            zip_eq(us, ues.iter().copied()).map(move |(u, ue)| (t, u, ue))
         })
         .cartesian_product([[-1, 0], [1, 0], [0, -1], [0, 1]])
     {
@@ -198,16 +198,49 @@ fn get_unit_aggregate_energy_map(
     map_size: [usize; 2],
 ) -> Array3<i32> {
     let mut result = Array3::zeros((2, map_size[0], map_size[1]));
-    for (t, u, &energy) in
+    for (t, u, energy) in
         zip_eq(units, unit_energies)
             .enumerate()
             .flat_map(|(t, (us, ues))| {
-                zip_eq(us, ues).map(move |(u, ue)| (t, u, ue))
+                zip_eq(us, ues.iter().copied()).map(move |(u, ue)| (t, u, ue))
             })
     {
         result[[t, u.pos.x, u.pos.y]] += energy;
     }
     result
+}
+
+fn apply_energy_field(state: &mut State, params: &Params) {
+    let energy_field = get_energy_field(&state.energy_nodes);
+    let nebula_mask = get_map_mask(&state.nebulae, params.map_size);
+    for (u, energy_gain) in state
+        .units
+        .iter_mut()
+        .flat_map(|us| us.iter_mut())
+        .map(|u| {
+            let u_pos_idx = u.pos.as_index();
+            (
+                u,
+                if nebula_mask[u_pos_idx] {
+                    energy_field[u_pos_idx]
+                        - params.nebula_tile_energy_reduction
+                } else {
+                    energy_field[u_pos_idx]
+                },
+            )
+        })
+        .filter(|(u, eg)| u.energy >= 0 || u.energy + eg >= 0)
+    {
+        u.energy = min(
+            max(u.energy + energy_gain, params.min_unit_energy),
+            params.max_unit_energy,
+        )
+    }
+}
+
+fn get_energy_field(energy_nodes: &[EnergyNode]) -> Array2<i32> {
+    // TODO: Left off here
+    unimplemented!()
 }
 
 #[cfg(test)]
@@ -231,7 +264,7 @@ mod tests {
             ],
             vec![
                 // Unit can't move off the top of the map, but still costs energy
-                Unit::new(Pos::new(23, 23), 100),
+                Unit::new(Pos::new(23, 23), params.unit_move_cost),
                 // Unit can't move into an asteroid, costs no energy
                 Unit::new(Pos::new(23, 23), 100),
             ],
@@ -248,7 +281,7 @@ mod tests {
                 Unit::new(Pos::new(1, 0), 100 - params.unit_move_cost),
             ],
             vec![
-                Unit::new(Pos::new(23, 23), 100 - params.unit_move_cost),
+                Unit::new(Pos::new(23, 23), 0),
                 Unit::new(Pos::new(23, 23), 100),
             ],
         ];
@@ -257,16 +290,16 @@ mod tests {
     }
 
     #[test]
-    fn test_get_asteroid_mask() {
+    fn test_get_map_mask() {
         let asteroids = Vec::new();
         let expected_result = arr2(&[[false; 3]; 3]);
-        assert_eq!(get_asteroid_mask(&asteroids, [3, 3]), expected_result);
+        assert_eq!(get_map_mask(&asteroids, [3, 3]), expected_result);
 
-        let asteroids =
+        let nebulae =
             vec![Pos { x: 0, y: 0 }, Pos { x: 0, y: 1 }, Pos { x: 2, y: 1 }];
         let expected_result =
             arr2(&[[true, true], [false, false], [false, true]]);
-        assert_eq!(get_asteroid_mask(&asteroids, [3, 2]), expected_result);
+        assert_eq!(get_map_mask(&nebulae, [3, 2]), expected_result);
     }
 
     #[test]
@@ -448,5 +481,15 @@ mod tests {
         let result =
             get_unit_aggregate_energy_map(&units, &unit_energies, [2, 2]);
         assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_apply_energy_field() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn test_get_energy_field() {
+        unimplemented!()
     }
 }
