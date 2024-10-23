@@ -16,9 +16,9 @@ pub struct Params {
     // The unit sap range is the range of the unit's sap action.
     pub unit_sap_range: isize,
     // The unit sap dropoff factor multiplied by unit_sap_drain
-    pub unit_sap_dropoff_factor: f64,
+    pub unit_sap_dropoff_factor: f32,
     // The unit energy void factor multiplied by unit_energy
-    pub unit_energy_void_factor: f64,
+    pub unit_energy_void_factor: f32,
 
     // configs for energy nodes
     pub max_energy_nodes: usize,
@@ -41,10 +41,10 @@ pub struct Params {
     pub nebula_tile_energy_reduction: i32,
     // how fast nebula tiles drift in one of the diagonal directions over time.
     // If positive, flows to the top/right, negative flows to bottom/left
-    pub nebula_tile_drift_speed: f64,
+    pub nebula_tile_drift_speed: f32,
     // how fast energy nodes will move around over time
-    pub energy_node_drift_speed: f64,
-    pub energy_node_drift_magnitude: f64,
+    pub energy_node_drift_speed: f32,
+    pub energy_node_drift_magnitude: f32,
 }
 
 impl Params {

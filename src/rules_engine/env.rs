@@ -1,7 +1,8 @@
 use super::action::Action;
 use super::params::Params;
-use super::state::State;
-use itertools::zip_eq;
+use super::state::{Pos, State, Unit};
+use itertools::{zip_eq, Itertools};
+use numpy::ndarray::{Array2, Array3};
 
 pub fn step(
     state: &mut State,
@@ -13,68 +14,93 @@ pub fn step(
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
-    remove_dead_units(state);
+    remove_dead_units(&mut state.units);
     move_units(state, actions, params);
-    sap_units(state, actions, params);
+    let energy_before_sapping = get_unit_energies(&state.units);
+    sap_units(&mut state.units, &energy_before_sapping, actions, params);
+    resolve_collisions_and_energy_void_fields(
+        &mut state.units,
+        &energy_before_sapping,
+        params,
+    );
     unimplemented!();
 }
 
-fn remove_dead_units(state: &mut State) {
-    state.units[0].retain(|u| u.energy >= 0);
-    state.units[1].retain(|u| u.energy >= 0);
+fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
+    units[0].retain(|u| u.energy >= 0);
+    units[1].retain(|u| u.energy >= 0);
 }
 
 fn move_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
-    let asteroid_mask = state.get_asteroid_mask(params.map_size);
-    for p in [0, 1] {
-        for (u, a) in zip_eq(state.units[p].iter_mut(), actions[p].iter()) {
-            if u.energy < params.unit_move_cost {
-                continue;
-            }
-            let deltas = match a {
-                Action::Up => [0, -1],
-                Action::Right => [1, 0],
-                Action::Down => [0, 1],
-                Action::Left => [-1, 0],
-                Action::NoOp | Action::Sap(_) => continue,
-            };
-            let new_pos = u.pos.bounded_translate(deltas, params.map_size);
-            if asteroid_mask[new_pos.as_index()] {
-                continue;
-            }
-            u.pos = new_pos;
-            u.energy -= params.unit_move_cost;
+    let asteroid_mask = get_asteroid_mask(&state.asteroids, params.map_size);
+    for (u, a) in zip_eq(state.units.iter_mut(), actions.iter())
+        .flat_map(|(us, acts)| zip_eq(us, acts))
+    {
+        if u.energy < params.unit_move_cost {
+            continue;
         }
+        let deltas = match a {
+            Action::Up => [0, -1],
+            Action::Right => [1, 0],
+            Action::Down => [0, 1],
+            Action::Left => [-1, 0],
+            Action::NoOp | Action::Sap(_) => continue,
+        };
+        let new_pos = u.pos.bounded_translate(deltas, params.map_size);
+        if asteroid_mask[new_pos.as_index()] {
+            continue;
+        }
+        u.pos = new_pos;
+        u.energy -= params.unit_move_cost;
     }
 }
 
-fn sap_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
-    let energy_before_sapping: [Vec<i32>; 2] = [
-        state.units[0].iter().map(|u| u.energy).collect(),
-        state.units[1].iter().map(|u| u.energy).collect(),
-    ];
-    for [p, opp] in [[0, 1], [1, 0]] {
-        let mut sap_count = vec![0; state.units[opp].len()];
-        let mut adjacent_sap_count = vec![0; state.units[opp].len()];
-        for ((unit_idx, &cur_energy), a) in zip_eq(
-            energy_before_sapping[p].iter().enumerate(),
-            actions[p].iter(),
-        ) {
+fn get_asteroid_mask(asteroids: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
+    let mut result = Array2::default(map_size);
+    for a in asteroids.iter() {
+        result[a.as_index()] = true;
+    }
+    result
+}
+
+fn get_unit_energies(units: &[Vec<Unit>; 2]) -> [Vec<i32>; 2] {
+    [
+        units[0].iter().map(|u| u.energy).collect(),
+        units[1].iter().map(|u| u.energy).collect(),
+    ]
+}
+
+fn sap_units(
+    units: &mut [Vec<Unit>; 2],
+    unit_energies: &[Vec<i32>; 2],
+    actions: &[Vec<Action>; 2],
+    params: &Params,
+) {
+    for (t, opp) in [(0, 1), (1, 0)] {
+        let mut sap_count = vec![0; units[opp].len()];
+        let mut adjacent_sap_count = vec![0; units[opp].len()];
+        for ((unit_idx, &cur_energy), a) in
+            zip_eq(unit_energies[t].iter().enumerate(), actions[t].iter())
+        {
             if cur_energy < params.unit_sap_cost {
                 continue;
             }
             let Action::Sap(sap_deltas) = *a else {
                 continue;
             };
-            if sap_deltas[0] > params.unit_sap_range || sap_deltas[1] > params.unit_sap_range {
+            if sap_deltas[0] > params.unit_sap_range
+                || sap_deltas[1] > params.unit_sap_range
+            {
                 continue;
             }
-            let u = &mut state.units[p][unit_idx];
-            let Some(target_pos) = u.pos.maybe_translate(sap_deltas, params.map_size) else {
+            let u = &mut units[t][unit_idx];
+            let Some(target_pos) =
+                u.pos.maybe_translate(sap_deltas, params.map_size)
+            else {
                 continue;
             };
             u.energy -= params.unit_sap_cost;
-            for (i, opp_u) in state.units[opp].iter().enumerate() {
+            for (i, opp_u) in units[opp].iter().enumerate() {
                 match target_pos.subtract(opp_u.pos) {
                     [0, 0] => sap_count[i] += 1,
                     [-1..=1, -1..=1] => adjacent_sap_count[i] += 1,
@@ -83,22 +109,112 @@ fn sap_units(state: &mut State, actions: &[Vec<Action>; 2], params: &Params) {
             }
         }
 
-        for ((saps, adj_saps), opp_u) in zip_eq(
-            zip_eq(sap_count, adjacent_sap_count),
-            state.units[opp].iter_mut(),
-        ) {
+        for ((saps, adj_saps), opp_u) in
+            zip_eq(zip_eq(sap_count, adjacent_sap_count), units[opp].iter_mut())
+        {
             opp_u.energy -= saps * params.unit_sap_cost;
-            let adj_sap_loss =
-                (adj_saps * params.unit_sap_cost) as f64 * params.unit_sap_dropoff_factor;
+            let adj_sap_loss = (adj_saps * params.unit_sap_cost) as f32
+                * params.unit_sap_dropoff_factor;
             opp_u.energy -= adj_sap_loss as i32;
         }
     }
+}
+
+fn resolve_collisions_and_energy_void_fields(
+    units: &mut [Vec<Unit>; 2],
+    unit_energies: &[Vec<i32>; 2],
+    params: &Params,
+) {
+    let unit_aggregate_energy_void_map = get_unit_aggregate_energy_void_map(
+        units,
+        unit_energies,
+        params.map_size,
+    );
+    let unit_counts_map = get_unit_counts_map(units, params.map_size);
+    let unit_aggregate_energy_map =
+        get_unit_aggregate_energy_map(units, unit_energies, params.map_size);
+    for (t, opp) in [(0, 1), (1, 0)] {
+        let mut to_remove = Vec::new();
+        for (i, u) in units[t].iter_mut().enumerate() {
+            let [x, y] = u.pos.as_index();
+            // Resolve collision
+            if unit_counts_map[[opp, x, y]] > 0
+                && unit_aggregate_energy_map[[opp, x, y]]
+                    >= unit_aggregate_energy_map[[t, x, y]]
+            {
+                to_remove.push(i);
+            }
+            // Apply energy void fields
+            u.energy -= (params.unit_energy_void_factor
+                * unit_aggregate_energy_void_map[[opp, x, y]]
+                / unit_counts_map[[t, x, y]] as f32)
+                as i32;
+        }
+        let mut keep_iter =
+            (0..units[t].len()).map(|i| !to_remove.contains(&i));
+        units[t].retain(|_| keep_iter.next().unwrap());
+    }
+}
+
+fn get_unit_aggregate_energy_void_map(
+    units: &[Vec<Unit>; 2],
+    unit_energies: &[Vec<i32>; 2],
+    map_size: [usize; 2],
+) -> Array3<f32> {
+    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    for ((t, u, &energy), delta) in zip_eq(units, unit_energies)
+        .enumerate()
+        .flat_map(|(t, (us, ues))| {
+            zip_eq(us, ues).map(move |(u, ue)| (t, u, ue))
+        })
+        .cartesian_product([[-1, 0], [1, 0], [0, -1], [0, 1]])
+    {
+        let Some(Pos { x, y }) = u.pos.maybe_translate(delta, map_size) else {
+            continue;
+        };
+        result[[t, x, y]] += energy as f32;
+    }
+    result
+}
+
+fn get_unit_counts_map(
+    units: &[Vec<Unit>; 2],
+    map_size: [usize; 2],
+) -> Array3<u8> {
+    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    for (t, u) in units
+        .iter()
+        .enumerate()
+        .flat_map(|(t, us)| us.iter().map(move |u| (t, u)))
+    {
+        result[[t, u.pos.x, u.pos.y]] += 1;
+    }
+    result
+}
+
+fn get_unit_aggregate_energy_map(
+    units: &[Vec<Unit>; 2],
+    unit_energies: &[Vec<i32>; 2],
+    map_size: [usize; 2],
+) -> Array3<i32> {
+    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    for (t, u, &energy) in
+        zip_eq(units, unit_energies)
+            .enumerate()
+            .flat_map(|(t, (us, ues))| {
+                zip_eq(us, ues).map(move |(u, ue)| (t, u, ue))
+            })
+    {
+        result[[t, u.pos.x, u.pos.y]] += energy;
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::rules_engine::state::{Pos, Unit};
+    use numpy::ndarray::{arr2, arr3};
 
     #[test]
     fn test_move_units() {
@@ -141,12 +257,25 @@ mod tests {
     }
 
     #[test]
+    fn test_get_asteroid_mask() {
+        let asteroids = Vec::new();
+        let expected_result = arr2(&[[false; 3]; 3]);
+        assert_eq!(get_asteroid_mask(&asteroids, [3, 3]), expected_result);
+
+        let asteroids =
+            vec![Pos { x: 0, y: 0 }, Pos { x: 0, y: 1 }, Pos { x: 2, y: 1 }];
+        let expected_result =
+            arr2(&[[true, true], [false, false], [false, true]]);
+        assert_eq!(get_asteroid_mask(&asteroids, [3, 2]), expected_result);
+    }
+
+    #[test]
     fn test_sap_units() {
         let mut params = Params::default();
         let sap_cost = 5;
         params.unit_sap_cost = sap_cost;
-        let mut state = State::empty();
-        state.units = [
+        params.unit_sap_dropoff_factor = 0.5;
+        let mut units = [
             vec![
                 // Can't sap off the edge of the map, costs no energy
                 Unit::new(Pos::new(0, 0), 100),
@@ -155,7 +284,7 @@ mod tests {
                 // Can't sap without enough energy
                 Unit::new(Pos::new(2, 2), sap_cost - 1),
                 // Sap should work normally, hit all adjacent units, and not hit allied units
-                Unit::new(Pos::new(1, 2), 100),
+                Unit::new(Pos::new(1, 2), sap_cost),
                 // Sap should work normally at max range
                 Unit::new(
                     Pos::new(
@@ -187,7 +316,7 @@ mod tests {
                 Unit::new(Pos::new(0, 0), 100),
                 Unit::new(Pos::new(1, 1), 100),
                 Unit::new(Pos::new(2, 2), sap_cost - 1),
-                Unit::new(Pos::new(1, 2), 100 - sap_cost),
+                Unit::new(Pos::new(1, 2), 0),
                 Unit::new(
                     Pos::new(
                         1 + params.unit_sap_range as usize,
@@ -197,21 +326,127 @@ mod tests {
                 ),
             ],
             vec![
-                Unit::new(
-                    Pos::new(0, 0),
-                    100 - (sap_cost as f64 * params.unit_sap_dropoff_factor) as i32,
-                ),
-                Unit::new(
-                    Pos::new(1, 1),
-                    100 - sap_cost - (sap_cost as f64 * params.unit_sap_dropoff_factor) as i32,
-                ),
-                Unit::new(
-                    Pos::new(2, 2),
-                    100 - (sap_cost as f64 * params.unit_sap_dropoff_factor * 2.) as i32,
-                ),
+                Unit::new(Pos::new(0, 0), 100 - (sap_cost / 2)),
+                Unit::new(Pos::new(1, 1), 100 - sap_cost - sap_cost / 2),
+                Unit::new(Pos::new(2, 2), 100 - (2 * sap_cost / 2)),
             ],
         ];
-        sap_units(&mut state, &actions, &params);
-        assert_eq!(state.units, expected_sapped_units);
+        let unit_energies = get_unit_energies(&units);
+        sap_units(&mut units, &unit_energies, &actions, &params);
+        assert_eq!(units, expected_sapped_units);
+    }
+
+    #[test]
+    fn test_resolve_collisions_and_energy_void_fields() {
+        let mut params = Params::default();
+        params.unit_energy_void_factor = 0.25;
+        let mut units = [
+            vec![
+                // Don't collide with self, less energy loses
+                Unit::new(Pos::new(0, 0), 1),
+                Unit::new(Pos::new(0, 0), 1),
+                Unit::new(Pos::new(0, 0), 1),
+                // Everyone dies in a tie
+                Unit::new(Pos::new(1, 1), 1),
+                Unit::new(Pos::new(1, 1), 1),
+                // Energy voids are combined/shared
+                Unit::new(Pos::new(2, 2), 100),
+            ],
+            vec![
+                // Don't collide with self, more energy wins
+                Unit::new(Pos::new(0, 0), 2),
+                Unit::new(Pos::new(0, 0), 2),
+                // Everyone dies in a tie
+                Unit::new(Pos::new(1, 1), 2),
+                // Energy voids are combined/shared
+                Unit::new(Pos::new(2, 3), 100),
+                Unit::new(Pos::new(2, 3), 100),
+            ],
+        ];
+        let expected_result = [
+            vec![Unit::new(Pos::new(2, 2), 100 - 25 - 25)],
+            vec![
+                Unit::new(Pos::new(0, 0), 2),
+                Unit::new(Pos::new(0, 0), 2),
+                Unit::new(Pos::new(2, 3), 100 - 12),
+                Unit::new(Pos::new(2, 3), 100 - 12),
+            ],
+        ];
+        let unit_energies = get_unit_energies(&units);
+        resolve_collisions_and_energy_void_fields(
+            &mut units,
+            &unit_energies,
+            &params,
+        );
+        assert_eq!(units, expected_result);
+    }
+
+    #[test]
+    fn test_get_unit_aggregate_energy_void_map() {
+        let units = [
+            vec![
+                // Should appropriately handle units at edges of map and sum values
+                Unit::new(Pos::new(0, 0), 1),
+                Unit::new(Pos::new(1, 1), 2),
+            ],
+            vec![
+                // Should handle different energy amounts and stacked units
+                Unit::new(Pos::new(0, 0), 2),
+                Unit::new(Pos::new(0, 0), 2),
+                Unit::new(Pos::new(0, 1), 30),
+            ],
+        ];
+        let expected_result =
+            arr3(&[[[0., 3.], [3., 0.]], [[30., 4.], [4., 30.]]]);
+        let unit_energies = get_unit_energies(&units);
+        let result =
+            get_unit_aggregate_energy_void_map(&units, &unit_energies, [2, 2]);
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_unit_counts_map() {
+        let units = [
+            vec![
+                // Handle stacked units
+                Unit::new_at(Pos::new(0, 0)),
+                Unit::new_at(Pos::new(0, 0)),
+                Unit::new_at(Pos::new(0, 1)),
+                Unit::new_at(Pos::new(0, 1)),
+                Unit::new_at(Pos::new(0, 1)),
+            ],
+            vec![
+                // Different teams have different stacks
+                Unit::new_at(Pos::new(1, 0)),
+                Unit::new_at(Pos::new(1, 0)),
+                Unit::new_at(Pos::new(1, 1)),
+            ],
+        ];
+        let expected_result = arr3(&[[[2, 3], [0, 0]], [[0, 0], [2, 1]]]);
+        let result = get_unit_counts_map(&units, [2, 2]);
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_get_unit_aggregate_energy_map() {
+        let units = [
+            vec![
+                // Handle stacked units
+                Unit::new(Pos::new(0, 0), 3),
+                Unit::new(Pos::new(0, 0), 20),
+                Unit::new(Pos::new(0, 0), 100),
+            ],
+            vec![
+                // Different teams have different stacks
+                Unit::new(Pos::new(0, 1), 40),
+                Unit::new(Pos::new(0, 1), 5),
+                Unit::new(Pos::new(1, 0), 67),
+            ],
+        ];
+        let expected_result = arr3(&[[[123, 0], [0, 0]], [[0, 45], [67, 0]]]);
+        let unit_energies = get_unit_energies(&units);
+        let result =
+            get_unit_aggregate_energy_map(&units, &unit_energies, [2, 2]);
+        assert_eq!(result, expected_result);
     }
 }

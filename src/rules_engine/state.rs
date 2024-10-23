@@ -23,9 +23,13 @@ impl Pos {
         Pos { x, y }
     }
 
-    /// Translates self
+    /// Translates self \
     /// Stops at map boundaries given by [0, width) / [0, height)
-    pub fn bounded_translate(&self, deltas: [isize; 2], map_size: [usize; 2]) -> Self {
+    pub fn bounded_translate(
+        &self,
+        deltas: [isize; 2],
+        map_size: [usize; 2],
+    ) -> Self {
         let [dx, dy] = deltas;
         let [width, height] = map_size;
         let x = self.x as isize + dx;
@@ -35,10 +39,14 @@ impl Pos {
         Pos { x, y }
     }
 
-    /// Translates self
-    /// If result is in-bounds, returns result
+    /// Translates self \
+    /// If result is in-bounds, returns result \
     /// If result is out-of-bounds, returns None
-    pub fn maybe_translate(&self, deltas: [isize; 2], map_size: [usize; 2]) -> Option<Self> {
+    pub fn maybe_translate(
+        &self,
+        deltas: [isize; 2],
+        map_size: [usize; 2],
+    ) -> Option<Self> {
         let [dx, dy] = deltas;
         let [width, height] = map_size;
         let x = self.x as isize + dx;
@@ -75,6 +83,14 @@ pub struct Unit {
 impl Unit {
     pub fn new(pos: Pos, energy: i32) -> Self {
         Unit { pos, energy, id: 0 }
+    }
+
+    pub fn new_at(pos: Pos) -> Self {
+        Unit {
+            pos,
+            energy: 0,
+            id: 0,
+        }
     }
 }
 
@@ -123,20 +139,6 @@ impl State {
     }
 }
 
-fn build_asteroid_mask(asteroids: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
-    let mut result = Array2::default(map_size);
-    for a in asteroids.iter() {
-        result[a.as_index()] = true;
-    }
-    result
-}
-
-impl State {
-    pub fn get_asteroid_mask(&self, map_size: [usize; 2]) -> Array2<bool> {
-        build_asteroid_mask(&self.asteroids, map_size)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Observation {
     pub units: Vec<Unit>,
@@ -147,21 +149,4 @@ pub struct Observation {
     pub team_wins: [u32; 2],
     pub total_steps: u32,
     pub match_steps: u32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::ndarray::arr2;
-
-    #[test]
-    fn test_build_asteroid_mask() {
-        let asteroids = Vec::new();
-        let expected_result = arr2(&[[false; 3]; 3]);
-        assert_eq!(build_asteroid_mask(&asteroids, [3, 3]), expected_result);
-
-        let asteroids = vec![Pos { x: 0, y: 0 }, Pos { x: 0, y: 1 }, Pos { x: 2, y: 1 }];
-        let expected_result = arr2(&[[true, true], [false, false], [false, true]]);
-        assert_eq!(build_asteroid_mask(&asteroids, [3, 2]), expected_result);
-    }
 }
