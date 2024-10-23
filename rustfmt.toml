@@ -1,0 +1,4 @@
+unstable_features = true
+imports_granularity = "Module"
+match_block_trailing_comma = true
+max_width = 80

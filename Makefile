@@ -9,7 +9,7 @@ py-static:
 	rye run mypy python/rux_2024/
 
 rs-format:
-	cargo fmt
+	cargo +nightly fmt
 rs-test:
 	cargo test
 rs-lint:
