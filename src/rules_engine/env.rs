@@ -72,8 +72,8 @@ fn move_units(
 
 fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
     let mut result = Array2::default(map_size);
-    for a in positions.iter() {
-        result[a.as_index()] = true;
+    for p in positions.iter() {
+        result[p.as_index()] = true;
     }
     result
 }
