@@ -89,7 +89,7 @@ impl Unit {
             id: 0,
         }
     }
-    
+
     pub fn new_with_id(pos: Pos, energy: i32, id: usize) -> Self {
         Unit { pos, energy, id }
     }
@@ -113,12 +113,6 @@ impl EnergyNode {
         }
     }
 }
-
-// #[derive(Debug, Clone)]
-// pub struct MapTile {
-//     pub energy: u32,
-//     pub tile_type: None, // TODO: tile_type enum
-// }
 
 #[derive(Debug, Clone)]
 pub struct RelicNode {

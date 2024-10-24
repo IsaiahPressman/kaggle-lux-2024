@@ -35,9 +35,9 @@ pub fn step(
         params,
     );
     if state.match_steps % params.spawn_rate == 0 {
-        spawn_units_in(&mut state.units, params)
+        spawn_units(&mut state.units, params)
     }
-    unimplemented!("computer sensor masks");
+    unimplemented!("compute_sensor_masks");
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
@@ -306,14 +306,13 @@ fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
     sum_of_squares.sqrt()
 }
 
-/// Spawns new units in
-fn spawn_units_in(units: &mut [Vec<Unit>; 2], params: &Params) {
+fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
     for (t, team_units) in units
         .iter_mut()
         .enumerate()
         .filter(|(_, team_units)| team_units.len() < params.max_units)
     {
-        let u_id: usize = if team_units.len() == 0 || team_units[0].id != 0 {
+        let u_id = if team_units.len() == 0 || team_units[0].id > 0 {
             0
         } else if team_units[team_units.len() - 1].id == team_units.len() - 1 {
             team_units.len()
@@ -322,7 +321,7 @@ fn spawn_units_in(units: &mut [Vec<Unit>; 2], params: &Params) {
                 .iter()
                 .tuple_windows()
                 .filter_map(|(unit, next_unit)| {
-                    if next_unit.id - unit.id != 1 {
+                    if next_unit.id - unit.id > 1 {
                         Some(unit.id + 1)
                     } else {
                         None
@@ -395,8 +394,7 @@ mod tests {
         let expected_result = arr2(&[[false; 3]; 3]);
         assert_eq!(get_map_mask(&asteroids, [3, 3]), expected_result);
 
-        let nebulae =
-            vec![Pos { x: 0, y: 0 }, Pos { x: 0, y: 1 }, Pos { x: 2, y: 1 }];
+        let nebulae = vec![Pos::new(0, 0), Pos::new(0, 1), Pos::new(2, 1)];
         let expected_result =
             arr2(&[[true, true], [false, false], [false, true]]);
         assert_eq!(get_map_mask(&nebulae, [3, 2]), expected_result);
@@ -658,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_units_in() {
+    fn test_spawn_units() {
         let params = Params::default();
         let mut units = [
             // Empty vector; should spawn unit with id 0
@@ -666,7 +664,7 @@ mod tests {
             // Vector missing id 0; add it
             vec![Unit::new_with_id(Pos::new(1, 1), 42, 1)],
         ];
-        let expected_results = [
+        let expected_result = [
             // Empty vector; should spawn unit with id 0
             vec![Unit::new_with_id(
                 Pos::new(0, 0),
@@ -679,7 +677,66 @@ mod tests {
                 Unit::new_with_id(Pos::new(1, 1), 42, 1),
             ],
         ];
-        spawn_units_in(&mut units, &params);
-        assert_eq!(units, expected_results);
+        spawn_units(&mut units, &params);
+        assert_eq!(units, expected_result);
+
+        let mut units = [
+            // Contains all IDs; should add next one
+            vec![
+                Unit::new_with_id(Pos::new(1, 1), -5, 0),
+                Unit::new_with_id(Pos::new(1, 1), -5, 1),
+                Unit::new_with_id(Pos::new(1, 1), -5, 2),
+            ],
+            // Contains max units; don't add any
+            (0..params.max_units)
+                .map(|id| Unit::new_with_id(Pos::new(9, 9), 42, id))
+                .collect(),
+        ];
+        let expected_result = [
+            // Contains all IDs; should add next one
+            vec![
+                Unit::new_with_id(Pos::new(1, 1), -5, 0),
+                Unit::new_with_id(Pos::new(1, 1), -5, 1),
+                Unit::new_with_id(Pos::new(1, 1), -5, 2),
+                Unit::new_with_id(Pos::new(0, 0), params.init_unit_energy, 3),
+            ],
+            // Contains max units; don't add any
+            units[1].clone(),
+        ];
+        spawn_units(&mut units, &params);
+        assert_eq!(units, expected_result);
+
+        let mut units = [
+            // Insert unit at correct location
+            vec![
+                Unit::new_with_id(Pos::new(1, 1), 42, 0),
+                Unit::new_with_id(Pos::new(1, 1), 42, 2),
+                Unit::new_with_id(Pos::new(1, 1), 42, 4),
+            ],
+            // Insert unit at correct location
+            vec![
+                Unit::new_with_id(Pos::new(9, 9), 42, 0),
+                Unit::new_with_id(Pos::new(9, 9), 42, 1),
+                Unit::new_with_id(Pos::new(9, 9), 42, 4),
+            ],
+        ];
+        let expected_result = [
+            // Insert unit at correct location
+            vec![
+                Unit::new_with_id(Pos::new(1, 1), 42, 0),
+                Unit::new_with_id(Pos::new(0, 0), params.init_unit_energy, 1),
+                Unit::new_with_id(Pos::new(1, 1), 42, 2),
+                Unit::new_with_id(Pos::new(1, 1), 42, 4),
+            ],
+            // Insert unit at correct location
+            vec![
+                Unit::new_with_id(Pos::new(9, 9), 42, 0),
+                Unit::new_with_id(Pos::new(9, 9), 42, 1),
+                Unit::new_with_id(Pos::new(23, 23), params.init_unit_energy, 2),
+                Unit::new_with_id(Pos::new(9, 9), 42, 4),
+            ],
+        ];
+        spawn_units(&mut units, &params);
+        assert_eq!(units, expected_result);
     }
 }
