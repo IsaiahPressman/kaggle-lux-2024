@@ -74,7 +74,7 @@ impl Pos {
 pub struct Unit {
     pub pos: Pos,
     pub energy: i32,
-    pub id: u8,
+    pub id: usize,
 }
 
 impl Unit {
@@ -88,6 +88,10 @@ impl Unit {
             energy: 0,
             id: 0,
         }
+    }
+    
+    pub fn new_with_id(pos: Pos, energy: i32, id: usize) -> Self {
+        Unit { pos, energy, id }
     }
 }
 

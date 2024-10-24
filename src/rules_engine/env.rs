@@ -34,7 +34,10 @@ pub fn step(
         &get_map_mask(&state.nebulae, params.map_size),
         params,
     );
-    unimplemented!("spawn_units_in");
+    if state.match_steps % params.spawn_rate == 0 {
+        spawn_units_in(&mut state.units, params)
+    }
+    unimplemented!("computer sensor masks");
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
@@ -72,8 +75,8 @@ fn move_units(
 
 fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
     let mut result = Array2::default(map_size);
-    for p in positions.iter() {
-        result[p.as_index()] = true;
+    for a in positions.iter() {
+        result[a.as_index()] = true;
     }
     result
 }
@@ -301,6 +304,43 @@ fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
     let sum_of_squares =
         (x2 as f32 - x1 as f32).powi(2) + (y2 as f32 - y1 as f32).powi(2);
     sum_of_squares.sqrt()
+}
+
+/// Spawns new units in
+fn spawn_units_in(units: &mut [Vec<Unit>; 2], params: &Params) {
+    for (t, team_units) in units
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, team_units)| team_units.len() < params.max_units)
+    {
+        let u_id: usize = if team_units.len() == 0 || team_units[0].id != 0 {
+            0
+        } else if team_units[team_units.len() - 1].id == team_units.len() - 1 {
+            team_units.len()
+        } else {
+            team_units
+                .iter()
+                .tuple_windows()
+                .filter_map(|(unit, next_unit)| {
+                    if next_unit.id - unit.id != 1 {
+                        Some(unit.id + 1)
+                    } else {
+                        None
+                    }
+                })
+                .next()
+                .unwrap()
+        };
+
+        let pos = match t {
+            0 => Pos::new(0, 0),
+            1 => Pos::new(params.map_size[0] - 1, params.map_size[1] - 1),
+            n => panic!("this town ain't big enough for the {} of us", n),
+        };
+
+        let new_unit = Unit::new_with_id(pos, params.init_unit_energy, u_id);
+        team_units.insert(u_id, new_unit);
+    }
 }
 
 #[cfg(test)]
@@ -615,5 +655,31 @@ mod tests {
         assert_eq!(get_dist([1, 3], [5, 6]), 5.);
         assert_eq!(get_dist([2, 1], [14, 6]), 13.);
         assert_eq!(get_dist([3, 1], [6, 4]), 18_f32.sqrt());
+    }
+
+    #[test]
+    fn test_spawn_units_in() {
+        let params = Params::default();
+        let mut units = [
+            // Empty vector; should spawn unit with id 0
+            vec![],
+            // Vector missing id 0; add it
+            vec![Unit::new_with_id(Pos::new(1, 1), 42, 1)],
+        ];
+        let expected_results = [
+            // Empty vector; should spawn unit with id 0
+            vec![Unit::new_with_id(
+                Pos::new(0, 0),
+                params.init_unit_energy,
+                0,
+            )],
+            // Vector missing id 0; add it
+            vec![
+                Unit::new_with_id(Pos::new(23, 23), params.init_unit_energy, 0),
+                Unit::new_with_id(Pos::new(1, 1), 42, 1),
+            ],
+        ];
+        spawn_units_in(&mut units, &params);
+        assert_eq!(units, expected_results);
     }
 }
