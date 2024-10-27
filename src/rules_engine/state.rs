@@ -66,18 +66,9 @@ impl Pos {
         let [dx, dy] = deltas;
         let [width, height] = map_size;
         let (width, height) = (width as isize, height as isize);
-        let mut x = (self.x as isize + dx) % width;
-        let mut y = (self.y as isize + dy) % height;
-        if x < 0 {
-            x = width - x
-        }
-        if y < 0 {
-            y = height - y
-        }
-        Pos {
-            x: x as usize,
-            y: y as usize,
-        }
+        let x = (self.x as isize + dx).rem_euclid(width) as usize;
+        let y = (self.y as isize + dy).rem_euclid(height) as usize;
+        Pos { x, y }
     }
 
     pub fn subtract(&self, target: Self) -> [isize; 2] {
@@ -117,7 +108,7 @@ impl Unit {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnergyNode {
     pub pos: Pos,
     func_id: u8,
@@ -127,6 +118,16 @@ pub struct EnergyNode {
 }
 
 impl EnergyNode {
+    pub fn new_at(pos: Pos) -> Self {
+        EnergyNode {
+            pos,
+            func_id: 0,
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        }
+    }
+
     pub fn apply_energy_fn(&self, d: f32) -> f32 {
         match self.func_id {
             0 => sin_energy_fn(d, self.x, self.y, self.z),
@@ -136,13 +137,13 @@ impl EnergyNode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelicNode {
     pub pos: Pos,
     // pub config: None, TODO: relic node config
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct State {
     pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
@@ -181,4 +182,40 @@ pub struct Observation {
     pub team_wins: [u32; 2],
     pub total_steps: u32,
     pub match_steps: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pos_wrapped_translate() {
+        let map_size = [6, 8];
+        assert_eq!(
+            Pos::new(0, 0).wrapped_translate([5, 7], map_size),
+            Pos::new(5, 7)
+        );
+        assert_eq!(
+            Pos::new(0, 0).wrapped_translate([6, 8], map_size),
+            Pos::new(0, 0)
+        );
+        assert_eq!(
+            Pos::new(0, 0)
+                .wrapped_translate([6 * 10 + 1, 8 * 15 + 1], map_size),
+            Pos::new(1, 1)
+        );
+        assert_eq!(
+            Pos::new(5, 7).wrapped_translate([-5, -7], map_size),
+            Pos::new(0, 0)
+        );
+        assert_eq!(
+            Pos::new(0, 0).wrapped_translate([-1, -1], map_size),
+            Pos::new(5, 7)
+        );
+        assert_eq!(
+            Pos::new(0, 0)
+                .wrapped_translate([-6 * 20 - 2, -8 * 25 - 2], map_size),
+            Pos::new(4, 6)
+        );
+    }
 }

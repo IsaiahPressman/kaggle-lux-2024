@@ -12,7 +12,7 @@ pub fn step(
     rng: &mut ThreadRng,
     actions: &[Vec<Action>; 2],
     params: &Params,
-    energy_node_deltas: Option<Vec<[usize; 2]>>,
+    energy_node_deltas: Option<Vec<[isize; 2]>>,
 ) -> [Observation; 2] {
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
@@ -40,13 +40,13 @@ pub fn step(
     if state.match_steps % params.spawn_rate == 0 {
         spawn_units(&mut state.units, params)
     }
-    let vision_power_map =
+    let _vision_power_map =
         compute_vision_power_map(&state.units, &state.nebulae, params);
     move_space_objects(
         state,
         &energy_node_deltas
-            .unwrap_or_else(|| get_random_energy_node_deltas(rng, &params)),
-        &params,
+            .unwrap_or_else(|| get_random_energy_node_deltas(rng, params)),
+        params,
     );
     unimplemented!("compute_sensor_masks");
 }
@@ -66,7 +66,7 @@ fn move_units(
         .iter_mut()
         .zip_eq(actions.iter())
         .flat_map(|(team_units, team_actions)| {
-            team_units.into_iter().zip_eq(team_actions)
+            team_units.iter_mut().zip_eq(team_actions)
         })
         .filter(|(u, _)| u.energy >= params.unit_move_cost)
     {
@@ -204,7 +204,7 @@ fn get_unit_aggregate_energy_void_map(
         .enumerate()
         .flat_map(|(t, (team_units, team_energies))| {
             team_units
-                .into_iter()
+                .iter()
                 .zip_eq(team_energies.iter().copied())
                 .map(move |(u, ue)| (t, u, ue))
         })
@@ -244,7 +244,7 @@ fn get_unit_aggregate_energy_map(
         units.iter().zip_eq(unit_energies).enumerate().flat_map(
             |(t, (team_units, team_energies))| {
                 team_units
-                    .into_iter()
+                    .iter()
                     .zip_eq(team_energies.iter().copied())
                     .map(move |(u, ue)| (t, u, ue))
             },
@@ -302,7 +302,7 @@ fn get_energy_field(
     if mean_val < 0.25 {
         energy_field_3d += 0.25 - mean_val;
     };
-    let result = energy_field_3d
+    energy_field_3d
         .sum_axis(Axis(0))
         .map(|&v| v.round_ties_even() as i32)
         .map(|&v| {
@@ -310,8 +310,7 @@ fn get_energy_field(
                 max(v, params.min_energy_per_tile),
                 params.max_energy_per_tile,
             )
-        });
-    result
+        })
 }
 
 fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
@@ -328,7 +327,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
         .enumerate()
         .filter(|(_, team_units)| team_units.len() < params.max_units)
     {
-        let u_id = if team_units.len() == 0 || team_units[0].id > 0 {
+        let u_id = if team_units.is_empty() || team_units[0].id > 0 {
             0
         } else if team_units[team_units.len() - 1].id == team_units.len() - 1 {
             team_units.len()
@@ -360,7 +359,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
 
 fn compute_vision_power_map(
     units: &[Vec<Unit>; 2],
-    nebulae: &Vec<Pos>,
+    nebulae: &[Pos],
     params: &Params,
 ) -> Array3<i32> {
     let [max_w, max_h] = params.map_size;
@@ -394,7 +393,7 @@ fn compute_vision_power_map(
 
 fn move_space_objects(
     state: &mut State,
-    energy_node_deltas: &Vec<[usize; 2]>,
+    energy_node_deltas: &[[isize; 2]],
     params: &Params,
 ) {
     if state.total_steps as f32 * params.nebula_tile_drift_speed % 1.0 == 0.0
@@ -402,26 +401,36 @@ fn move_space_objects(
     {
         let deltas = [
             params.nebula_tile_drift_speed.signum() as isize,
-            -1 * params.nebula_tile_drift_speed.signum() as isize,
+            -params.nebula_tile_drift_speed.signum() as isize,
         ];
         for pos in state.asteroids.iter_mut().chain(state.nebulae.iter_mut()) {
-            *pos = pos.wrapped_translate(deltas, params.map_size);
+            *pos = pos.wrapped_translate(deltas, params.map_size)
         }
     }
-    unimplemented!("Move energy nodes")
+
+    if state.total_steps as f32 * params.energy_node_drift_speed % 1.0 == 0.0 {
+        // Chain with symmetric energy_node_deltas
+        for (deltas, node) in energy_node_deltas
+            .iter()
+            .copied()
+            .chain(energy_node_deltas.iter().map(|[dx, dy]| [-dy, -dx]))
+            .zip_eq(state.energy_nodes.iter_mut())
+        {
+            node.pos = node.pos.bounded_translate(deltas, params.map_size)
+        }
+    }
 }
 
 fn get_random_energy_node_deltas(
     rng: &mut ThreadRng,
     params: &Params,
-) -> Vec<[usize; 2]> {
+) -> Vec<[isize; 2]> {
     let uniform = Uniform::new(
         -params.energy_node_drift_magnitude,
         params.energy_node_drift_magnitude,
     );
     (0..params.max_energy_nodes / 2)
-        .into_iter()
-        .map(|_| [uniform.sample(rng) as usize, uniform.sample(rng) as usize])
+        .map(|_| [uniform.sample(rng) as isize, uniform.sample(rng) as isize])
         .collect()
 }
 
@@ -912,5 +921,73 @@ mod tests {
             compute_vision_power_map(&units, &nebulae, &params),
             expected_result
         );
+    }
+
+    #[test]
+    fn test_move_space_objects() {
+        let mut params = Params::default();
+        params.nebula_tile_drift_speed = -0.05;
+        params.energy_node_drift_speed = 0.02;
+        params.energy_node_drift_magnitude = 5.0;
+        let mut state = State::empty();
+        state.asteroids = vec![
+            // Moves normally
+            Pos::new(10, 10),
+            // Wraps as expected
+            Pos::new(0, 0),
+            Pos::new(23, 23),
+        ];
+        state.nebulae = vec![
+            // Moves normally
+            Pos::new(11, 11),
+            // Wraps as expected
+            Pos::new(0, 0),
+            Pos::new(23, 23),
+        ];
+        state.energy_nodes = vec![
+            // Moves normally
+            EnergyNode::new_at(Pos::new(12, 12)),
+            // Stops at edge of board
+            EnergyNode::new_at(Pos::new(21, 22)),
+            // Moves normally
+            EnergyNode::new_at(Pos::new(14, 14)),
+            // Stops at edge of board
+            EnergyNode::new_at(Pos::new(1, 2)),
+        ];
+        let energy_node_deltas = vec![[-3, 4], [3, 3]];
+
+        let expected_asteroids =
+            vec![Pos::new(9, 11), Pos::new(23, 1), Pos::new(22, 0)];
+        let expected_nebulae =
+            vec![Pos::new(10, 12), Pos::new(23, 1), Pos::new(22, 0)];
+        let expected_energy_nodes = vec![
+            EnergyNode::new_at(Pos::new(9, 16)),
+            EnergyNode::new_at(Pos::new(23, 23)),
+            EnergyNode::new_at(Pos::new(10, 17)),
+            EnergyNode::new_at(Pos::new(0, 0)),
+        ];
+        move_space_objects(&mut state, &energy_node_deltas, &params);
+        assert_eq!(state.asteroids, expected_asteroids);
+        assert_eq!(state.nebulae, expected_nebulae);
+        assert_eq!(state.energy_nodes, expected_energy_nodes);
+    }
+
+    #[test]
+    fn test_move_space_objects_no_op() {
+        let mut params = Params::default();
+        params.nebula_tile_drift_speed = -0.05;
+        params.energy_node_drift_speed = 0.02;
+        params.energy_node_drift_magnitude = 5.0;
+        let mut state = State::empty();
+        state.asteroids = vec![Pos::new(1, 1)];
+        state.nebulae = vec![Pos::new(2, 2)];
+        state.energy_nodes = vec![
+            EnergyNode::new_at(Pos::new(3, 3)),
+            EnergyNode::new_at(Pos::new(4, 4)),
+        ];
+        state.total_steps = 7;
+        let orig_state = state.clone();
+        move_space_objects(&mut state, &[[-1, 2]], &params);
+        assert_eq!(state, orig_state);
     }
 }
