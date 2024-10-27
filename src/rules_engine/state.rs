@@ -103,6 +103,14 @@ impl Unit {
         }
     }
 
+    pub fn new_with_energy(energy: i32) -> Self {
+        Unit {
+            pos: Pos::new(0, 0),
+            energy,
+            id: 0,
+        }
+    }
+
     pub fn new_with_id(pos: Pos, energy: i32, id: usize) -> Self {
         Unit { pos, energy, id }
     }
@@ -175,10 +183,10 @@ pub struct GameResult {
 }
 
 impl GameResult {
-    pub fn empty() -> Self {
+    pub fn new(match_winner: Option<u8>, final_winner: Option<u8>) -> Self {
         GameResult {
-            match_winner: None,
-            final_winner: None,
+            match_winner,
+            final_winner,
         }
     }
 }

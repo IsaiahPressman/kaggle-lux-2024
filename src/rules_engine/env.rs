@@ -5,7 +5,7 @@ use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, Axis};
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
-use std::cmp::{max, min};
+use std::cmp::{max, min, Ordering};
 
 pub fn step(
     state: &mut State,
@@ -53,53 +53,11 @@ pub fn step(
         &state.units,
         &state.relic_node_points_map,
     );
-    // TODO: Move the game_result logic into a function
-    let mut game_result = GameResult::empty();
-    if state.match_steps >= params.max_steps_in_match {
-        let winner = if state.team_points[0] > state.team_points[1] {
-            0
-        } else if state.team_points[1] > state.team_points[0] {
-            1
-        } else {
-            let (p1_energy, p2_energy) = state
-                .units
-                .iter()
-                .map(|team_units| {
-                    team_units.iter().map(|u| u.energy).sum::<i32>()
-                })
-                .collect_tuple()
-                .unwrap();
-            if p1_energy > p2_energy {
-                0
-            } else if p2_energy > p1_energy {
-                1
-            } else {
-                // Congrats, p1 wins "randomly"
-                0
-            }
-        };
-        state.team_wins[winner] += 1;
-        game_result.match_winner = Some(winner as u8);
-        state.match_steps = 0;
-    } else {
-        state.match_steps += 1;
-    }
-    state.total_steps += 1;
-    if state.total_steps
-        >= (params.max_steps_in_match + 1) * params.match_count_per_episode
-    {
-        let winner = if state.team_wins[0] > state.team_wins[1] {
-            0
-        } else if state.team_wins[1] > state.team_wins[0] {
-            1
-        } else {
-            panic!(
-                "Team wins: {} == {}",
-                state.team_wins[0], state.team_wins[1]
-            );
-        };
-        game_result.final_winner = Some(winner as u8);
-    };
+    let match_winner = get_match_result(state, params);
+    step_match(state, match_winner);
+    let game_winner =
+        step_game(&mut state.total_steps, &state.team_wins, params);
+    let _game_result = GameResult::new(match_winner, game_winner);
     unimplemented!("Get per-player observations")
 }
 
@@ -496,6 +454,73 @@ fn update_relic_scores(
             .iter()
             .map(|u| relic_node_points_map[u.pos.as_index()] as u32)
             .sum::<u32>();
+    }
+}
+
+fn get_match_result(state: &State, params: &Params) -> Option<u8> {
+    if state.match_steps < params.max_steps_in_match {
+        return None;
+    }
+    match state.team_points[0].cmp(&state.team_points[1]) {
+        Ordering::Greater => Some(0),
+        Ordering::Less => Some(1),
+        Ordering::Equal => {
+            let (p1_energy, p2_energy) = state
+                .units
+                .iter()
+                .map(|team_units| {
+                    team_units.iter().map(|u| u.energy).sum::<i32>()
+                })
+                .collect_tuple()
+                .unwrap();
+            match p1_energy.cmp(&p2_energy) {
+                Ordering::Greater => Some(0),
+                Ordering::Less => Some(1),
+                // Congrats, p1 wins "randomly"
+                Ordering::Equal => Some(0),
+            }
+        },
+    }
+}
+
+fn step_match(state: &mut State, match_winner: Option<u8>) {
+    if let Some(winner) = match_winner {
+        state.team_points = [0, 0];
+        state.team_wins[usize::from(winner)] += 1;
+        state.match_steps = 0;
+    } else {
+        state.match_steps += 1;
+    };
+}
+
+fn step_game(
+    total_steps: &mut u32,
+    team_wins: &[u32; 2],
+    params: &Params,
+) -> Option<u8> {
+    // NB: Early termination is not used in the original implementation
+    *total_steps += 1;
+    let early_result = match team_wins {
+        [3, _] => Some(0),
+        [_, 3] => Some(1),
+        _ => None,
+    };
+    if early_result.is_some() {
+        return early_result;
+    }
+
+    if *total_steps
+        < (params.max_steps_in_match + 1) * params.match_count_per_episode
+    {
+        return None;
+    }
+
+    match team_wins[0].cmp(&team_wins[1]) {
+        Ordering::Greater => Some(0),
+        Ordering::Less => Some(1),
+        Ordering::Equal => {
+            panic!("Team wins: {} == {}", team_wins[0], team_wins[1]);
+        },
     }
 }
 
@@ -1054,5 +1079,118 @@ mod tests {
         let orig_state = state.clone();
         move_space_objects(&mut state, &[[-1, 2]], &params);
         assert_eq!(state, orig_state);
+    }
+
+    #[test]
+    fn test_get_match_result() {
+        let params = Params::default();
+        let mut state = State::empty(params.map_size);
+        state.team_points = [25, 24];
+        state.match_steps = params.max_steps_in_match - 1;
+        let result = get_match_result(&state, &params);
+        assert!(result.is_none());
+
+        state.match_steps += 1;
+        let result = get_match_result(&state, &params);
+        assert_eq!(result, Some(0));
+
+        state.team_points = [25, 26];
+        let result = get_match_result(&state, &params);
+        assert_eq!(result, Some(1));
+    }
+
+    #[test]
+    fn test_get_match_result_tiebreaks_points() {
+        let params = Params::default();
+        let mut state = State::empty(params.map_size);
+        state.team_points = [10, 10];
+        state.match_steps = params.max_steps_in_match;
+        state.units = [
+            vec![Unit::new_with_energy(20), Unit::new_with_energy(30)],
+            vec![Unit::new_with_energy(49)],
+        ];
+        let result = get_match_result(&state, &params);
+        assert_eq!(result, Some(0));
+
+        state.units = [
+            vec![Unit::new_with_energy(20), Unit::new_with_energy(30)],
+            vec![Unit::new_with_energy(51)],
+        ];
+        let result = get_match_result(&state, &params);
+        assert_eq!(result, Some(1));
+
+        // Ties favor player 1
+        state.units = [vec![], vec![]];
+        let result = get_match_result(&state, &params);
+        assert_eq!(result, Some(0));
+    }
+
+    #[test]
+    fn test_step_match() {
+        let mut state = State::empty([5, 5]);
+        state.team_points = [20, 10];
+        state.team_wins = [1, 1];
+        state.match_steps = 5;
+        step_match(&mut state, None);
+        assert_eq!(state.team_points, [20, 10]);
+        assert_eq!(state.team_wins, [1, 1]);
+        assert_eq!(state.match_steps, 5 + 1);
+
+        step_match(&mut state, Some(0));
+        assert_eq!(state.team_points, [0, 0]);
+        assert_eq!(state.team_wins, [2, 1]);
+        assert_eq!(state.match_steps, 0);
+
+        state.team_points = [20, 10];
+        state.team_wins = [1, 1];
+        state.match_steps = 5;
+        step_match(&mut state, Some(1));
+        assert_eq!(state.team_points, [0, 0]);
+        assert_eq!(state.team_wins, [1, 2]);
+        assert_eq!(state.match_steps, 0);
+    }
+
+    #[test]
+    fn test_step_game() {
+        let params = Params::default();
+        let start_step = (params.max_steps_in_match + 1)
+            * params.match_count_per_episode
+            - 2;
+        let mut total_steps = start_step;
+        let result = step_game(&mut total_steps, &[2, 2], &params);
+        assert_eq!(total_steps, start_step + 1);
+        assert!(result.is_none());
+
+        let result = step_game(&mut total_steps, &[3, 2], &params);
+        assert_eq!(result, Some(0));
+
+        total_steps -= 1;
+        let result = step_game(&mut total_steps, &[2, 3], &params);
+        assert_eq!(result, Some(1));
+    }
+
+    #[test]
+    fn test_step_game_finishes_early() {
+        let params = Params::default();
+        let mut total_steps = 0;
+
+        let result = step_game(&mut total_steps, &[2, 1], &params);
+        assert!(result.is_none());
+
+        let result = step_game(&mut total_steps, &[3, 0], &params);
+        assert_eq!(result, Some(0));
+
+        let result = step_game(&mut total_steps, &[1, 3], &params);
+        assert_eq!(result, Some(1));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_step_game_panics() {
+        let params = Params::default();
+        let mut total_steps = (params.max_steps_in_match + 1)
+            * params.match_count_per_episode
+            - 1;
+        step_game(&mut total_steps, &[2, 2], &params);
     }
 }
