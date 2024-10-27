@@ -58,6 +58,28 @@ impl Pos {
         }
     }
 
+    pub fn wrapped_translate(
+        &self,
+        deltas: [isize; 2],
+        map_size: [usize; 2],
+    ) -> Self {
+        let [dx, dy] = deltas;
+        let [width, height] = map_size;
+        let (width, height) = (width as isize, height as isize);
+        let mut x = (self.x as isize + dx) % width;
+        let mut y = (self.y as isize + dy) % height;
+        if x < 0 {
+            x = width - x
+        }
+        if y < 0 {
+            y = height - y
+        }
+        Pos {
+            x: x as usize,
+            y: y as usize,
+        }
+    }
+
     pub fn subtract(&self, target: Self) -> [isize; 2] {
         [
             self.x as isize - target.x as isize,

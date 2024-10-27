@@ -1,16 +1,19 @@
 use super::action::Action;
 use super::params::Params;
-use super::state::{EnergyNode, Pos, State, Unit};
+use super::state::{EnergyNode, Observation, Pos, State, Unit};
 use itertools::Itertools;
-use numpy::ndarray::{Array2, Array3, Axis};
+use numpy::ndarray::{s, Array2, Array3, Axis};
+use rand::distributions::{Distribution, Uniform};
+use rand::prelude::ThreadRng;
 use std::cmp::{max, min};
 
 pub fn step(
     state: &mut State,
+    rng: &mut ThreadRng,
     actions: &[Vec<Action>; 2],
     params: &Params,
     energy_node_deltas: Option<Vec<[usize; 2]>>,
-) {
+) -> [Observation; 2] {
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -37,6 +40,14 @@ pub fn step(
     if state.match_steps % params.spawn_rate == 0 {
         spawn_units(&mut state.units, params)
     }
+    let vision_power_map =
+        compute_vision_power_map(&state.units, &state.nebulae, params);
+    move_space_objects(
+        state,
+        &energy_node_deltas
+            .unwrap_or_else(|| get_random_energy_node_deltas(rng, &params)),
+        &params,
+    );
     unimplemented!("compute_sensor_masks");
 }
 
@@ -51,32 +62,34 @@ fn move_units(
     actions: &[Vec<Action>; 2],
     params: &Params,
 ) {
-    for (u, a) in units
+    for (unit, action) in units
         .iter_mut()
         .zip_eq(actions.iter())
-        .flat_map(|(us, acts)| us.into_iter().zip_eq(acts))
+        .flat_map(|(team_units, team_actions)| {
+            team_units.into_iter().zip_eq(team_actions)
+        })
         .filter(|(u, _)| u.energy >= params.unit_move_cost)
     {
-        let deltas = match a {
+        let deltas = match action {
             Action::Up => [0, -1],
             Action::Right => [1, 0],
             Action::Down => [0, 1],
             Action::Left => [-1, 0],
             Action::NoOp | Action::Sap(_) => continue,
         };
-        let new_pos = u.pos.bounded_translate(deltas, params.map_size);
+        let new_pos = unit.pos.bounded_translate(deltas, params.map_size);
         if asteroid_mask[new_pos.as_index()] {
             continue;
         }
-        u.pos = new_pos;
-        u.energy -= params.unit_move_cost;
+        unit.pos = new_pos;
+        unit.energy -= params.unit_move_cost;
     }
 }
 
 fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
     let mut result = Array2::default(map_size);
-    for a in positions.iter() {
-        result[a.as_index()] = true;
+    for pos in positions.iter() {
+        result[pos.as_index()] = true;
     }
     result
 }
@@ -94,17 +107,17 @@ fn sap_units(
     actions: &[Vec<Action>; 2],
     params: &Params,
 ) {
-    for (t, opp) in [(0, 1), (1, 0)] {
+    for (team, opp) in [(0, 1), (1, 0)] {
         let mut sap_count = vec![0; units[opp].len()];
         let mut adjacent_sap_count = vec![0; units[opp].len()];
-        for (unit_idx, sap_deltas) in unit_energies[t]
+        for (unit_idx, sap_deltas) in unit_energies[team]
             .iter()
             .copied()
             .enumerate()
-            .zip_eq(actions[t].iter())
+            .zip_eq(actions[team].iter())
             .filter(|((_, cur_energy), _)| *cur_energy >= params.unit_sap_cost)
-            .filter_map(|((unit_idx, _), a)| {
-                if let Action::Sap(sap_deltas) = *a {
+            .filter_map(|((unit_idx, _), action)| {
+                if let Action::Sap(sap_deltas) = *action {
                     Some((unit_idx, sap_deltas))
                 } else {
                     None
@@ -114,13 +127,13 @@ fn sap_units(
                 *dx <= params.unit_sap_range && *dy <= params.unit_sap_range
             })
         {
-            let u = &mut units[t][unit_idx];
+            let unit = &mut units[team][unit_idx];
             let Some(target_pos) =
-                u.pos.maybe_translate(sap_deltas, params.map_size)
+                unit.pos.maybe_translate(sap_deltas, params.map_size)
             else {
                 continue;
             };
-            u.energy -= params.unit_sap_cost;
+            unit.energy -= params.unit_sap_cost;
             for (i, opp_u) in units[opp].iter().enumerate() {
                 match target_pos.subtract(opp_u.pos) {
                     [0, 0] => sap_count[i] += 1,
@@ -156,26 +169,26 @@ fn resolve_collisions_and_energy_void_fields(
     let unit_counts_map = get_unit_counts_map(units, params.map_size);
     let unit_aggregate_energy_map =
         get_unit_aggregate_energy_map(units, unit_energies, params.map_size);
-    for (t, opp) in [(0, 1), (1, 0)] {
+    for (team, opp) in [(0, 1), (1, 0)] {
         let mut to_remove = Vec::new();
-        for (i, u) in units[t].iter_mut().enumerate() {
-            let [x, y] = u.pos.as_index();
+        for (i, unit) in units[team].iter_mut().enumerate() {
+            let [x, y] = unit.pos.as_index();
             // Resolve collision
             if unit_counts_map[[opp, x, y]] > 0
                 && unit_aggregate_energy_map[[opp, x, y]]
-                    >= unit_aggregate_energy_map[[t, x, y]]
+                    >= unit_aggregate_energy_map[[team, x, y]]
             {
                 to_remove.push(i);
             }
             // Apply energy void fields
-            u.energy -= (params.unit_energy_void_factor
+            unit.energy -= (params.unit_energy_void_factor
                 * unit_aggregate_energy_void_map[[opp, x, y]]
-                / unit_counts_map[[t, x, y]] as f32)
+                / unit_counts_map[[team, x, y]] as f32)
                 as i32;
         }
         let mut keep_iter =
-            (0..units[t].len()).map(|i| !to_remove.contains(&i));
-        units[t].retain(|_| keep_iter.next().unwrap());
+            (0..units[team].len()).map(|i| !to_remove.contains(&i));
+        units[team].retain(|_| keep_iter.next().unwrap());
     }
 }
 
@@ -185,21 +198,23 @@ fn get_unit_aggregate_energy_void_map(
     map_size: [usize; 2],
 ) -> Array3<f32> {
     let mut result = Array3::zeros((2, map_size[0], map_size[1]));
-    for ((t, u, energy), delta) in units
+    for ((team, unit, energy), delta) in units
         .iter()
         .zip_eq(unit_energies)
         .enumerate()
-        .flat_map(|(t, (us, ues))| {
-            us.into_iter()
-                .zip_eq(ues.iter().copied())
+        .flat_map(|(t, (team_units, team_energies))| {
+            team_units
+                .into_iter()
+                .zip_eq(team_energies.iter().copied())
                 .map(move |(u, ue)| (t, u, ue))
         })
         .cartesian_product([[-1, 0], [1, 0], [0, -1], [0, 1]])
     {
-        let Some(Pos { x, y }) = u.pos.maybe_translate(delta, map_size) else {
+        let Some(Pos { x, y }) = unit.pos.maybe_translate(delta, map_size)
+        else {
             continue;
         };
-        result[[t, x, y]] += energy as f32;
+        result[[team, x, y]] += energy as f32;
     }
     result
 }
@@ -209,12 +224,12 @@ fn get_unit_counts_map(
     map_size: [usize; 2],
 ) -> Array3<u8> {
     let mut result = Array3::zeros((2, map_size[0], map_size[1]));
-    for (t, u) in units
+    for (team, unit) in units
         .iter()
         .enumerate()
-        .flat_map(|(t, us)| us.iter().map(move |u| (t, u)))
+        .flat_map(|(t, team_units)| team_units.iter().map(move |u| (t, u)))
     {
-        result[[t, u.pos.x, u.pos.y]] += 1;
+        result[[team, unit.pos.x, unit.pos.y]] += 1;
     }
     result
 }
@@ -225,16 +240,17 @@ fn get_unit_aggregate_energy_map(
     map_size: [usize; 2],
 ) -> Array3<i32> {
     let mut result = Array3::zeros((2, map_size[0], map_size[1]));
-    for (t, u, energy) in
+    for (team, unit, energy) in
         units.iter().zip_eq(unit_energies).enumerate().flat_map(
-            |(t, (us, ues))| {
-                us.into_iter()
-                    .zip_eq(ues.iter().copied())
+            |(t, (team_units, team_energies))| {
+                team_units
+                    .into_iter()
+                    .zip_eq(team_energies.iter().copied())
                     .map(move |(u, ue)| (t, u, ue))
             },
         )
     {
-        result[[t, u.pos.x, u.pos.y]] += energy;
+        result[[team, unit.pos.x, unit.pos.y]] += energy;
     }
     result
 }
@@ -245,22 +261,22 @@ fn apply_energy_field(
     nebula_mask: &Array2<bool>,
     params: &Params,
 ) {
-    for (u, energy_gain) in units
+    for (unit, energy_gain) in units
         .iter_mut()
-        .flat_map(|us| us.iter_mut())
+        .flat_map(|team_units| team_units.iter_mut())
         .map(|u| {
             let u_pos_idx = u.pos.as_index();
-            let eg = if nebula_mask[u_pos_idx] {
+            let energy_gain = if nebula_mask[u_pos_idx] {
                 energy_field[u_pos_idx] - params.nebula_tile_energy_reduction
             } else {
                 energy_field[u_pos_idx]
             };
-            (u, eg)
+            (u, energy_gain)
         })
-        .filter(|(u, eg)| u.energy >= 0 || u.energy + eg >= 0)
+        .filter(|(u, energy_gain)| u.energy >= 0 || u.energy + energy_gain >= 0)
     {
-        u.energy = min(
-            max(u.energy + energy_gain, params.min_unit_energy),
+        unit.energy = min(
+            max(unit.energy + energy_gain, params.min_unit_energy),
             params.max_unit_energy,
         )
     }
@@ -273,14 +289,14 @@ fn get_energy_field(
     let [width, height] = params.map_size;
     let mut energy_field_3d =
         Array3::zeros((energy_nodes.len(), width, height));
-    for (((i, en), x), y) in energy_nodes
+    for (((i, node), x), y) in energy_nodes
         .iter()
         .enumerate()
         .cartesian_product(0..width)
         .cartesian_product(0..height)
     {
-        let d = get_dist([en.pos.x, en.pos.y], [x, y]);
-        energy_field_3d[[i, x, y]] = en.apply_energy_fn(d);
+        let d = get_dist([node.pos.x, node.pos.y], [x, y]);
+        energy_field_3d[[i, x, y]] = node.apply_energy_fn(d);
     }
     let mean_val = energy_field_3d.mean().unwrap();
     if mean_val < 0.25 {
@@ -307,7 +323,7 @@ fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
 }
 
 fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
-    for (t, team_units) in units
+    for (team, team_units) in units
         .iter_mut()
         .enumerate()
         .filter(|(_, team_units)| team_units.len() < params.max_units)
@@ -331,7 +347,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
                 .unwrap()
         };
 
-        let pos = match t {
+        let pos = match team {
             0 => Pos::new(0, 0),
             1 => Pos::new(params.map_size[0] - 1, params.map_size[1] - 1),
             n => panic!("this town ain't big enough for the {} of us", n),
@@ -340,6 +356,73 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
         let new_unit = Unit::new_with_id(pos, params.init_unit_energy, u_id);
         team_units.insert(u_id, new_unit);
     }
+}
+
+fn compute_vision_power_map(
+    units: &[Vec<Unit>; 2],
+    nebulae: &Vec<Pos>,
+    params: &Params,
+) -> Array3<i32> {
+    let [max_w, max_h] = params.map_size;
+    let mut vision_power_map = Array3::zeros((2, max_w, max_h));
+    for ((team, x, y), v) in units
+        .iter()
+        .enumerate()
+        .flat_map(|(t, team_units)| {
+            team_units.iter().map(move |u| (t, u.pos.x, u.pos.y))
+        })
+        .cartesian_product(0..=params.unit_sensor_range)
+    {
+        let range = params.unit_sensor_range - v;
+        vision_power_map
+            .slice_mut(s![
+                team,
+                x.saturating_sub(range)..min(x + range + 1, max_w),
+                y.saturating_sub(range)..min(y + range + 1, max_h),
+            ])
+            .iter_mut()
+            .for_each(|value| *value += 1);
+    }
+    for (x, y) in nebulae.iter().map(|n| (n.x, n.y)) {
+        vision_power_map
+            .slice_mut(s![.., x, y])
+            .iter_mut()
+            .for_each(|value| *value -= params.nebula_tile_vision_reduction);
+    }
+    vision_power_map
+}
+
+fn move_space_objects(
+    state: &mut State,
+    energy_node_deltas: &Vec<[usize; 2]>,
+    params: &Params,
+) {
+    if state.total_steps as f32 * params.nebula_tile_drift_speed % 1.0 == 0.0
+        && params.nebula_tile_drift_speed != 0.0
+    {
+        let deltas = [
+            params.nebula_tile_drift_speed.signum() as isize,
+            -1 * params.nebula_tile_drift_speed.signum() as isize,
+        ];
+        for pos in state.asteroids.iter_mut().chain(state.nebulae.iter_mut()) {
+            *pos = pos.wrapped_translate(deltas, params.map_size);
+        }
+    }
+    unimplemented!("Move energy nodes")
+}
+
+fn get_random_energy_node_deltas(
+    rng: &mut ThreadRng,
+    params: &Params,
+) -> Vec<[usize; 2]> {
+    let uniform = Uniform::new(
+        -params.energy_node_drift_magnitude,
+        params.energy_node_drift_magnitude,
+    );
+    (0..params.max_energy_nodes / 2)
+        .into_iter()
+        .map(|_| [uniform.sample(rng) as usize, uniform.sample(rng) as usize])
+        .collect()
 }
 
 #[cfg(test)]
@@ -656,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_units() {
+    fn test_spawn_units_id_0() {
         let params = Params::default();
         let mut units = [
             // Empty vector; should spawn unit with id 0
@@ -679,7 +762,11 @@ mod tests {
         ];
         spawn_units(&mut units, &params);
         assert_eq!(units, expected_result);
+    }
 
+    #[test]
+    fn test_spawn_units_id_last_and_max_units() {
+        let params = Params::default();
         let mut units = [
             // Contains all IDs; should add next one
             vec![
@@ -705,7 +792,11 @@ mod tests {
         ];
         spawn_units(&mut units, &params);
         assert_eq!(units, expected_result);
+    }
 
+    #[test]
+    fn test_spawn_units_inserts_unit_id() {
+        let params = Params::default();
         let mut units = [
             // Insert unit at correct location
             vec![
@@ -738,5 +829,88 @@ mod tests {
         ];
         spawn_units(&mut units, &params);
         assert_eq!(units, expected_result);
+    }
+
+    #[test]
+    fn test_compute_vision_power_map_one_unit() {
+        let mut params = Params::default();
+        params.map_size = [5, 5];
+        params.unit_sensor_range = 1;
+        let units = [
+            vec![Unit::new_at(Pos::new(2, 2))],
+            vec![Unit::new_at(Pos::new(1, 1))],
+        ];
+        let expected_result = arr3(&[
+            [
+                [0, 0, 0, 0, 0],
+                [0, 1, 1, 1, 0],
+                [0, 1, 2, 1, 0],
+                [0, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            [
+                [1, 1, 1, 0, 0],
+                [1, 2, 1, 0, 0],
+                [1, 1, 1, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+        ]);
+        assert_eq!(
+            compute_vision_power_map(&units, &Vec::new(), &params),
+            expected_result
+        );
+    }
+
+    #[test]
+    fn test_compute_vision_power_map_handles_edge_of_map() {
+        let mut params = Params::default();
+        params.map_size = [3, 3];
+        params.unit_sensor_range = 1;
+        let units = [
+            vec![Unit::new_at(Pos::new(0, 0))],
+            vec![Unit::new_at(Pos::new(2, 2))],
+        ];
+        let expected_result = arr3(&[
+            [[2, 1, 0], [1, 1, 0], [0, 0, 0]],
+            [[0, 0, 0], [0, 1, 1], [0, 1, 2]],
+        ]);
+        assert_eq!(
+            compute_vision_power_map(&units, &Vec::new(), &params),
+            expected_result
+        );
+    }
+
+    #[test]
+    fn test_compute_vision_power_map_is_additive_with_nebulae() {
+        let mut params = Params::default();
+        params.map_size = [5, 5];
+        params.unit_sensor_range = 1;
+        params.nebula_tile_vision_reduction = 5;
+        let units = [
+            vec![Unit::new_at(Pos::new(1, 1)), Unit::new_at(Pos::new(2, 2))],
+            vec![Unit::new_at(Pos::new(2, 2)), Unit::new_at(Pos::new(2, 2))],
+        ];
+        let nebulae = vec![Pos::new(1, 1), Pos::new(2, 3)];
+        let expected_result = arr3(&[
+            [
+                [1, 1, 1, 0, 0],
+                [1, 3 - 5, 2, 1, 0],
+                [1, 2, 3, 1 - 5, 0],
+                [0, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            [
+                [0, 0, 0, 0, 0],
+                [0, 2 - 5, 2, 2, 0],
+                [0, 2, 4, 2 - 5, 0],
+                [0, 2, 2, 2, 0],
+                [0, 0, 0, 0, 0],
+            ],
+        ]);
+        assert_eq!(
+            compute_vision_power_map(&units, &nebulae, &params),
+            expected_result
+        );
     }
 }

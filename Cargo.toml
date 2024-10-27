@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 itertools = "0.13.0"
 numpy = "0.21.0"
 pyo3 = "0.21"
+rand = "0.8.5"
 
 [features]
 extension-module = ["pyo3/extension-module"]
