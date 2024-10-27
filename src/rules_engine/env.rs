@@ -1,6 +1,6 @@
 use super::action::Action;
 use super::params::Params;
-use super::state::{EnergyNode, Observation, Pos, State, Unit};
+use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, Axis};
 use rand::distributions::{Distribution, Uniform};
@@ -13,7 +13,7 @@ pub fn step(
     actions: &[Vec<Action>; 2],
     params: &Params,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
-) -> [Observation; 2] {
+) -> ([Observation; 2], GameResult) {
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -48,7 +48,59 @@ pub fn step(
             .unwrap_or_else(|| get_random_energy_node_deltas(rng, params)),
         params,
     );
-    unimplemented!("compute_sensor_masks");
+    update_relic_scores(
+        &mut state.team_points,
+        &state.units,
+        &state.relic_node_points_map,
+    );
+    // TODO: Move the game_result logic into a function
+    let mut game_result = GameResult::empty();
+    if state.match_steps >= params.max_steps_in_match {
+        let winner = if state.team_points[0] > state.team_points[1] {
+            0
+        } else if state.team_points[1] > state.team_points[0] {
+            1
+        } else {
+            let (p1_energy, p2_energy) = state
+                .units
+                .iter()
+                .map(|team_units| {
+                    team_units.iter().map(|u| u.energy).sum::<i32>()
+                })
+                .collect_tuple()
+                .unwrap();
+            if p1_energy > p2_energy {
+                0
+            } else if p2_energy > p1_energy {
+                1
+            } else {
+                // Congrats, p1 wins "randomly"
+                0
+            }
+        };
+        state.team_wins[winner] += 1;
+        game_result.match_winner = Some(winner as u8);
+        state.match_steps = 0;
+    } else {
+        state.match_steps += 1;
+    }
+    state.total_steps += 1;
+    if state.total_steps
+        >= (params.max_steps_in_match + 1) * params.match_count_per_episode
+    {
+        let winner = if state.team_wins[0] > state.team_wins[1] {
+            0
+        } else if state.team_wins[1] > state.team_wins[0] {
+            1
+        } else {
+            panic!(
+                "Team wins: {} == {}",
+                state.team_wins[0], state.team_wins[1]
+            );
+        };
+        game_result.final_winner = Some(winner as u8);
+    };
+    unimplemented!("Get per-player observations")
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
@@ -432,6 +484,19 @@ fn get_random_energy_node_deltas(
     (0..params.max_energy_nodes / 2)
         .map(|_| [uniform.sample(rng) as isize, uniform.sample(rng) as isize])
         .collect()
+}
+
+fn update_relic_scores(
+    team_points: &mut [u32; 2],
+    units: &[Vec<Unit>; 2],
+    relic_node_points_map: &Array2<bool>,
+) {
+    for team in [0, 1] {
+        team_points[team] += units[team]
+            .iter()
+            .map(|u| relic_node_points_map[u.pos.as_index()] as u32)
+            .sum::<u32>();
+    }
 }
 
 #[cfg(test)]
@@ -929,7 +994,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty();
+        let mut state = State::empty(params.map_size);
         state.asteroids = vec![
             // Moves normally
             Pos::new(10, 10),
@@ -978,7 +1043,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty();
+        let mut state = State::empty(params.map_size);
         state.asteroids = vec![Pos::new(1, 1)];
         state.nebulae = vec![Pos::new(2, 2)];
         state.energy_nodes = vec![

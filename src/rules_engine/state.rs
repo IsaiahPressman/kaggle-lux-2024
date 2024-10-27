@@ -137,19 +137,14 @@ impl EnergyNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelicNode {
-    pub pos: Pos,
-    // pub config: None, TODO: relic node config
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct State {
     pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub energy_nodes: Vec<EnergyNode>,
-    pub relic_nodes: Vec<RelicNode>,
+    pub relic_nodes: Vec<Pos>,
+    pub relic_node_points_map: Array2<bool>,
     pub team_points: [u32; 2],
     pub team_wins: [u32; 2],
     pub total_steps: u32,
@@ -157,17 +152,33 @@ pub struct State {
 }
 
 impl State {
-    pub fn empty() -> Self {
+    pub fn empty(map_size: [usize; 2]) -> Self {
         State {
             units: [Vec::new(), Vec::new()],
             asteroids: Vec::new(),
             nebulae: Vec::new(),
             energy_nodes: Vec::new(),
             relic_nodes: Vec::new(),
+            relic_node_points_map: Array2::default(map_size),
             team_points: [0, 0],
             team_wins: [0, 0],
             total_steps: 0,
             match_steps: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GameResult {
+    pub match_winner: Option<u8>,
+    pub final_winner: Option<u8>,
+}
+
+impl GameResult {
+    pub fn empty() -> Self {
+        GameResult {
+            match_winner: None,
+            final_winner: None,
         }
     }
 }
