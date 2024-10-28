@@ -193,14 +193,37 @@ impl GameResult {
 
 #[derive(Debug, Clone)]
 pub struct Observation {
-    pub units: Vec<Unit>,
     pub sensor_mask: Array2<bool>,
+    pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
+    pub nebulae: Vec<Pos>,
     pub relic_node_locations: Vec<Pos>,
     pub team_points: [u32; 2],
     pub team_wins: [u32; 2],
     pub total_steps: u32,
     pub match_steps: u32,
+}
+
+impl Observation {
+    pub fn new(
+        sensor_mask: Array2<bool>,
+        team_points: [u32; 2],
+        team_wins: [u32; 2],
+        total_steps: u32,
+        match_steps: u32,
+    ) -> Self {
+        Observation {
+            sensor_mask,
+            units: [Vec::new(), Vec::new()],
+            asteroids: Vec::new(),
+            nebulae: Vec::new(),
+            relic_node_locations: Vec::new(),
+            team_points,
+            team_wins,
+            total_steps,
+            match_steps,
+        }
+    }
 }
 
 #[cfg(test)]

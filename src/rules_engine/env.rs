@@ -40,7 +40,7 @@ pub fn step(
     if state.match_steps % params.spawn_rate == 0 {
         spawn_units(&mut state.units, params)
     }
-    let _vision_power_map =
+    let vision_power_map =
         compute_vision_power_map(&state.units, &state.nebulae, params);
     move_space_objects(
         state,
@@ -57,8 +57,10 @@ pub fn step(
     step_match(state, match_winner);
     let game_winner =
         step_game(&mut state.total_steps, &state.team_wins, params);
-    let _game_result = GameResult::new(match_winner, game_winner);
-    unimplemented!("Get per-player observations")
+    (
+        get_observation(state, &vision_power_map),
+        GameResult::new(match_winner, game_winner),
+    )
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
@@ -522,6 +524,65 @@ fn step_game(
             panic!("Team wins: {} == {}", team_wins[0], team_wins[1]);
         },
     }
+}
+
+fn get_observation(
+    state: &State,
+    vision_power_map: &Array3<i32>,
+) -> [Observation; 2] {
+    let [p1_mask, p2_mask] = get_sensor_masks(vision_power_map);
+    let mut observations = [
+        Observation::new(
+            p1_mask,
+            state.team_points,
+            state.team_wins,
+            state.total_steps,
+            state.match_steps,
+        ),
+        Observation::new(
+            p2_mask,
+            state.team_points,
+            state.team_wins,
+            state.total_steps,
+            state.match_steps,
+        ),
+    ];
+    for ((team, opp), obs) in
+        [(0, 1), (1, 0)].into_iter().zip_eq(observations.iter_mut())
+    {
+        obs.units[team] = state.units[team].clone();
+        obs.units[opp] = state.units[opp]
+            .iter()
+            .filter(|u| obs.sensor_mask[u.pos.as_index()])
+            .cloned()
+            .collect();
+        obs.asteroids = state
+            .asteroids
+            .iter()
+            .copied()
+            .filter(|a| obs.sensor_mask[a.as_index()])
+            .collect();
+        obs.nebulae = state
+            .nebulae
+            .iter()
+            .copied()
+            .filter(|a| obs.sensor_mask[a.as_index()])
+            .collect();
+        obs.relic_node_locations = state
+            .relic_nodes
+            .iter()
+            .copied()
+            .filter(|a| obs.sensor_mask[a.as_index()])
+            .collect();
+    }
+    observations
+}
+
+fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
+    [
+        vision_power_map.slice(s![0, .., ..]).map(|&v| v > 0),
+        vision_power_map.slice(s![1, .., ..]).map(|&v| v > 0),
+    ]
 }
 
 #[cfg(test)]
@@ -1192,5 +1253,12 @@ mod tests {
             * params.match_count_per_episode
             - 1;
         step_game(&mut total_steps, &[2, 2], &params);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_observation() {
+        // TODO
+        unimplemented!()
     }
 }
