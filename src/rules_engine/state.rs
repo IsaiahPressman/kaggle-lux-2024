@@ -126,6 +126,17 @@ pub struct EnergyNode {
 }
 
 impl EnergyNode {
+    pub fn new(pos: Pos, func_id: u8, xyz: [f32; 3]) -> Self {
+        let [x, y, z] = xyz;
+        EnergyNode {
+            pos,
+            func_id,
+            x,
+            y,
+            z,
+        }
+    }
+
     pub fn new_at(pos: Pos) -> Self {
         EnergyNode {
             pos,

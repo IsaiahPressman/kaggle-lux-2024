@@ -58,7 +58,7 @@ impl Params {
             min_unit_energy: 0,
             max_unit_energy: 400,
             unit_move_cost: 2,
-            spawn_rate: 5,
+            spawn_rate: 3,
             unit_sap_cost: 10,
             unit_sap_range: 4,
             unit_sap_dropoff_factor: 0.5,

@@ -300,7 +300,7 @@ fn get_energy_field(
 ) -> Array2<i32> {
     let [width, height] = params.map_size;
     let mut energy_field_3d =
-        Array3::zeros((energy_nodes.len(), width, height));
+        Array3::zeros((params.max_energy_nodes, width, height));
     for (((i, node), x), y) in energy_nodes
         .iter()
         .enumerate()
@@ -590,6 +590,10 @@ mod tests {
     use super::*;
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3};
+    use rstest::rstest;
+    use serde::Deserialize;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn test_move_units() {
@@ -907,11 +911,45 @@ mod tests {
         assert_eq!(units, expected_result);
     }
 
-    #[test]
-    #[ignore]
-    fn test_get_energy_field() {
-        // TODO
-        unimplemented!("Write test cases using JSON replay files")
+    #[derive(Deserialize)]
+    struct EnergyFieldTestCase {
+        seed: u32,
+        energy_nodes: Vec<[usize; 2]>,
+        energy_node_fns: Vec<[f32; 4]>,
+        energy_field: Vec<Vec<i32>>,
+    }
+
+    #[rstest]
+    #[case("get_energy_field_407811525.json")]
+    #[case("get_energy_field_425608142.json")]
+    #[case("get_energy_field_1815350780.json")]
+    fn test_get_energy_field(#[case] file_name: &str) {
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("test_data")
+            .join(file_name);
+        let json_data = fs::read_to_string(path).unwrap();
+        let test_case: EnergyFieldTestCase =
+            serde_json::from_str(&json_data).unwrap();
+        let params = Params::default();
+        let energy_nodes: Vec<EnergyNode> = test_case
+            .energy_nodes
+            .iter()
+            .copied()
+            .zip_eq(test_case.energy_node_fns.iter().copied())
+            .map(|([x, y], [f_id, xyz @ ..])| {
+                EnergyNode::new(Pos::new(x, y), f_id as u8, xyz)
+            })
+            .collect();
+        let expected_result = Array2::from_shape_vec(
+            params.map_size,
+            test_case.energy_field.iter().flatten().copied().collect(),
+        )
+        .unwrap();
+        let result = get_energy_field(&energy_nodes, &params);
+        println!("{}", result.clone() - expected_result.clone());
+        assert_eq!(result, expected_result);
     }
 
     #[test]

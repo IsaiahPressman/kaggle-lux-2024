@@ -11,6 +11,9 @@ dependencies = [
     "pytest>=8.3.3",
     "numpy>=2.1.1",
     "pip>=24.2",
+    "luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3#subdirectory=src",
+    "tqdm>=4.66.6",
+    "types-tqdm>=4.66.0.20240417",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
