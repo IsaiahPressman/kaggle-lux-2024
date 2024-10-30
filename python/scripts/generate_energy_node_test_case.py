@@ -60,7 +60,7 @@ def get_random_seed() -> int:
 
 
 def get_path(seed: int) -> Path:
-    return Path(f"get_energy_field_{seed}.json")
+    return Path(f"get_energy_field_{seed}.json").absolute()
 
 
 def dump_test_case(state: EnvState, seed: int, path: Path) -> None:
