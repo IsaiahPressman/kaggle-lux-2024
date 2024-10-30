@@ -364,7 +364,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
             n => panic!("this town ain't big enough for the {} of us", n),
         };
 
-        let new_unit = Unit::new_with_id(pos, params.init_unit_energy, u_id);
+        let new_unit = Unit::new(pos, params.init_unit_energy, u_id);
         team_units.insert(u_id, new_unit);
     }
 }
@@ -569,7 +569,7 @@ fn get_observation(
             .filter(|a| obs.sensor_mask[a.as_index()])
             .collect();
         obs.relic_node_locations = state
-            .relic_nodes
+            .relic_node_locations
             .iter()
             .copied()
             .filter(|a| obs.sensor_mask[a.as_index()])
@@ -597,17 +597,23 @@ mod tests {
         let mut units = [
             vec![
                 // Unit can't move without energy, costs no energy
-                Unit::new(Pos::new(0, 0), params.unit_move_cost - 1),
+                Unit::with_pos_and_energy(
+                    Pos::new(0, 0),
+                    params.unit_move_cost - 1,
+                ),
                 // Unit can't move off the bottom of the map, but still costs energy
-                Unit::new(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
                 // Unit moves normally
-                Unit::new(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
             ],
             vec![
                 // Unit can't move off the top of the map, but still costs energy
-                Unit::new(Pos::new(23, 23), params.unit_move_cost),
+                Unit::with_pos_and_energy(
+                    Pos::new(23, 23),
+                    params.unit_move_cost,
+                ),
                 // Unit can't move into an asteroid, costs no energy
-                Unit::new(Pos::new(23, 23), 100),
+                Unit::with_pos_and_energy(Pos::new(23, 23), 100),
             ],
         ];
         let asteroid_mask =
@@ -618,13 +624,22 @@ mod tests {
         ];
         let expected_moved_units = [
             vec![
-                Unit::new(Pos::new(0, 0), params.unit_move_cost - 1),
-                Unit::new(Pos::new(0, 0), 100 - params.unit_move_cost),
-                Unit::new(Pos::new(1, 0), 100 - params.unit_move_cost),
+                Unit::with_pos_and_energy(
+                    Pos::new(0, 0),
+                    params.unit_move_cost - 1,
+                ),
+                Unit::with_pos_and_energy(
+                    Pos::new(0, 0),
+                    100 - params.unit_move_cost,
+                ),
+                Unit::with_pos_and_energy(
+                    Pos::new(1, 0),
+                    100 - params.unit_move_cost,
+                ),
             ],
             vec![
-                Unit::new(Pos::new(23, 23), 0),
-                Unit::new(Pos::new(23, 23), 100),
+                Unit::with_pos_and_energy(Pos::new(23, 23), 0),
+                Unit::with_pos_and_energy(Pos::new(23, 23), 100),
             ],
         ];
         move_units(&mut units, &asteroid_mask, &actions, &params);
@@ -652,15 +667,15 @@ mod tests {
         let mut units = [
             vec![
                 // Can't sap off the edge of the map, costs no energy
-                Unit::new(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
                 // Can't sap out of range, costs no energy
-                Unit::new(Pos::new(1, 1), 100),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 100),
                 // Can't sap without enough energy
-                Unit::new(Pos::new(2, 2), sap_cost - 1),
+                Unit::with_pos_and_energy(Pos::new(2, 2), sap_cost - 1),
                 // Sap should work normally, hit all adjacent units, and not hit allied units
-                Unit::new(Pos::new(1, 2), sap_cost),
+                Unit::with_pos_and_energy(Pos::new(1, 2), sap_cost),
                 // Sap should work normally at max range
-                Unit::new(
+                Unit::with_pos_and_energy(
                     Pos::new(
                         1 + params.unit_sap_range as usize,
                         1 + params.unit_sap_range as usize,
@@ -669,9 +684,9 @@ mod tests {
                 ),
             ],
             vec![
-                Unit::new(Pos::new(0, 0), 100),
-                Unit::new(Pos::new(1, 1), 100),
-                Unit::new(Pos::new(2, 2), 100),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 100),
+                Unit::with_pos_and_energy(Pos::new(2, 2), 100),
             ],
         ];
         let actions = [
@@ -687,11 +702,11 @@ mod tests {
 
         let expected_sapped_units = [
             vec![
-                Unit::new(Pos::new(0, 0), 100),
-                Unit::new(Pos::new(1, 1), 100),
-                Unit::new(Pos::new(2, 2), sap_cost - 1),
-                Unit::new(Pos::new(1, 2), 0),
-                Unit::new(
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 100),
+                Unit::with_pos_and_energy(Pos::new(2, 2), sap_cost - 1),
+                Unit::with_pos_and_energy(Pos::new(1, 2), 0),
+                Unit::with_pos_and_energy(
                     Pos::new(
                         1 + params.unit_sap_range as usize,
                         1 + params.unit_sap_range as usize,
@@ -700,9 +715,15 @@ mod tests {
                 ),
             ],
             vec![
-                Unit::new(Pos::new(0, 0), 100 - (sap_cost / 2)),
-                Unit::new(Pos::new(1, 1), 100 - sap_cost - sap_cost / 2),
-                Unit::new(Pos::new(2, 2), 100 - (2 * sap_cost / 2)),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100 - (sap_cost / 2)),
+                Unit::with_pos_and_energy(
+                    Pos::new(1, 1),
+                    100 - sap_cost - sap_cost / 2,
+                ),
+                Unit::with_pos_and_energy(
+                    Pos::new(2, 2),
+                    100 - (2 * sap_cost / 2),
+                ),
             ],
         ];
         let unit_energies = get_unit_energies(&units);
@@ -717,33 +738,33 @@ mod tests {
         let mut units = [
             vec![
                 // Don't collide with self, less energy loses
-                Unit::new(Pos::new(0, 0), 1),
-                Unit::new(Pos::new(0, 0), 1),
-                Unit::new(Pos::new(0, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 1),
                 // Everyone dies in a tie
-                Unit::new(Pos::new(1, 1), 1),
-                Unit::new(Pos::new(1, 1), 1),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 1),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 1),
                 // Energy voids are combined/shared
-                Unit::new(Pos::new(2, 2), 100),
+                Unit::with_pos_and_energy(Pos::new(2, 2), 100),
             ],
             vec![
                 // Don't collide with self, more energy wins
-                Unit::new(Pos::new(0, 0), 2),
-                Unit::new(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
                 // Everyone dies in a tie
-                Unit::new(Pos::new(1, 1), 2),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 2),
                 // Energy voids are combined/shared
-                Unit::new(Pos::new(2, 3), 100),
-                Unit::new(Pos::new(2, 3), 100),
+                Unit::with_pos_and_energy(Pos::new(2, 3), 100),
+                Unit::with_pos_and_energy(Pos::new(2, 3), 100),
             ],
         ];
         let expected_result = [
-            vec![Unit::new(Pos::new(2, 2), 100 - 25 - 25)],
+            vec![Unit::with_pos_and_energy(Pos::new(2, 2), 100 - 25 - 25)],
             vec![
-                Unit::new(Pos::new(0, 0), 2),
-                Unit::new(Pos::new(0, 0), 2),
-                Unit::new(Pos::new(2, 3), 100 - 12),
-                Unit::new(Pos::new(2, 3), 100 - 12),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(2, 3), 100 - 12),
+                Unit::with_pos_and_energy(Pos::new(2, 3), 100 - 12),
             ],
         ];
         let unit_energies = get_unit_energies(&units);
@@ -760,14 +781,14 @@ mod tests {
         let units = [
             vec![
                 // Should appropriately handle units at edges of map and sum values
-                Unit::new(Pos::new(0, 0), 1),
-                Unit::new(Pos::new(1, 1), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 2),
             ],
             vec![
                 // Should handle different energy amounts and stacked units
-                Unit::new(Pos::new(0, 0), 2),
-                Unit::new(Pos::new(0, 0), 2),
-                Unit::new(Pos::new(0, 1), 30),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 2),
+                Unit::with_pos_and_energy(Pos::new(0, 1), 30),
             ],
         ];
         let expected_result =
@@ -783,17 +804,17 @@ mod tests {
         let units = [
             vec![
                 // Handle stacked units
-                Unit::new_at(Pos::new(0, 0)),
-                Unit::new_at(Pos::new(0, 0)),
-                Unit::new_at(Pos::new(0, 1)),
-                Unit::new_at(Pos::new(0, 1)),
-                Unit::new_at(Pos::new(0, 1)),
+                Unit::with_pos(Pos::new(0, 0)),
+                Unit::with_pos(Pos::new(0, 0)),
+                Unit::with_pos(Pos::new(0, 1)),
+                Unit::with_pos(Pos::new(0, 1)),
+                Unit::with_pos(Pos::new(0, 1)),
             ],
             vec![
                 // Different teams have different stacks
-                Unit::new_at(Pos::new(1, 0)),
-                Unit::new_at(Pos::new(1, 0)),
-                Unit::new_at(Pos::new(1, 1)),
+                Unit::with_pos(Pos::new(1, 0)),
+                Unit::with_pos(Pos::new(1, 0)),
+                Unit::with_pos(Pos::new(1, 1)),
             ],
         ];
         let expected_result = arr3(&[[[2, 3], [0, 0]], [[0, 0], [2, 1]]]);
@@ -806,15 +827,15 @@ mod tests {
         let units = [
             vec![
                 // Handle stacked units
-                Unit::new(Pos::new(0, 0), 3),
-                Unit::new(Pos::new(0, 0), 20),
-                Unit::new(Pos::new(0, 0), 100),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 3),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 20),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 100),
             ],
             vec![
                 // Different teams have different stacks
-                Unit::new(Pos::new(0, 1), 40),
-                Unit::new(Pos::new(0, 1), 5),
-                Unit::new(Pos::new(1, 0), 67),
+                Unit::with_pos_and_energy(Pos::new(0, 1), 40),
+                Unit::with_pos_and_energy(Pos::new(0, 1), 5),
+                Unit::with_pos_and_energy(Pos::new(1, 0), 67),
             ],
         ];
         let expected_result = arr3(&[[[123, 0], [0, 0]], [[0, 45], [67, 0]]]);
@@ -835,42 +856,51 @@ mod tests {
         let mut units = [
             vec![
                 // Units with negative energy that can't be saved are unaffected
-                Unit::new(Pos::new(0, 1), -3),
+                Unit::with_pos_and_energy(Pos::new(0, 1), -3),
                 // Units with negative energy that would pass 0 are saved
-                Unit::new(Pos::new(0, 1), -2),
+                Unit::with_pos_and_energy(Pos::new(0, 1), -2),
                 // Power gain is affected by nebulas
-                Unit::new(Pos::new(1, 0), 10),
+                Unit::with_pos_and_energy(Pos::new(1, 0), 10),
                 // Power loss (due to fields or nebulas) cannot go below min_unit_energy
-                Unit::new(Pos::new(0, 0), 1),
-                Unit::new(Pos::new(1, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(0, 0), 1),
+                Unit::with_pos_and_energy(Pos::new(1, 0), 1),
             ],
             vec![
                 // Units can gain power
-                Unit::new(Pos::new(1, 1), 10),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 10),
                 // Units cannot gain power beyond max_unit_energy
-                Unit::new(Pos::new(1, 1), 95),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 95),
             ],
         ];
         let expected_result = [
             vec![
                 // Units with negative energy that can't be saved are unaffected
-                Unit::new(Pos::new(0, 1), -3),
+                Unit::with_pos_and_energy(Pos::new(0, 1), -3),
                 // Units with negative energy that would pass 0 are saved
-                Unit::new(Pos::new(0, 1), 0),
+                Unit::with_pos_and_energy(Pos::new(0, 1), 0),
                 // Power gain is affected by nebulas
-                Unit::new(
+                Unit::with_pos_and_energy(
                     Pos::new(1, 0),
                     10 + 5 - params.nebula_tile_energy_reduction,
                 ),
                 // Power loss (due to fields or nebulas) cannot bring a unit below min_unit_energy
-                Unit::new(Pos::new(0, 0), params.min_unit_energy),
-                Unit::new(Pos::new(1, 0), params.min_unit_energy),
+                Unit::with_pos_and_energy(
+                    Pos::new(0, 0),
+                    params.min_unit_energy,
+                ),
+                Unit::with_pos_and_energy(
+                    Pos::new(1, 0),
+                    params.min_unit_energy,
+                ),
             ],
             vec![
                 // Units can gain power
-                Unit::new(Pos::new(1, 1), 20),
+                Unit::with_pos_and_energy(Pos::new(1, 1), 20),
                 // Units cannot gain power beyond max_unit_energy
-                Unit::new(Pos::new(1, 1), params.max_unit_energy),
+                Unit::with_pos_and_energy(
+                    Pos::new(1, 1),
+                    params.max_unit_energy,
+                ),
             ],
         ];
         apply_energy_field(&mut units, &energy_field, &nebula_mask, &params);
@@ -905,19 +935,15 @@ mod tests {
             // Empty vector; should spawn unit with id 0
             vec![],
             // Vector missing id 0; add it
-            vec![Unit::new_with_id(Pos::new(1, 1), 42, 1)],
+            vec![Unit::new(Pos::new(1, 1), 42, 1)],
         ];
         let expected_result = [
             // Empty vector; should spawn unit with id 0
-            vec![Unit::new_with_id(
-                Pos::new(0, 0),
-                params.init_unit_energy,
-                0,
-            )],
+            vec![Unit::new(Pos::new(0, 0), params.init_unit_energy, 0)],
             // Vector missing id 0; add it
             vec![
-                Unit::new_with_id(Pos::new(23, 23), params.init_unit_energy, 0),
-                Unit::new_with_id(Pos::new(1, 1), 42, 1),
+                Unit::new(Pos::new(23, 23), params.init_unit_energy, 0),
+                Unit::new(Pos::new(1, 1), 42, 1),
             ],
         ];
         spawn_units(&mut units, &params);
@@ -930,22 +956,22 @@ mod tests {
         let mut units = [
             // Contains all IDs; should add next one
             vec![
-                Unit::new_with_id(Pos::new(1, 1), -5, 0),
-                Unit::new_with_id(Pos::new(1, 1), -5, 1),
-                Unit::new_with_id(Pos::new(1, 1), -5, 2),
+                Unit::new(Pos::new(1, 1), -5, 0),
+                Unit::new(Pos::new(1, 1), -5, 1),
+                Unit::new(Pos::new(1, 1), -5, 2),
             ],
             // Contains max units; don't add any
             (0..params.max_units)
-                .map(|id| Unit::new_with_id(Pos::new(9, 9), 42, id))
+                .map(|id| Unit::new(Pos::new(9, 9), 42, id))
                 .collect(),
         ];
         let expected_result = [
             // Contains all IDs; should add next one
             vec![
-                Unit::new_with_id(Pos::new(1, 1), -5, 0),
-                Unit::new_with_id(Pos::new(1, 1), -5, 1),
-                Unit::new_with_id(Pos::new(1, 1), -5, 2),
-                Unit::new_with_id(Pos::new(0, 0), params.init_unit_energy, 3),
+                Unit::new(Pos::new(1, 1), -5, 0),
+                Unit::new(Pos::new(1, 1), -5, 1),
+                Unit::new(Pos::new(1, 1), -5, 2),
+                Unit::new(Pos::new(0, 0), params.init_unit_energy, 3),
             ],
             // Contains max units; don't add any
             units[1].clone(),
@@ -960,31 +986,31 @@ mod tests {
         let mut units = [
             // Insert unit at correct location
             vec![
-                Unit::new_with_id(Pos::new(1, 1), 42, 0),
-                Unit::new_with_id(Pos::new(1, 1), 42, 2),
-                Unit::new_with_id(Pos::new(1, 1), 42, 4),
+                Unit::new(Pos::new(1, 1), 42, 0),
+                Unit::new(Pos::new(1, 1), 42, 2),
+                Unit::new(Pos::new(1, 1), 42, 4),
             ],
             // Insert unit at correct location
             vec![
-                Unit::new_with_id(Pos::new(9, 9), 42, 0),
-                Unit::new_with_id(Pos::new(9, 9), 42, 1),
-                Unit::new_with_id(Pos::new(9, 9), 42, 4),
+                Unit::new(Pos::new(9, 9), 42, 0),
+                Unit::new(Pos::new(9, 9), 42, 1),
+                Unit::new(Pos::new(9, 9), 42, 4),
             ],
         ];
         let expected_result = [
             // Insert unit at correct location
             vec![
-                Unit::new_with_id(Pos::new(1, 1), 42, 0),
-                Unit::new_with_id(Pos::new(0, 0), params.init_unit_energy, 1),
-                Unit::new_with_id(Pos::new(1, 1), 42, 2),
-                Unit::new_with_id(Pos::new(1, 1), 42, 4),
+                Unit::new(Pos::new(1, 1), 42, 0),
+                Unit::new(Pos::new(0, 0), params.init_unit_energy, 1),
+                Unit::new(Pos::new(1, 1), 42, 2),
+                Unit::new(Pos::new(1, 1), 42, 4),
             ],
             // Insert unit at correct location
             vec![
-                Unit::new_with_id(Pos::new(9, 9), 42, 0),
-                Unit::new_with_id(Pos::new(9, 9), 42, 1),
-                Unit::new_with_id(Pos::new(23, 23), params.init_unit_energy, 2),
-                Unit::new_with_id(Pos::new(9, 9), 42, 4),
+                Unit::new(Pos::new(9, 9), 42, 0),
+                Unit::new(Pos::new(9, 9), 42, 1),
+                Unit::new(Pos::new(23, 23), params.init_unit_energy, 2),
+                Unit::new(Pos::new(9, 9), 42, 4),
             ],
         ];
         spawn_units(&mut units, &params);
@@ -997,8 +1023,8 @@ mod tests {
         params.map_size = [5, 5];
         params.unit_sensor_range = 1;
         let units = [
-            vec![Unit::new_at(Pos::new(2, 2))],
-            vec![Unit::new_at(Pos::new(1, 1))],
+            vec![Unit::with_pos(Pos::new(2, 2))],
+            vec![Unit::with_pos(Pos::new(1, 1))],
         ];
         let expected_result = arr3(&[
             [
@@ -1028,8 +1054,8 @@ mod tests {
         params.map_size = [3, 3];
         params.unit_sensor_range = 1;
         let units = [
-            vec![Unit::new_at(Pos::new(0, 0))],
-            vec![Unit::new_at(Pos::new(2, 2))],
+            vec![Unit::with_pos(Pos::new(0, 0))],
+            vec![Unit::with_pos(Pos::new(2, 2))],
         ];
         let expected_result = arr3(&[
             [[2, 1, 0], [1, 1, 0], [0, 0, 0]],
@@ -1048,8 +1074,14 @@ mod tests {
         params.unit_sensor_range = 1;
         params.nebula_tile_vision_reduction = 5;
         let units = [
-            vec![Unit::new_at(Pos::new(1, 1)), Unit::new_at(Pos::new(2, 2))],
-            vec![Unit::new_at(Pos::new(2, 2)), Unit::new_at(Pos::new(2, 2))],
+            vec![
+                Unit::with_pos(Pos::new(1, 1)),
+                Unit::with_pos(Pos::new(2, 2)),
+            ],
+            vec![
+                Unit::with_pos(Pos::new(2, 2)),
+                Unit::with_pos(Pos::new(2, 2)),
+            ],
         ];
         let nebulae = vec![Pos::new(1, 1), Pos::new(2, 3)];
         let expected_result = arr3(&[
@@ -1167,15 +1199,15 @@ mod tests {
         state.team_points = [10, 10];
         state.match_steps = params.max_steps_in_match;
         state.units = [
-            vec![Unit::new_with_energy(20), Unit::new_with_energy(30)],
-            vec![Unit::new_with_energy(49)],
+            vec![Unit::with_energy(20), Unit::with_energy(30)],
+            vec![Unit::with_energy(49)],
         ];
         let result = get_match_result(&state, &params);
         assert_eq!(result, Some(0));
 
         state.units = [
-            vec![Unit::new_with_energy(20), Unit::new_with_energy(30)],
-            vec![Unit::new_with_energy(51)],
+            vec![Unit::with_energy(20), Unit::with_energy(30)],
+            vec![Unit::with_energy(51)],
         ];
         let result = get_match_result(&state, &params);
         assert_eq!(result, Some(1));
@@ -1256,9 +1288,128 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_get_observation() {
-        // TODO
-        unimplemented!()
+        let mut state = State::empty([5, 5]);
+        let vision_power_map = arr3(&[
+            // P1 only sees top left corner [0-1, 0-1]
+            [
+                [1, 1, 0, 0, 0],
+                [1, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            // P2 only sees bottom right corner [3-4, 3-4]
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 1],
+                [0, 0, 0, 1, 1],
+            ],
+        ]);
+        // Player's units are always visible, but opposing units are visible only
+        // when seen by sensor mask
+        state.units = [
+            vec![
+                Unit::with_pos(Pos::new(0, 0)),
+                Unit::with_pos(Pos::new(3, 3)),
+            ],
+            vec![
+                Unit::with_pos(Pos::new(1, 1)),
+                Unit::with_pos(Pos::new(4, 4)),
+            ],
+        ];
+        state.asteroids = vec![
+            // Visible to p1
+            Pos::new(0, 1),
+            // Invisible for all players
+            Pos::new(2, 2),
+            Pos::new(2, 3),
+            // Visible to p2
+            Pos::new(3, 4),
+        ];
+        state.nebulae = vec![
+            // Visible to p1
+            Pos::new(1, 0),
+            // Invisible for all players
+            Pos::new(0, 4),
+            Pos::new(1, 4),
+            // Visible to p2
+            Pos::new(4, 3),
+        ];
+        state.relic_node_locations = vec![
+            // Visible to p1
+            Pos::new(0, 0),
+            // Invisible for all players
+            Pos::new(3, 0),
+            Pos::new(3, 2),
+            // Visible to p2
+            Pos::new(4, 4),
+        ];
+        // Features always available
+        state.team_points = [10, 20];
+        state.team_wins = [1, 1];
+        state.total_steps = 250;
+        state.match_steps = 50;
+        let expected_sensor_maps = [
+            arr2(&[
+                [true, true, false, false, false],
+                [true, true, false, false, false],
+                [false, false, false, false, false],
+                [false, false, false, false, false],
+                [false, false, false, false, false],
+            ]),
+            arr2(&[
+                [false, false, false, false, false],
+                [false, false, false, false, false],
+                [false, false, false, false, false],
+                [false, false, false, true, true],
+                [false, false, false, true, true],
+            ]),
+        ];
+        let mut expected_result = [
+            Observation::new(
+                expected_sensor_maps[0].clone(),
+                state.team_points,
+                state.team_wins,
+                state.total_steps,
+                state.match_steps,
+            ),
+            Observation::new(
+                expected_sensor_maps[1].clone(),
+                state.team_points,
+                state.team_wins,
+                state.total_steps,
+                state.match_steps,
+            ),
+        ];
+
+        expected_result[0].units = [
+            vec![
+                Unit::with_pos(Pos::new(0, 0)),
+                Unit::with_pos(Pos::new(3, 3)),
+            ],
+            vec![Unit::with_pos(Pos::new(1, 1))],
+        ];
+        expected_result[1].units = [
+            vec![Unit::with_pos(Pos::new(3, 3))],
+            vec![
+                Unit::with_pos(Pos::new(1, 1)),
+                Unit::with_pos(Pos::new(4, 4)),
+            ],
+        ];
+
+        expected_result[0].asteroids = vec![Pos::new(0, 1)];
+        expected_result[1].asteroids = vec![Pos::new(3, 4)];
+
+        expected_result[0].nebulae = vec![Pos::new(1, 0)];
+        expected_result[1].nebulae = vec![Pos::new(4, 3)];
+
+        expected_result[0].relic_node_locations = vec![Pos::new(0, 0)];
+        expected_result[1].relic_node_locations = vec![Pos::new(4, 4)];
+
+        let result = get_observation(&state, &vision_power_map);
+        assert_eq!(result, expected_result);
     }
 }

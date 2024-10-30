@@ -91,11 +91,11 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn new(pos: Pos, energy: i32) -> Self {
-        Unit { pos, energy, id: 0 }
+    pub fn new(pos: Pos, energy: i32, id: usize) -> Self {
+        Unit { pos, energy, id }
     }
 
-    pub fn new_at(pos: Pos) -> Self {
+    pub fn with_pos(pos: Pos) -> Self {
         Unit {
             pos,
             energy: 0,
@@ -103,7 +103,7 @@ impl Unit {
         }
     }
 
-    pub fn new_with_energy(energy: i32) -> Self {
+    pub fn with_energy(energy: i32) -> Self {
         Unit {
             pos: Pos::new(0, 0),
             energy,
@@ -111,8 +111,8 @@ impl Unit {
         }
     }
 
-    pub fn new_with_id(pos: Pos, energy: i32, id: usize) -> Self {
-        Unit { pos, energy, id }
+    pub fn with_pos_and_energy(pos: Pos, energy: i32) -> Self {
+        Unit { pos, energy, id: 0 }
     }
 }
 
@@ -151,7 +151,7 @@ pub struct State {
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub energy_nodes: Vec<EnergyNode>,
-    pub relic_nodes: Vec<Pos>,
+    pub relic_node_locations: Vec<Pos>,
     pub relic_node_points_map: Array2<bool>,
     pub team_points: [u32; 2],
     pub team_wins: [u32; 2],
@@ -166,7 +166,7 @@ impl State {
             asteroids: Vec::new(),
             nebulae: Vec::new(),
             energy_nodes: Vec::new(),
-            relic_nodes: Vec::new(),
+            relic_node_locations: Vec::new(),
             relic_node_points_map: Array2::default(map_size),
             team_points: [0, 0],
             team_wins: [0, 0],
@@ -191,7 +191,7 @@ impl GameResult {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Observation {
     pub sensor_mask: Array2<bool>,
     pub units: [Vec<Unit>; 2],
