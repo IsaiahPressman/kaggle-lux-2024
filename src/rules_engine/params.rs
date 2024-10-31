@@ -1,6 +1,10 @@
+use serde::Deserialize;
+
+#[derive(Deserialize)]
 pub struct Params {
     pub max_steps_in_match: u32,
-    pub map_size: [usize; 2],
+    pub map_width: usize,
+    pub map_height: usize,
     pub match_count_per_episode: u32,
 
     // configs for units
@@ -51,7 +55,8 @@ impl Params {
     pub fn default() -> Self {
         Params {
             max_steps_in_match: 100,
-            map_size: [24, 24],
+            map_width: 24,
+            map_height: 24,
             match_count_per_episode: 5,
             max_units: 16,
             init_unit_energy: 100,
@@ -75,5 +80,9 @@ impl Params {
             energy_node_drift_speed: 0.02,
             energy_node_drift_magnitude: 5.0,
         }
+    }
+
+    pub fn get_map_size(&self) -> [usize; 2] {
+        [self.map_width, self.map_height]
     }
 }

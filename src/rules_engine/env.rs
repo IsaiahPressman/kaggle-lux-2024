@@ -20,7 +20,7 @@ pub fn step(
     remove_dead_units(&mut state.units);
     move_units(
         &mut state.units,
-        &get_map_mask(&state.asteroids, params.map_size),
+        &get_map_mask(&state.asteroids, params.get_map_size()),
         actions,
         params,
     );
@@ -34,7 +34,7 @@ pub fn step(
     apply_energy_field(
         &mut state.units,
         &get_energy_field(&state.energy_nodes, params),
-        &get_map_mask(&state.nebulae, params.map_size),
+        &get_map_mask(&state.nebulae, params.get_map_size()),
         params,
     );
     if state.match_steps % params.spawn_rate == 0 {
@@ -89,7 +89,7 @@ fn move_units(
             Action::Left => [-1, 0],
             Action::NoOp | Action::Sap(_) => continue,
         };
-        let new_pos = unit.pos.bounded_translate(deltas, params.map_size);
+        let new_pos = unit.pos.bounded_translate(deltas, params.get_map_size());
         if asteroid_mask[new_pos.as_index()] {
             continue;
         }
@@ -141,7 +141,7 @@ fn sap_units(
         {
             let unit = &mut units[team][unit_idx];
             let Some(target_pos) =
-                unit.pos.maybe_translate(sap_deltas, params.map_size)
+                unit.pos.maybe_translate(sap_deltas, params.get_map_size())
             else {
                 continue;
             };
@@ -176,11 +176,14 @@ fn resolve_collisions_and_energy_void_fields(
     let unit_aggregate_energy_void_map = get_unit_aggregate_energy_void_map(
         units,
         unit_energies,
-        params.map_size,
+        params.get_map_size(),
     );
-    let unit_counts_map = get_unit_counts_map(units, params.map_size);
-    let unit_aggregate_energy_map =
-        get_unit_aggregate_energy_map(units, unit_energies, params.map_size);
+    let unit_counts_map = get_unit_counts_map(units, params.get_map_size());
+    let unit_aggregate_energy_map = get_unit_aggregate_energy_map(
+        units,
+        unit_energies,
+        params.get_map_size(),
+    );
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut to_remove = Vec::new();
         for (i, unit) in units[team].iter_mut().enumerate() {
@@ -298,7 +301,7 @@ fn get_energy_field(
     energy_nodes: &[EnergyNode],
     params: &Params,
 ) -> Array2<i32> {
-    let [width, height] = params.map_size;
+    let [width, height] = params.get_map_size();
     let mut energy_field_3d =
         Array3::zeros((params.max_energy_nodes, width, height));
     for (((i, node), x), y) in energy_nodes
@@ -360,7 +363,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
 
         let pos = match team {
             0 => Pos::new(0, 0),
-            1 => Pos::new(params.map_size[0] - 1, params.map_size[1] - 1),
+            1 => Pos::new(params.map_width - 1, params.map_height - 1),
             n => panic!("this town ain't big enough for the {} of us", n),
         };
 
@@ -374,8 +377,8 @@ fn compute_vision_power_map(
     nebulae: &[Pos],
     params: &Params,
 ) -> Array3<i32> {
-    let [max_w, max_h] = params.map_size;
-    let mut vision_power_map = Array3::zeros((2, max_w, max_h));
+    let mut vision_power_map =
+        Array3::zeros((2, params.map_width, params.map_height));
     for ((team, x, y), v) in units
         .iter()
         .enumerate()
@@ -388,8 +391,8 @@ fn compute_vision_power_map(
         vision_power_map
             .slice_mut(s![
                 team,
-                x.saturating_sub(range)..min(x + range + 1, max_w),
-                y.saturating_sub(range)..min(y + range + 1, max_h),
+                x.saturating_sub(range)..min(x + range + 1, params.map_width),
+                y.saturating_sub(range)..min(y + range + 1, params.map_height),
             ])
             .iter_mut()
             .for_each(|value| *value += 1);
@@ -416,7 +419,7 @@ fn move_space_objects(
             -params.nebula_tile_drift_speed.signum() as isize,
         ];
         for pos in state.asteroids.iter_mut().chain(state.nebulae.iter_mut()) {
-            *pos = pos.wrapped_translate(deltas, params.map_size)
+            *pos = pos.wrapped_translate(deltas, params.get_map_size())
         }
     }
 
@@ -428,7 +431,7 @@ fn move_space_objects(
             .chain(energy_node_deltas.iter().map(|[dx, dy]| [-dy, -dx]))
             .zip_eq(state.energy_nodes.iter_mut())
         {
-            node.pos = node.pos.bounded_translate(deltas, params.map_size)
+            node.pos = node.pos.bounded_translate(deltas, params.get_map_size())
         }
     }
 }
@@ -621,7 +624,7 @@ mod tests {
             ],
         ];
         let asteroid_mask =
-            get_map_mask(&vec![Pos::new(23, 22)], params.map_size);
+            get_map_mask(&vec![Pos::new(23, 22)], params.get_map_size());
         let actions = [
             vec![Action::Left, Action::Left, Action::Right],
             vec![Action::Down, Action::Up],
@@ -943,7 +946,7 @@ mod tests {
             })
             .collect();
         let expected_result = Array2::from_shape_vec(
-            params.map_size,
+            params.get_map_size(),
             test_case.energy_field.iter().flatten().copied().collect(),
         )
         .unwrap();
@@ -1058,7 +1061,8 @@ mod tests {
     #[test]
     fn test_compute_vision_power_map_one_unit() {
         let mut params = Params::default();
-        params.map_size = [5, 5];
+        params.map_width = 5;
+        params.map_height = 5;
         params.unit_sensor_range = 1;
         let units = [
             vec![Unit::with_pos(Pos::new(2, 2))],
@@ -1089,7 +1093,8 @@ mod tests {
     #[test]
     fn test_compute_vision_power_map_handles_edge_of_map() {
         let mut params = Params::default();
-        params.map_size = [3, 3];
+        params.map_width = 3;
+        params.map_height = 3;
         params.unit_sensor_range = 1;
         let units = [
             vec![Unit::with_pos(Pos::new(0, 0))],
@@ -1108,7 +1113,8 @@ mod tests {
     #[test]
     fn test_compute_vision_power_map_is_additive_with_nebulae() {
         let mut params = Params::default();
-        params.map_size = [5, 5];
+        params.map_width = 5;
+        params.map_height = 5;
         params.unit_sensor_range = 1;
         params.nebula_tile_vision_reduction = 5;
         let units = [
@@ -1150,7 +1156,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty(params.map_size);
+        let mut state = State::empty(params.get_map_size());
         state.asteroids = vec![
             // Moves normally
             Pos::new(10, 10),
@@ -1199,7 +1205,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty(params.map_size);
+        let mut state = State::empty(params.get_map_size());
         state.asteroids = vec![Pos::new(1, 1)];
         state.nebulae = vec![Pos::new(2, 2)];
         state.energy_nodes = vec![
@@ -1215,7 +1221,7 @@ mod tests {
     #[test]
     fn test_get_match_result() {
         let params = Params::default();
-        let mut state = State::empty(params.map_size);
+        let mut state = State::empty(params.get_map_size());
         state.team_points = [25, 24];
         state.match_steps = params.max_steps_in_match - 1;
         let result = get_match_result(&state, &params);
@@ -1233,7 +1239,7 @@ mod tests {
     #[test]
     fn test_get_match_result_tiebreaks_points() {
         let params = Params::default();
-        let mut state = State::empty(params.map_size);
+        let mut state = State::empty(params.get_map_size());
         state.team_points = [10, 10];
         state.match_steps = params.max_steps_in_match;
         state.units = [
@@ -1449,5 +1455,60 @@ mod tests {
 
         let result = get_observation(&state, &vision_power_map);
         assert_eq!(result, expected_result);
+    }
+
+    #[derive(Deserialize)]
+    struct FullReplay {
+        params: Params,
+        actions: Vec<ReplayPlayerActions>,
+        observations: Vec<ReplayObservation>,
+        energy_node_fns: Vec<[f32; 4]>,
+    }
+
+    #[derive(Deserialize)]
+    struct ReplayPlayerActions {
+        player_0: Vec<[isize; 3]>,
+        player_1: Vec<[isize; 3]>,
+    }
+
+    #[derive(Deserialize)]
+    struct ReplayObservation {
+        units: ReplayUnits,
+        units_mask: [Vec<bool>; 2],
+        energy_nodes: Vec<[usize; 2]>,
+        relic_nodes: Vec<[usize; 2]>,
+        relic_node_configs: Vec<[[bool; 5]; 5]>,
+        map_features: ReplayMapFeatures,
+        vision_power_map: [Vec<Vec<i32>>; 2],
+        team_points: [u32; 2],
+        team_wins: [u32; 2],
+        steps: u32,
+        match_steps: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct ReplayUnits {
+        position: [Vec<[usize; 2]>; 2],
+        energy: [Vec<[isize; 1]>; 2],
+    }
+
+    #[derive(Deserialize)]
+    struct ReplayMapFeatures {
+        energy: Vec<Vec<i32>>,
+        tile_type: Vec<Vec<u8>>,
+    }
+
+    #[rstest]
+    #[ignore]
+    #[case("replay_2202956.json")]
+    fn test_full_game(#[case] file_name: &str) {
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("test_data")
+            .join(file_name);
+        let json_data = fs::read_to_string(path).unwrap();
+        let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
+        unimplemented!("Need to get energy node configs into replay file")
     }
 }
