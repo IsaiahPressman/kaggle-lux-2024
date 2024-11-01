@@ -634,7 +634,7 @@ mod tests {
     use super::*;
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::{Pos, Unit};
-    use numpy::ndarray::{arr2, arr3};
+    use numpy::ndarray::{arr2, arr3, stack};
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use serde::Deserialize;
@@ -1565,16 +1565,13 @@ mod tests {
                     energy_node_deltas[0..energy_node_deltas.len() / 2].into(),
                 ),
             );
+            assert_eq!(
+                stack![Axis(0), p1_obs.sensor_mask, p2_obs.sensor_mask],
+                vision_power_map.map(|&v| v > 0)
+            );
+
             state.sort();
             assert_eq!(state, *next_state);
-
-            // TODO: test vision_power_map
-            // let vision_power_map = compute_vision_power_map(
-            //     &state.units,
-            //     &state.nebulae,
-            //     &full_replay.params,
-            // );
-            // assert_eq!(vision_power_map, expected_vision_power_map);
         }
     }
 }
