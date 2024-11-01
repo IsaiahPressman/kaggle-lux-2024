@@ -1,5 +1,10 @@
+use itertools::Itertools;
 use numpy::ndarray::Array2;
 use std::cmp::{max, min};
+
+pub const EMPTY_TILE: u8 = 0;
+pub const NEBULA_TILE: u8 = 1;
+pub const ASTEROID_TILE: u8 = 2;
 
 fn sin_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (d * x + y).sin() * z
@@ -9,7 +14,7 @@ fn div_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (x / (d + 1.) + y) * z
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pos {
     pub x: usize,
     pub y: usize,
@@ -78,8 +83,22 @@ impl Pos {
         ]
     }
 
+    #[inline(always)]
     pub fn as_index(&self) -> [usize; 2] {
         [self.x, self.y]
+    }
+}
+
+impl From<[usize; 2]> for Pos {
+    fn from(value: [usize; 2]) -> Self {
+        let [x, y] = value;
+        Pos { x, y }
+    }
+}
+
+impl From<Pos> for [usize; 2] {
+    fn from(value: Pos) -> Self {
+        [value.x, value.y]
     }
 }
 
@@ -116,7 +135,7 @@ impl Unit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct EnergyNode {
     pub pos: Pos,
     func_id: u8,
@@ -184,6 +203,26 @@ impl State {
             total_steps: 0,
             match_steps: 0,
         }
+    }
+
+    pub fn get_energy_node_deltas(&self, next_state: &Self) -> Vec<[isize; 2]> {
+        self.energy_nodes
+            .iter()
+            .zip_eq(&next_state.energy_nodes)
+            .map(|(node, next_node)| next_node.pos.subtract(node.pos))
+            .collect()
+    }
+
+    /// Sorts the various elements of the State. Unnecessary during simulation, but useful when
+    /// testing to ensure the various Vecs of state components match up.
+    pub fn sort(&mut self) {
+        for team in [0, 1] {
+            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
+        }
+        self.asteroids.sort();
+        self.nebulae.sort();
+        self.energy_nodes.sort_by(|en1, en2| en1.pos.cmp(&en2.pos));
+        self.relic_node_locations.sort();
     }
 }
 

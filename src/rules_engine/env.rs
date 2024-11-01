@@ -18,14 +18,15 @@ pub fn step(
         state.units = [Vec::new(), Vec::new()];
     }
     remove_dead_units(&mut state.units);
+    let actions = get_relevant_actions(actions, &state.units);
     move_units(
         &mut state.units,
         &get_map_mask(&state.asteroids, params.get_map_size()),
-        actions,
+        &actions,
         params,
     );
     let energy_before_sapping = get_unit_energies(&state.units);
-    sap_units(&mut state.units, &energy_before_sapping, actions, params);
+    sap_units(&mut state.units, &energy_before_sapping, &actions, params);
     resolve_collisions_and_energy_void_fields(
         &mut state.units,
         &energy_before_sapping,
@@ -44,8 +45,9 @@ pub fn step(
         compute_vision_power_map(&state.units, &state.nebulae, params);
     move_space_objects(
         state,
-        &energy_node_deltas
-            .unwrap_or_else(|| get_random_energy_node_deltas(rng, params)),
+        &energy_node_deltas.unwrap_or_else(|| {
+            get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
+        }),
         params,
     );
     update_relic_scores(
@@ -68,6 +70,22 @@ fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
     units[1].retain(|u| u.energy >= 0);
 }
 
+fn get_relevant_actions(
+    actions: &[Vec<Action>; 2],
+    units: &[Vec<Unit>; 2],
+) -> [Vec<Action>; 2] {
+    let mut result = [Vec::new(), Vec::new()];
+    for (team, (team_actions, team_units)) in
+        actions.iter().zip_eq(units.iter()).enumerate()
+    {
+        result[team] = team_units
+            .iter()
+            .map(|unit| team_actions[unit.id])
+            .collect();
+    }
+    result
+}
+
 fn move_units(
     units: &mut [Vec<Unit>; 2],
     asteroid_mask: &Array2<bool>,
@@ -88,6 +106,14 @@ fn move_units(
             Action::Down => [0, 1],
             Action::Left => [-1, 0],
             Action::NoOp | Action::Sap(_) => continue,
+        };
+        // This behavior is almost certainly a bug in the main simulator
+        if deltas[0] < 0 || deltas[1] < 0 {
+            let wrapped_pos =
+                unit.pos.wrapped_translate(deltas, params.get_map_size());
+            if asteroid_mask[wrapped_pos.as_index()] {
+                continue;
+            }
         };
         let new_pos = unit.pos.bounded_translate(deltas, params.get_map_size());
         if asteroid_mask[new_pos.as_index()] {
@@ -310,7 +336,7 @@ fn get_energy_field(
         .cartesian_product(0..width)
         .cartesian_product(0..height)
     {
-        let d = get_dist([node.pos.x, node.pos.y], [x, y]);
+        let d = get_dist(node.pos.into(), [x, y]);
         energy_field_3d[[i, x, y]] = node.apply_energy_fn(d);
     }
     let mean_val = energy_field_3d.mean().unwrap();
@@ -348,14 +374,18 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
             team_units.len()
         } else {
             team_units
-                .iter()
-                .tuple_windows()
-                .filter_map(|(unit, next_unit)| {
-                    if next_unit.id - unit.id > 1 {
-                        Some(unit.id + 1)
-                    } else {
-                        None
-                    }
+                .windows(2)
+                .filter_map(|window| match window {
+                    [unit, next_unit] => {
+                        if next_unit.id - unit.id > 1 {
+                            Some(unit.id + 1)
+                        } else {
+                            None
+                        }
+                    },
+                    us => {
+                        panic!("Got unexpected number of units: {}", us.len())
+                    },
                 })
                 .next()
                 .unwrap()
@@ -438,13 +468,14 @@ fn move_space_objects(
 
 fn get_random_energy_node_deltas(
     rng: &mut ThreadRng,
+    energy_node_count: usize,
     params: &Params,
 ) -> Vec<[isize; 2]> {
     let uniform = Uniform::new(
         -params.energy_node_drift_magnitude,
         params.energy_node_drift_magnitude,
     );
-    (0..params.max_energy_nodes / 2)
+    (0..energy_node_count / 2)
         .map(|_| [uniform.sample(rng) as isize, uniform.sample(rng) as isize])
         .collect()
 }
@@ -455,9 +486,19 @@ fn update_relic_scores(
     relic_node_points_map: &Array2<bool>,
 ) {
     for team in [0, 1] {
+        let mut scored_positions = Vec::with_capacity(units[team].len());
         team_points[team] += units[team]
             .iter()
-            .map(|u| relic_node_points_map[u.pos.as_index()] as u32)
+            .map(|u| {
+                if relic_node_points_map[u.pos.as_index()]
+                    && !scored_positions.contains(&u.pos)
+                {
+                    scored_positions.push(u.pos);
+                    1
+                } else {
+                    0
+                }
+            })
             .sum::<u32>();
     }
 }
@@ -591,8 +632,10 @@ fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3};
+    use pretty_assertions::assert_eq;
     use rstest::rstest;
     use serde::Deserialize;
     use std::fs;
@@ -941,8 +984,8 @@ mod tests {
             .iter()
             .copied()
             .zip_eq(test_case.energy_node_fns.iter().copied())
-            .map(|([x, y], [f_id, xyz @ ..])| {
-                EnergyNode::new(Pos::new(x, y), f_id as u8, xyz)
+            .map(|(pos, [f_id, xyz @ ..])| {
+                EnergyNode::new(pos.into(), f_id as u8, xyz)
             })
             .collect();
         let expected_result = Array2::from_shape_vec(
@@ -1219,6 +1262,31 @@ mod tests {
     }
 
     #[test]
+    fn test_update_relic_scores() {
+        let units = [
+            vec![
+                // Earns points
+                Unit::with_pos(Pos::new(0, 0)),
+                // Does not earn points
+                Unit::with_pos(Pos::new(0, 1)),
+                // Duplicates only score once
+                Unit::with_pos(Pos::new(1, 1)),
+                Unit::with_pos(Pos::new(1, 1)),
+            ],
+            vec![
+                // Does not earn points
+                Unit::with_pos(Pos::new(0, 1)),
+                // Earns points
+                Unit::with_pos(Pos::new(1, 0)),
+            ],
+        ];
+        let mut team_points = [2, 2];
+        let points_map = arr2(&[[true, false], [true, true]]);
+        update_relic_scores(&mut team_points, &units, &points_map);
+        assert_eq!(team_points, [2 + 2, 2 + 1]);
+    }
+
+    #[test]
     fn test_get_match_result() {
         let params = Params::default();
         let mut state = State::empty(params.get_map_size());
@@ -1457,49 +1525,7 @@ mod tests {
         assert_eq!(result, expected_result);
     }
 
-    #[derive(Deserialize)]
-    struct FullReplay {
-        params: Params,
-        actions: Vec<ReplayPlayerActions>,
-        observations: Vec<ReplayObservation>,
-        energy_node_fns: Vec<[f32; 4]>,
-    }
-
-    #[derive(Deserialize)]
-    struct ReplayPlayerActions {
-        player_0: Vec<[isize; 3]>,
-        player_1: Vec<[isize; 3]>,
-    }
-
-    #[derive(Deserialize)]
-    struct ReplayObservation {
-        units: ReplayUnits,
-        units_mask: [Vec<bool>; 2],
-        energy_nodes: Vec<[usize; 2]>,
-        relic_nodes: Vec<[usize; 2]>,
-        relic_node_configs: Vec<[[bool; 5]; 5]>,
-        map_features: ReplayMapFeatures,
-        vision_power_map: [Vec<Vec<i32>>; 2],
-        team_points: [u32; 2],
-        team_wins: [u32; 2],
-        steps: u32,
-        match_steps: u32,
-    }
-
-    #[derive(Deserialize)]
-    struct ReplayUnits {
-        position: [Vec<[usize; 2]>; 2],
-        energy: [Vec<[isize; 1]>; 2],
-    }
-
-    #[derive(Deserialize)]
-    struct ReplayMapFeatures {
-        energy: Vec<Vec<i32>>,
-        tile_type: Vec<Vec<u8>>,
-    }
-
     #[rstest]
-    #[ignore]
     #[case("replay_2202956.json")]
     fn test_full_game(#[case] file_name: &str) {
         let path = Path::new(file!())
@@ -1509,6 +1535,46 @@ mod tests {
             .join(file_name);
         let json_data = fs::read_to_string(path).unwrap();
         let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
-        unimplemented!("Need to get energy node configs into replay file")
+        let all_states = full_replay.get_states();
+        let all_vision_power_maps = full_replay.get_vision_power_maps();
+        let all_energy_fields = full_replay.get_energy_fields();
+        let mut rng = rand::thread_rng();
+        for (((s_next_s, actions), vision_power_map), energy_field) in
+            all_states
+                .windows(2)
+                .zip_eq(full_replay.get_actions().iter())
+                .zip_eq(all_vision_power_maps[1..].iter())
+                .zip_eq(all_energy_fields[1..].iter())
+        {
+            let [state, next_state] = s_next_s else {
+                panic!()
+            };
+            assert_eq!(
+                get_energy_field(&state.energy_nodes, &full_replay.params),
+                energy_field
+            );
+
+            let mut state = state.clone();
+            let energy_node_deltas = state.get_energy_node_deltas(next_state);
+            let ([p1_obs, p2_obs], _) = step(
+                &mut state,
+                &mut rng,
+                actions,
+                &full_replay.params,
+                Some(
+                    energy_node_deltas[0..energy_node_deltas.len() / 2].into(),
+                ),
+            );
+            state.sort();
+            assert_eq!(state, *next_state);
+
+            // TODO: test vision_power_map
+            // let vision_power_map = compute_vision_power_map(
+            //     &state.units,
+            //     &state.nebulae,
+            //     &full_replay.params,
+            // );
+            // assert_eq!(vision_power_map, expected_vision_power_map);
+        }
     }
 }

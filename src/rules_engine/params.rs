@@ -82,6 +82,7 @@ impl Params {
         }
     }
 
+    #[inline(always)]
     pub fn get_map_size(&self) -> [usize; 2] {
         [self.map_width, self.map_height]
     }

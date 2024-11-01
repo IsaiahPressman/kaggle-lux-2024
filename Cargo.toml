@@ -20,3 +20,6 @@ serde = { version = "1.0.210", features = ["derive"] }
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
