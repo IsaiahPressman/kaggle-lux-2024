@@ -1539,6 +1539,7 @@ mod tests {
         let all_vision_power_maps = full_replay.get_vision_power_maps();
         let all_energy_fields = full_replay.get_energy_fields();
         let mut rng = rand::thread_rng();
+        let mut game_over = false;
         for (((s_next_s, actions), vision_power_map), energy_field) in
             all_states
                 .windows(2)
@@ -1556,7 +1557,7 @@ mod tests {
 
             let mut state = state.clone();
             let energy_node_deltas = state.get_energy_node_deltas(next_state);
-            let ([p1_obs, p2_obs], _) = step(
+            let ([p1_obs, p2_obs], game_result) = step(
                 &mut state,
                 &mut rng,
                 actions,
@@ -1572,6 +1573,10 @@ mod tests {
 
             state.sort();
             assert_eq!(state, *next_state);
+
+            assert!(!game_over);
+            game_over = game_result.final_winner.is_some();
         }
+        assert!(game_over);
     }
 }
