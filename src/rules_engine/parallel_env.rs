@@ -1,4 +1,5 @@
-use crate::rules_engine::params::{Params, DEFAULT_MAP_SIZE};
+use crate::rules_engine::memory::RelicNodeMemory;
+use crate::rules_engine::params::{Params, MAP_SIZE};
 use crate::rules_engine::state::State;
 use itertools::Itertools;
 use numpy::ndarray::Array4;
@@ -13,6 +14,7 @@ type Done = bool;
 pub struct ParallelEnv {
     n_envs: usize,
     states: Vec<State>,
+    memories: Vec<[RelicNodeMemory; 2]>,
     params: Vec<Params>,
 }
 
@@ -20,13 +22,24 @@ pub struct ParallelEnv {
 impl ParallelEnv {
     #[new]
     fn new(n_envs: usize) -> Self {
-        let states = (0..n_envs)
-            .map(|_| State::empty(DEFAULT_MAP_SIZE))
-            .collect();
-        let params = (0..n_envs).map(|_| Params::default()).collect();
+        let (states, (memories, params)) = (0..n_envs)
+            .map(|_| {
+                (
+                    State::empty(MAP_SIZE),
+                    (
+                        [
+                            RelicNodeMemory::new(MAP_SIZE),
+                            RelicNodeMemory::new(MAP_SIZE),
+                        ],
+                        Params::default(),
+                    ),
+                )
+            })
+            .unzip();
         ParallelEnv {
             n_envs,
             states,
+            memories,
             params,
         }
     }
@@ -36,10 +49,9 @@ impl ParallelEnv {
         // for state in self.states.iter_mut().filter(|s| s.needs_reset).zip()
     }
 
-    // TODO
-    // fn hard_reset() {
-    //
-    // }
+    fn hard_reset(&mut self) {
+        todo!()
+    }
 
     fn seq_step<'py>(
         &mut self,
@@ -65,9 +77,8 @@ impl ParallelEnv {
         (array_obs.into_pyarray_bound(py), reward, done)
     }
 
-    // fn par_step(&mut self) -> Bound<'_, StepResult> {
-    //     todo!()
-    // }
+    // TODO
+    // fn par_step(&mut self) -> Bound<'_, StepResult> {}
 }
 
 fn get_result_inplace(

@@ -28,7 +28,7 @@ impl Pos {
     /// Translates self \
     /// Stops at map boundaries given by [0, width) / [0, height)
     pub fn bounded_translate(
-        &self,
+        self,
         deltas: [isize; 2],
         map_size: [usize; 2],
     ) -> Self {
@@ -45,7 +45,7 @@ impl Pos {
     /// If result is in-bounds, returns result \
     /// If result is out-of-bounds, returns None
     pub fn maybe_translate(
-        &self,
+        self,
         deltas: [isize; 2],
         map_size: [usize; 2],
     ) -> Option<Self> {
@@ -64,7 +64,7 @@ impl Pos {
     }
 
     pub fn wrapped_translate(
-        &self,
+        self,
         deltas: [isize; 2],
         map_size: [usize; 2],
     ) -> Self {
@@ -76,11 +76,19 @@ impl Pos {
         Pos { x, y }
     }
 
-    pub fn subtract(&self, target: Self) -> [isize; 2] {
+    pub fn subtract(self, target: Self) -> [isize; 2] {
         [
             self.x as isize - target.x as isize,
             self.y as isize - target.y as isize,
         ]
+    }
+
+    pub fn reflect(self, map_size: [usize; 2]) -> Self {
+        let [width, height] = map_size;
+        Pos {
+            x: height - 1 - self.y,
+            y: width - 1 - self.x,
+        }
     }
 
     #[inline(always)]
@@ -245,6 +253,7 @@ impl GameResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Observation {
+    pub team_id: usize,
     pub sensor_mask: Array2<bool>,
     pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
@@ -258,6 +267,7 @@ pub struct Observation {
 
 impl Observation {
     pub fn new(
+        team_id: usize,
         sensor_mask: Array2<bool>,
         team_points: [u32; 2],
         team_wins: [u32; 2],
@@ -265,6 +275,7 @@ impl Observation {
         match_steps: u32,
     ) -> Self {
         Observation {
+            team_id,
             sensor_mask,
             units: [Vec::new(), Vec::new()],
             asteroids: Vec::new(),
@@ -281,6 +292,7 @@ impl Observation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::params::{MAP_HEIGHT, MAP_SIZE, MAP_WIDTH};
 
     #[test]
     fn test_pos_wrapped_translate() {
@@ -311,5 +323,19 @@ mod tests {
                 .wrapped_translate([-6 * 20 - 2, -8 * 25 - 2], map_size),
             Pos::new(4, 6)
         );
+    }
+
+    #[test]
+    fn test_pos_reflect() {
+        for (x, y) in (0..MAP_WIDTH).cartesian_product(0..MAP_HEIGHT) {
+            let pos = Pos::new(x, y);
+            assert_eq!(pos.reflect(MAP_SIZE).reflect(MAP_SIZE), pos);
+        }
+
+        let map_size = [24, 24];
+        assert_eq!(Pos::new(0, 0).reflect(map_size), Pos::new(23, 23));
+        assert_eq!(Pos::new(1, 1).reflect(map_size), Pos::new(22, 22));
+        assert_eq!(Pos::new(2, 0).reflect(map_size), Pos::new(23, 21),);
+        assert_eq!(Pos::new(3, 22).reflect(map_size), Pos::new(1, 20),);
     }
 }

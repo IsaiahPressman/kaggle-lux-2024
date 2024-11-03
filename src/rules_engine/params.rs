@@ -1,6 +1,10 @@
 use serde::Deserialize;
 
-pub const DEFAULT_MAP_SIZE: [usize; 2] = [24, 24];
+pub const TEAMS: usize = 2;
+pub const MAP_WIDTH: usize = 24;
+pub const MAP_HEIGHT: usize = 24;
+pub const MAP_SIZE: [usize; 2] = [MAP_WIDTH, MAP_HEIGHT];
+pub const MAX_RELIC_NODES: usize = 6;
 
 #[derive(Deserialize)]
 pub struct Params {
@@ -55,11 +59,10 @@ pub struct Params {
 
 impl Params {
     pub fn default() -> Self {
-        let [map_width, map_height] = DEFAULT_MAP_SIZE;
         Params {
             max_steps_in_match: 100,
-            map_width,
-            map_height,
+            map_width: MAP_WIDTH,
+            map_height: MAP_HEIGHT,
             match_count_per_episode: 5,
             max_units: 16,
             init_unit_energy: 100,
@@ -74,7 +77,7 @@ impl Params {
             max_energy_nodes: 6,
             max_energy_per_tile: 20,
             min_energy_per_tile: -20,
-            max_relic_nodes: 6,
+            max_relic_nodes: MAX_RELIC_NODES,
             relic_config_size: 5,
             unit_sensor_range: 2,
             nebula_tile_vision_reduction: 1,

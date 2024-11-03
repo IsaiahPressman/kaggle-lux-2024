@@ -212,6 +212,8 @@ fn resolve_collisions_and_energy_void_fields(
         unit_energies,
         params.get_map_size(),
     );
+    // TODO: unit_counts_map and aggregate_energy_map are sparse - maybe could use a better
+    //  datastructure? BTreeMap? Vec?
     let unit_counts_map = get_unit_counts_map(units, params.get_map_size());
     let unit_aggregate_energy_map = get_unit_aggregate_energy_map(
         units,
@@ -588,6 +590,7 @@ fn get_observation(
     let [p1_mask, p2_mask] = get_sensor_masks(vision_power_map);
     let mut observations = [
         Observation::new(
+            0,
             p1_mask,
             state.team_points,
             state.team_wins,
@@ -595,6 +598,7 @@ fn get_observation(
             state.match_steps,
         ),
         Observation::new(
+            1,
             p2_mask,
             state.team_points,
             state.team_wins,
@@ -643,6 +647,7 @@ fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::params::{MAP_SIZE, MAX_RELIC_NODES};
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3, stack};
@@ -1527,6 +1532,7 @@ mod tests {
         ];
         let mut expected_result = [
             Observation::new(
+                0,
                 expected_sensor_maps[0].clone(),
                 state.team_points,
                 state.team_wins,
@@ -1534,6 +1540,7 @@ mod tests {
                 state.match_steps,
             ),
             Observation::new(
+                1,
                 expected_sensor_maps[1].clone(),
                 state.team_points,
                 state.team_wins,
@@ -1585,6 +1592,12 @@ mod tests {
         let all_energy_fields = full_replay.get_energy_fields();
         let mut rng = rand::thread_rng();
         let mut game_over = false;
+
+        // Assert some constants are correct
+        assert_eq!(full_replay.params.get_map_size(), MAP_SIZE);
+        assert_eq!(full_replay.params.max_relic_nodes, MAX_RELIC_NODES);
+
+        // Run the whole game checking the simulation matches on each step
         for (((s_next_s, actions), vision_power_map), energy_field) in
             all_states
                 .windows(2)

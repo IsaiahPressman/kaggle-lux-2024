@@ -1,7 +1,7 @@
 #![allow(dead_code)] // TODO: Re-enable this lint later
 mod rules_engine;
 
-use crate::rules_engine::python_api::ParallelEnv;
+use crate::rules_engine::parallel_env::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
