@@ -20,6 +20,9 @@ rs-prepare: rs-format rs-test rs-lint
 build:
 	maturin develop --skip-install
 
+build-release:
+	maturin develop --release
+
 test: rs-test py-test
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format test check

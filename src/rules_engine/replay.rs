@@ -19,6 +19,8 @@ impl FullReplay {
     pub fn get_states(&self) -> Vec<State> {
         let mut result = Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
+            let game_over = obs.team_wins.iter().sum::<u32>()
+                >= self.params.match_count_per_episode;
             let mut state = State {
                 units: obs.get_units(),
                 asteroids: obs.get_asteroids(),
@@ -34,6 +36,7 @@ impl FullReplay {
                 team_wins: obs.team_wins,
                 total_steps: obs.steps,
                 match_steps: obs.match_steps,
+                done: game_over,
             };
             state.sort();
             result.push(state);

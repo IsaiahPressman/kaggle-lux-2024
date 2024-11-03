@@ -187,6 +187,7 @@ pub struct State {
     pub team_wins: [u32; 2],
     pub total_steps: u32,
     pub match_steps: u32,
+    pub done: bool,
 }
 
 impl State {
@@ -202,6 +203,7 @@ impl State {
             team_wins: [0, 0],
             total_steps: 0,
             match_steps: 0,
+            done: true,
         }
     }
 

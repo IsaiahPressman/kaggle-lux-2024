@@ -14,6 +14,10 @@ pub fn step(
     params: &Params,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
 ) -> ([Observation; 2], GameResult) {
+    if state.done {
+        panic!("Game over, need to reset State")
+    }
+
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -57,8 +61,12 @@ pub fn step(
     );
     let match_winner = get_match_result(state, params);
     step_match(state, match_winner);
-    let game_winner =
-        step_game(&mut state.total_steps, &state.team_wins, params);
+    let game_winner = step_game(
+        &mut state.total_steps,
+        &mut state.done,
+        &state.team_wins,
+        params,
+    );
     (
         get_observation(state, &vision_power_map),
         GameResult::new(match_winner, game_winner),
@@ -541,6 +549,7 @@ fn step_match(state: &mut State, match_winner: Option<u8>) {
 
 fn step_game(
     total_steps: &mut u32,
+    game_over: &mut bool,
     team_wins: &[u32; 2],
     params: &Params,
 ) -> Option<u8> {
@@ -552,6 +561,7 @@ fn step_game(
         _ => None,
     };
     if early_result.is_some() {
+        *game_over = true;
         return early_result;
     }
 
@@ -561,11 +571,12 @@ fn step_game(
         return None;
     }
 
+    *game_over = true;
     match team_wins[0].cmp(&team_wins[1]) {
         Ordering::Greater => Some(0),
         Ordering::Less => Some(1),
         Ordering::Equal => {
-            panic!("Team wins: {} == {}", team_wins[0], team_wins[1]);
+            panic!("Team wins tied: {} == {}", team_wins[0], team_wins[1]);
         },
     }
 }
@@ -640,6 +651,21 @@ mod tests {
     use serde::Deserialize;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    #[should_panic(expected = "Game over")]
+    fn test_step_panics_without_reset() {
+        let params = Params::default();
+        let mut state = State::empty(params.get_map_size());
+        state.done = true;
+        step(
+            &mut state,
+            &mut rand::thread_rng(),
+            &[Vec::new(), Vec::new()],
+            &params,
+            None,
+        );
+    }
 
     #[test]
     fn test_move_units() {
@@ -1362,41 +1388,60 @@ mod tests {
             * params.match_count_per_episode
             - 2;
         let mut total_steps = start_step;
-        let result = step_game(&mut total_steps, &[2, 2], &params);
+        let mut game_over = false;
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[2, 2], &params);
         assert_eq!(total_steps, start_step + 1);
         assert!(result.is_none());
+        assert!(!game_over);
 
-        let result = step_game(&mut total_steps, &[3, 2], &params);
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[3, 2], &params);
         assert_eq!(result, Some(0));
+        assert!(game_over);
 
         total_steps -= 1;
-        let result = step_game(&mut total_steps, &[2, 3], &params);
+        game_over = false;
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[2, 3], &params);
         assert_eq!(result, Some(1));
+        assert!(game_over);
     }
 
     #[test]
     fn test_step_game_finishes_early() {
         let params = Params::default();
+
         let mut total_steps = 0;
-
-        let result = step_game(&mut total_steps, &[2, 1], &params);
+        let mut game_over = false;
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[2, 1], &params);
         assert!(result.is_none());
+        assert!(!game_over);
 
-        let result = step_game(&mut total_steps, &[3, 0], &params);
+        let mut total_steps = 0;
+        let mut game_over = false;
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[3, 0], &params);
         assert_eq!(result, Some(0));
+        assert!(game_over);
 
-        let result = step_game(&mut total_steps, &[1, 3], &params);
+        let mut total_steps = 0;
+        let mut game_over = false;
+        let result =
+            step_game(&mut total_steps, &mut game_over, &[1, 3], &params);
         assert_eq!(result, Some(1));
+        assert!(game_over);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Team wins tied")]
     fn test_step_game_panics() {
         let params = Params::default();
         let mut total_steps = (params.max_steps_in_match + 1)
             * params.match_count_per_episode
             - 1;
-        step_game(&mut total_steps, &[2, 2], &params);
+        step_game(&mut total_steps, &mut false, &[2, 2], &params);
     }
 
     #[test]
@@ -1575,7 +1620,8 @@ mod tests {
             assert_eq!(state, *next_state);
 
             assert!(!game_over);
-            game_over = game_result.final_winner.is_some();
+            game_over = state.done;
+            assert_eq!(game_over, game_result.final_winner.is_some());
         }
         assert!(game_over);
     }

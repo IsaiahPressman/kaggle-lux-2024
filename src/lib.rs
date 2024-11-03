@@ -1,6 +1,7 @@
 #![allow(dead_code)] // TODO: Re-enable this lint later
 mod rules_engine;
 
+use crate::rules_engine::python_api::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
@@ -25,5 +26,6 @@ fn hello_numpy_world(py: Python<'_>) -> PyResult<Bound<'_, PyArray2<f32>>> {
 fn _lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(hello_numpy_world, m)?)?;
+    m.add_class::<ParallelEnv>()?;
     Ok(())
 }

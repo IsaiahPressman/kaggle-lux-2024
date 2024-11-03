@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+pub const DEFAULT_MAP_SIZE: [usize; 2] = [24, 24];
+
 #[derive(Deserialize)]
 pub struct Params {
     pub max_steps_in_match: u32,
@@ -53,10 +55,11 @@ pub struct Params {
 
 impl Params {
     pub fn default() -> Self {
+        let [map_width, map_height] = DEFAULT_MAP_SIZE;
         Params {
             max_steps_in_match: 100,
-            map_width: 24,
-            map_height: 24,
+            map_width,
+            map_height,
             match_count_per_episode: 5,
             max_units: 16,
             init_unit_energy: 100,
