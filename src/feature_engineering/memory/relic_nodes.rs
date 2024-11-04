@@ -81,7 +81,7 @@ impl RelicNodeMemory {
         let new_points: usize =
             (obs.team_points[obs.team_id] - self.points_last_turn) as usize;
         self.points_last_turn = obs.team_points[obs.team_id];
-        let (seen_locations, frontier_locations): (
+        let (known_locations, frontier_locations): (
             BTreeSet<Pos>,
             BTreeSet<Pos>,
         ) = obs.units[obs.team_id]
@@ -89,7 +89,7 @@ impl RelicNodeMemory {
             .map(|u| u.pos)
             .partition(|pos| self.known_points_map[pos.as_index()]);
         let unaccounted_new_points = new_points
-            - seen_locations
+            - known_locations
                 .into_iter()
                 .filter(|pos| {
                     self.points_map[pos.as_index()] == 1.0

@@ -1,9 +1,11 @@
 #![allow(dead_code)] // TODO: Re-enable this lint later
+mod feature_engineering;
+pub mod parallel_env;
 mod rules_engine;
 
-use crate::rules_engine::parallel_env::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
+use parallel_env::ParallelEnv;
 use pyo3::prelude::*;
 
 /// Prints a message.

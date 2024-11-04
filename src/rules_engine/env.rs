@@ -45,8 +45,11 @@ pub fn step(
     if state.match_steps % params.spawn_rate == 0 {
         spawn_units(&mut state.units, params)
     }
-    let vision_power_map =
-        compute_vision_power_map(&state.units, &state.nebulae, params);
+    let vision_power_map = compute_vision_power_map_from_params(
+        &state.units,
+        &state.nebulae,
+        params,
+    );
     move_space_objects(
         state,
         &energy_node_deltas.unwrap_or_else(|| {
@@ -412,27 +415,59 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
     }
 }
 
-fn compute_vision_power_map(
-    units: &[Vec<Unit>; 2],
+pub fn estimate_vision_power_map(
+    units: &[Unit],
+    map_size: [usize; 2],
+    unit_sensor_range: usize,
+) -> Array2<i32> {
+    let units = units.iter().cloned().collect_vec();
+    let vision_estimate = compute_vision_power_map(
+        &[units],
+        &Vec::new(),
+        map_size,
+        unit_sensor_range,
+        0,
+    );
+    vision_estimate.index_axis_move(Axis(0), 0)
+}
+
+fn compute_vision_power_map_from_params(
+    units: &[Vec<Unit>],
     nebulae: &[Pos],
     params: &Params,
 ) -> Array3<i32> {
-    let mut vision_power_map =
-        Array3::zeros((2, params.map_width, params.map_height));
+    compute_vision_power_map(
+        units,
+        nebulae,
+        params.get_map_size(),
+        params.unit_sensor_range,
+        params.nebula_tile_vision_reduction,
+    )
+}
+
+fn compute_vision_power_map(
+    units: &[Vec<Unit>],
+    nebulae: &[Pos],
+    map_size: [usize; 2],
+    unit_sensor_range: usize,
+    nebula_tile_vision_reduction: i32,
+) -> Array3<i32> {
+    let [width, height] = map_size;
+    let mut vision_power_map = Array3::zeros((units.len(), width, height));
     for ((team, x, y), v) in units
         .iter()
         .enumerate()
         .flat_map(|(t, team_units)| {
             team_units.iter().map(move |u| (t, u.pos.x, u.pos.y))
         })
-        .cartesian_product(0..=params.unit_sensor_range)
+        .cartesian_product(0..=unit_sensor_range)
     {
-        let range = params.unit_sensor_range - v;
+        let range = unit_sensor_range - v;
         vision_power_map
             .slice_mut(s![
                 team,
-                x.saturating_sub(range)..min(x + range + 1, params.map_width),
-                y.saturating_sub(range)..min(y + range + 1, params.map_height),
+                x.saturating_sub(range)..min(x + range + 1, width),
+                y.saturating_sub(range)..min(y + range + 1, height),
             ])
             .iter_mut()
             .for_each(|value| *value += 1);
@@ -441,7 +476,7 @@ fn compute_vision_power_map(
         vision_power_map
             .slice_mut(s![.., x, y])
             .iter_mut()
-            .for_each(|value| *value -= params.nebula_tile_vision_reduction);
+            .for_each(|value| *value -= nebula_tile_vision_reduction);
     }
     vision_power_map
 }
@@ -1159,7 +1194,7 @@ mod tests {
             ],
         ]);
         assert_eq!(
-            compute_vision_power_map(&units, &Vec::new(), &params),
+            compute_vision_power_map_from_params(&units, &Vec::new(), &params),
             expected_result
         );
     }
@@ -1179,7 +1214,7 @@ mod tests {
             [[0, 0, 0], [0, 1, 1], [0, 1, 2]],
         ]);
         assert_eq!(
-            compute_vision_power_map(&units, &Vec::new(), &params),
+            compute_vision_power_map_from_params(&units, &Vec::new(), &params),
             expected_result
         );
     }
@@ -1219,7 +1254,7 @@ mod tests {
             ],
         ]);
         assert_eq!(
-            compute_vision_power_map(&units, &nebulae, &params),
+            compute_vision_power_map_from_params(&units, &nebulae, &params),
             expected_result
         );
     }

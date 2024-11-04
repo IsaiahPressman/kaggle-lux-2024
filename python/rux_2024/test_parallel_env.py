@@ -9,7 +9,8 @@ def test_step() -> None:
     actions = np.zeros((2, 4, 5), dtype=int)
     (obs, reward, done) = env.seq_step(actions)
     print(obs, reward, done)
-    assert obs.shape[:3] == (n_envs, 24, 24)
+    assert obs.shape[:2] == (n_envs, 2)
+    assert obs.shape[-2:] == (24, 24)
     assert np.all(obs == 1)
     assert reward == [(1, 2)] * n_envs
     assert done == [True] * n_envs

@@ -1,12 +1,12 @@
-use crate::rules_engine::memory::RelicNodeMemory;
+use crate::feature_engineering::memory::RelicNodeMemory;
 use crate::rules_engine::params::{Params, MAP_SIZE};
 use crate::rules_engine::state::State;
 use itertools::Itertools;
-use numpy::ndarray::Array4;
-use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray3};
+use numpy::ndarray::Array5;
+use numpy::{IntoPyArray, PyArray5, PyReadonlyArray3};
 use pyo3::prelude::*;
 
-type Obs = PyArrayDyn<f32>;
+type Obs = PyArray5<f32>;
 type Reward = (isize, isize);
 type Done = bool;
 
@@ -72,7 +72,7 @@ impl ParallelEnv {
                 get_result_inplace(s, o, r, d)
             });
 
-        let mut array_obs = Array4::zeros((self.n_envs, 24, 24, 10)).into_dyn();
+        let mut array_obs = Array5::zeros((self.n_envs, 2, 10, 24, 24));
         array_obs += obs[0];
         (array_obs.into_pyarray_bound(py), reward, done)
     }
