@@ -79,8 +79,8 @@ impl RelicNodeMemory {
         }
 
         let new_points: usize =
-            (obs.team_points[obs.team_id] - self.points_last_turn) as usize;
-        self.points_last_turn = obs.team_points[obs.team_id];
+            (obs.get_my_points() - self.points_last_turn) as usize;
+        self.points_last_turn = obs.get_my_points();
         let (known_locations, frontier_locations): (
             BTreeSet<Pos>,
             BTreeSet<Pos>,

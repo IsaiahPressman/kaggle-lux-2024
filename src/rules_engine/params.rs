@@ -58,7 +58,14 @@ pub struct Params {
 }
 
 impl Params {
-    pub fn default() -> Self {
+    #[inline(always)]
+    pub fn get_map_size(&self) -> [usize; 2] {
+        [self.map_width, self.map_height]
+    }
+}
+
+impl Default for Params {
+    fn default() -> Self {
         Params {
             max_steps_in_match: 100,
             map_width: MAP_WIDTH,
@@ -86,10 +93,5 @@ impl Params {
             energy_node_drift_speed: 0.02,
             energy_node_drift_magnitude: 5.0,
         }
-    }
-
-    #[inline(always)]
-    pub fn get_map_size(&self) -> [usize; 2] {
-        [self.map_width, self.map_height]
     }
 }

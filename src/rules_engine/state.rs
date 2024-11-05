@@ -183,7 +183,7 @@ impl EnergyNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct State {
     pub units: [Vec<Unit>; 2],
     pub asteroids: Vec<Pos>,
@@ -199,22 +199,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn empty(map_size: [usize; 2]) -> Self {
-        State {
-            units: [Vec::new(), Vec::new()],
-            asteroids: Vec::new(),
-            nebulae: Vec::new(),
-            energy_nodes: Vec::new(),
-            relic_node_locations: Vec::new(),
-            relic_node_points_map: Array2::default(map_size),
-            team_points: [0, 0],
-            team_wins: [0, 0],
-            total_steps: 0,
-            match_steps: 0,
-            done: true,
-        }
-    }
-
     pub fn get_energy_node_deltas(&self, next_state: &Self) -> Vec<[isize; 2]> {
         self.energy_nodes
             .iter()
@@ -251,7 +235,7 @@ impl GameResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Observation {
     pub team_id: usize,
     pub sensor_mask: Array2<bool>,
@@ -286,6 +270,16 @@ impl Observation {
             total_steps,
             match_steps,
         }
+    }
+
+    #[inline(always)]
+    pub fn get_my_units(&self) -> &[Unit] {
+        &self.units[self.team_id]
+    }
+
+    #[inline(always)]
+    pub fn get_my_points(&self) -> u32 {
+        self.team_points[self.team_id]
     }
 }
 

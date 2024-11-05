@@ -696,7 +696,7 @@ mod tests {
     #[should_panic(expected = "Game over")]
     fn test_step_panics_without_reset() {
         let params = Params::default();
-        let mut state = State::empty(params.get_map_size());
+        let mut state = State::default();
         state.done = true;
         step(
             &mut state,
@@ -1265,7 +1265,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty(params.get_map_size());
+        let mut state = State::default();
         state.asteroids = vec![
             // Moves normally
             Pos::new(10, 10),
@@ -1314,7 +1314,7 @@ mod tests {
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::empty(params.get_map_size());
+        let mut state = State::default();
         state.asteroids = vec![Pos::new(1, 1)];
         state.nebulae = vec![Pos::new(2, 2)];
         state.energy_nodes = vec![
@@ -1355,7 +1355,7 @@ mod tests {
     #[test]
     fn test_get_match_result() {
         let params = Params::default();
-        let mut state = State::empty(params.get_map_size());
+        let mut state = State::default();
         state.team_points = [25, 24];
         state.match_steps = params.max_steps_in_match - 1;
         let result = get_match_result(&state, &params);
@@ -1373,7 +1373,7 @@ mod tests {
     #[test]
     fn test_get_match_result_tiebreaks_points() {
         let params = Params::default();
-        let mut state = State::empty(params.get_map_size());
+        let mut state = State::default();
         state.team_points = [10, 10];
         state.match_steps = params.max_steps_in_match;
         state.units = [
@@ -1398,7 +1398,7 @@ mod tests {
 
     #[test]
     fn test_step_match() {
-        let mut state = State::empty([5, 5]);
+        let mut state = State::default();
         state.team_points = [20, 10];
         state.team_wins = [1, 1];
         state.match_steps = 5;
@@ -1486,7 +1486,7 @@ mod tests {
 
     #[test]
     fn test_get_observation() {
-        let mut state = State::empty([5, 5]);
+        let mut state = State::default();
         let vision_power_map = arr3(&[
             // P1 only sees top left corner [0-1, 0-1]
             [

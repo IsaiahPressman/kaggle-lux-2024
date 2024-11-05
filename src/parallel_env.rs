@@ -25,7 +25,7 @@ impl ParallelEnv {
         let (states, (memories, params)) = (0..n_envs)
             .map(|_| {
                 (
-                    State::empty(MAP_SIZE),
+                    State::default(),
                     (
                         [
                             RelicNodeMemory::new(MAP_SIZE),
