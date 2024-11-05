@@ -1,5 +1,6 @@
 use crate::rules_engine::env::estimate_vision_power_map;
 use crate::rules_engine::state::Observation;
+use crate::rules_engine::action::Action;
 use itertools::Itertools;
 use numpy::ndarray::Zip;
 
@@ -30,6 +31,7 @@ impl HiddenParametersMemory {
         }
     }
 
+    // TODO - consider whether or not we want this to be a categorical variable
     pub fn get_nebula_tile_vision_reduction_weights(&self) -> Vec<f32> {
         let sum = self
             .nebula_tile_vision_reduction_mask
@@ -85,6 +87,21 @@ fn determine_nebula_tile_vision_reduction(
     if nebula_tile_vision_reduction_mask.iter().all(|mask| !mask) {
         panic!("nebula_tile_vision_reduction_mask is all false")
     }
+}
+
+fn estimate_nebula_tile_energy_reduction(
+    unit_energies_previous_step: &mut [i32],
+    nebula_tile_energy_reduction_weights: &mut [f32], 
+    nebula_tile_energy_reduction_options: &[i32], 
+    energy_field_weight: &[f32], 
+    energy_field_deltas: &[i32], 
+    obs: &Observation, 
+    prior_actions: &[Action]){
+
+    // Perform computation to determine what our units' energy should be this turn,
+    //  assuming no energy loss
+
+
 }
 
 #[cfg(test)]

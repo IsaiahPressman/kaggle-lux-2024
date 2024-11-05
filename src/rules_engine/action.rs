@@ -1,5 +1,3 @@
-use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     NoOp,
@@ -11,6 +9,9 @@ pub enum Action {
 }
 
 impl From<[isize; 3]> for Action {
+
+    use Action::{Down, Left, NoOp, Right, Sap, Up};
+    
     fn from(value: [isize; 3]) -> Self {
         match value {
             [0, ..] => NoOp,
