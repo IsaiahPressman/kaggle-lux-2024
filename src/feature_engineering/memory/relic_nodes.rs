@@ -154,11 +154,78 @@ impl RelicNodeMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use numpy::ndarray::arr2;
 
     #[test]
-    #[ignore]
     fn test_update_explored_nodes() {
-        todo!()
+        let map_size = [4, 4];
+        let mut memory = RelicNodeMemory::new(map_size);
+        let mut obs = Observation::default();
+        obs.relic_node_locations = vec![Pos::new(0, 0), Pos::new(0, 1)];
+        obs.sensor_mask = arr2(&[
+            [true, true, false, false],
+            [false, true, false, false],
+            [false, false, false, false],
+            [false, false, false, false],
+        ]);
+        memory.update_explored_nodes(&obs);
+        assert_eq!(
+            memory.relic_nodes.iter().copied().sorted().collect_vec(),
+            vec![
+                Pos::new(0, 0),
+                Pos::new(0, 1),
+                Pos::new(2, 3),
+                Pos::new(3, 3)
+            ]
+        );
+        assert_eq!(
+            memory.explored_nodes_map,
+            arr2(&[
+                [true, true, false, false],
+                [false, true, false, false],
+                [false, false, true, true],
+                [false, false, false, true],
+            ])
+        );
+        assert!(!memory.check_if_all_relic_nodes_found());
+        assert!(!memory.all_nodes_registered);
+
+        let mut obs = Observation::default();
+        obs.sensor_mask = arr2(&[
+            [false, true, false, true],
+            [false, true, true, true],
+            [false, false, false, false],
+            [false, false, false, false],
+        ]);
+        memory.update_explored_nodes(&obs);
+        assert_eq!(
+            memory.explored_nodes_map,
+            arr2(&[
+                [true, true, true, true],
+                [false, true, true, true],
+                [false, false, true, true],
+                [false, false, false, true],
+            ])
+        );
+
+        let mut obs = Observation::default();
+        obs.relic_node_locations = vec![Pos::new(1, 1)];
+        obs.sensor_mask = Array2::default(map_size);
+        memory.update_explored_nodes(&obs);
+        assert_eq!(
+            memory.relic_nodes.iter().copied().sorted().collect_vec(),
+            vec![
+                Pos::new(0, 0),
+                Pos::new(0, 1),
+                Pos::new(1, 1),
+                Pos::new(2, 2),
+                Pos::new(2, 3),
+                Pos::new(3, 3)
+            ]
+        );
+        assert!(memory.explored_nodes_map.iter().all(|explored| *explored));
+        assert!(memory.check_if_all_relic_nodes_found());
+        assert!(memory.all_nodes_registered);
     }
 
     #[test]
