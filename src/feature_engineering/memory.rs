@@ -4,4 +4,4 @@ mod relic_nodes;
 pub use relic_nodes::RelicNodeMemory;
 
 // TODO: Track asteroid/nebula movement?
-// TODO: Track energy field?
+// TODO: Track energy field - after getting learning up and running?

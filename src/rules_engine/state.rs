@@ -329,7 +329,7 @@ mod tests {
         let map_size = [24, 24];
         assert_eq!(Pos::new(0, 0).reflect(map_size), Pos::new(23, 23));
         assert_eq!(Pos::new(1, 1).reflect(map_size), Pos::new(22, 22));
-        assert_eq!(Pos::new(2, 0).reflect(map_size), Pos::new(23, 21),);
-        assert_eq!(Pos::new(3, 22).reflect(map_size), Pos::new(1, 20),);
+        assert_eq!(Pos::new(2, 0).reflect(map_size), Pos::new(23, 21));
+        assert_eq!(Pos::new(3, 22).reflect(map_size), Pos::new(1, 20));
     }
 }

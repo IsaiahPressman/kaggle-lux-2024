@@ -70,6 +70,7 @@ fn write_team_obs(
             Nebula => {
                 obs.nebulae.iter().for_each(|n| slice[n.as_index()] += 1.0);
             },
+            // TODO: Pair program this
             RelicNode => {
                 todo!()
             },
