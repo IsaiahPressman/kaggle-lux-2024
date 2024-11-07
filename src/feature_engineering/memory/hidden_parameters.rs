@@ -8,7 +8,8 @@ use numpy::ndarray::Zip;
 const MIN_PROBABILITY_EPSILON: f64 = 1e-4;
 
 /// Represents the probability distribution over the likelihood of each option being the true one
-struct Likelihoods<T: Copy> {
+#[derive(Debug, Default)]
+pub struct Likelihoods<T> {
     options: Vec<T>,
     weights: Vec<f64>,
 }
@@ -25,10 +26,18 @@ impl<T: Copy> Likelihoods<T> {
         let sum: f64 = self
             .weights
             .iter()
-            .copied()
             .map(|w| w.max(MIN_PROBABILITY_EPSILON))
             .sum();
         self.weights.iter_mut().for_each(|w| *w /= sum);
+    }
+
+    fn iter_options_weights(
+        &self,
+    ) -> impl Iterator<Item = (T, f64)> + use<'_, T> {
+        self.options
+            .iter()
+            .copied()
+            .zip_eq(self.weights.iter().copied())
     }
 
     fn iter_options_mut_weights(
@@ -42,26 +51,26 @@ impl<T: Copy> Likelihoods<T> {
 pub struct HiddenParametersMemory {
     nebula_tile_vision_reduction_options: Vec<i32>,
     nebula_tile_vision_reduction_mask: Vec<bool>,
-    nebula_tile_energy_reduction_options: Vec<u32>,
-    unit_sap_dropoff_factor_options: Vec<f32>,
-    unit_energy_void_factor_options: Vec<f32>,
+    nebula_tile_energy_reduction_likelihoods: Likelihoods<i32>,
+    unit_sap_dropoff_factor_likelihoods: Likelihoods<f32>,
+    unit_energy_void_dropoff_factor_likelihoods: Likelihoods<f32>,
 }
 
 impl HiddenParametersMemory {
     pub fn new(
         nebula_tile_vision_reduction_options: Vec<i32>,
-        nebula_tile_energy_reduction_options: Vec<u32>,
-        unit_sap_dropoff_factor_options: Vec<f32>,
-        unit_energy_void_factor_options: Vec<f32>,
+        nebula_tile_energy_reduction_likelihoods: Likelihoods<i32>,
+        unit_sap_dropoff_factor_likelihoods: Likelihoods<f32>,
+        unit_energy_void_dropoff_factor_likelihoods: Likelihoods<f32>,
     ) -> Self {
         let nebula_tile_vision_reduction_mask =
             vec![true; nebula_tile_vision_reduction_options.len()];
-        HiddenParametersMemory {
+        Self {
             nebula_tile_vision_reduction_options,
             nebula_tile_vision_reduction_mask,
-            nebula_tile_energy_reduction_options,
-            unit_sap_dropoff_factor_options,
-            unit_energy_void_factor_options,
+            nebula_tile_energy_reduction_likelihoods,
+            unit_sap_dropoff_factor_likelihoods,
+            unit_energy_void_dropoff_factor_likelihoods,
         }
     }
 
@@ -125,20 +134,14 @@ fn determine_nebula_tile_vision_reduction(
 
 fn estimate_nebula_tile_energy_reduction(
     unit_energies_last_turn: &mut [i32],
-    _nebula_tile_energy_reduction_likelihoods: &mut Likelihoods<i32>,
-    _energy_field_likelihoods: &Likelihoods<i32>,
+    nebula_tile_energy_reduction_likelihoods: &mut Likelihoods<i32>,
+    energy_field_likelihoods: &Likelihoods<i32>,
     obs: &Observation,
     params: KnownVariableParams,
     last_actions: &[Action],
 ) {
-    // TODO: No need for base case?
-    // if obs.match_steps == 0 {
-    //     last_unit_energies.iter_mut().for_each(|e| *e = 0);
-    //     return;
-    // }
-
     // NB: This assumes that units don't take invalid actions (like moving into an asteroid)
-    let expected_unit_energies = unit_energies_last_turn
+    let unit_energies_without_field = unit_energies_last_turn
         .iter()
         .copied()
         .zip_eq(last_actions)
@@ -152,25 +155,39 @@ fn estimate_nebula_tile_energy_reduction(
         .collect_vec();
 
     let opp_units = obs.get_opp_units();
-    for (_expected, _actual) in obs
+    for (base_e, actual) in obs
         .get_my_units()
         .iter()
         .filter(|u| {
-            opp_units.iter().any(|opp_u| {
-                // Skip units that we know could have been sapped
+            obs.nebulae.contains(&u.pos) || !obs.sensor_mask[u.pos.as_index()]
+        })
+        .filter(|u| {
+            // Skip units that we think could have been sapped
+            opp_units.iter().all(|opp_u| {
                 let [dx, dy] = opp_u.pos.subtract(u.pos);
-                dx <= params.unit_sap_range && dy <= params.unit_sap_range
+                dx.abs() > params.unit_sap_range
+                    || dy.abs() > params.unit_sap_range
             })
         })
-        .map(|u| (expected_unit_energies[u.id], u.energy))
+        .map(|u| (unit_energies_without_field[u.id], u.energy))
     {
-        todo!()
-        // energy_field_likelihoods.
-        // let weights, updated_energy
-        // for (possible_e_next_turn, likelihood)
-    }
+        for (de, e_weight) in energy_field_likelihoods.iter_options_weights() {
+            for (dn, n_weight) in nebula_tile_energy_reduction_likelihoods
+                .iter_options_mut_weights()
+            {
+                if base_e + de - dn != actual {
+                    continue;
+                }
 
-    // TODO: Set energy last turn + account for dead units
+                *n_weight *= e_weight
+            }
+        }
+    }
+    nebula_tile_energy_reduction_likelihoods.conservative_renormalize();
+    unit_energies_last_turn.fill(0);
+    obs.get_my_units()
+        .iter()
+        .for_each(|u| unit_energies_last_turn[u.id] = u.energy);
 }
 
 #[cfg(test)]
@@ -259,5 +276,11 @@ mod tests {
             map_size,
             unit_sensor_range,
         )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_estimate_nebula_tile_energy_reduction() {
+        todo!()
     }
 }

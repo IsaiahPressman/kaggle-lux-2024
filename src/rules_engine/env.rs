@@ -173,7 +173,8 @@ fn sap_units(
                 }
             })
             .filter(|(_, [dx, dy])| {
-                *dx <= params.unit_sap_range && *dy <= params.unit_sap_range
+                dx.abs() <= params.unit_sap_range
+                    && dy.abs() <= params.unit_sap_range
             })
         {
             let unit = &mut units[team][unit_idx];
@@ -785,7 +786,7 @@ mod tests {
                 // Can't sap off the edge of the map, costs no energy
                 Unit::with_pos_and_energy(Pos::new(0, 0), 100),
                 // Can't sap out of range, costs no energy
-                Unit::with_pos_and_energy(Pos::new(1, 1), 100),
+                Unit::with_pos_and_energy(Pos::new(23, 23), 100),
                 // Can't sap without enough energy
                 Unit::with_pos_and_energy(Pos::new(2, 2), sap_cost - 1),
                 // Sap should work normally, hit all adjacent units, and not hit allied units
@@ -808,7 +809,7 @@ mod tests {
         let actions = [
             vec![
                 Action::Sap([-1, -1]),
-                Action::Sap([params.unit_sap_range + 1, 0]),
+                Action::Sap([-params.unit_sap_range - 1, 0]),
                 Action::Sap([0, 0]),
                 Action::Sap([0, 0]),
                 Action::Sap([-params.unit_sap_range, -params.unit_sap_range]),
@@ -819,7 +820,7 @@ mod tests {
         let expected_sapped_units = [
             vec![
                 Unit::with_pos_and_energy(Pos::new(0, 0), 100),
-                Unit::with_pos_and_energy(Pos::new(1, 1), 100),
+                Unit::with_pos_and_energy(Pos::new(23, 23), 100),
                 Unit::with_pos_and_energy(Pos::new(2, 2), sap_cost - 1),
                 Unit::with_pos_and_energy(Pos::new(1, 2), 0),
                 Unit::with_pos_and_energy(
