@@ -6,7 +6,7 @@ pub const MAP_HEIGHT: usize = 24;
 pub const MAP_SIZE: [usize; 2] = [MAP_WIDTH, MAP_HEIGHT];
 pub const MAX_RELIC_NODES: usize = 6;
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Params {
     pub max_steps_in_match: u32,
     pub map_width: usize,
@@ -66,7 +66,7 @@ impl Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Params {
+        Self {
             max_steps_in_match: 100,
             map_width: MAP_WIDTH,
             map_height: MAP_HEIGHT,
@@ -93,5 +93,30 @@ impl Default for Params {
             energy_node_drift_speed: 0.02,
             energy_node_drift_magnitude: 5.0,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct KnownVariableParams {
+    pub unit_move_cost: i32,
+    pub unit_sap_cost: i32,
+    pub unit_sap_range: isize,
+    pub unit_sensor_range: usize,
+}
+
+impl From<Params> for KnownVariableParams {
+    fn from(params: Params) -> Self {
+        Self {
+            unit_move_cost: params.unit_move_cost,
+            unit_sap_cost: params.unit_sap_cost,
+            unit_sap_range: params.unit_sap_range,
+            unit_sensor_range: params.unit_sensor_range,
+        }
+    }
+}
+
+impl Default for KnownVariableParams {
+    fn default() -> Self {
+        Self::from(Params::default())
     }
 }

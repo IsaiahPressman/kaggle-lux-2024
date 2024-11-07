@@ -74,6 +74,7 @@ impl RelicNodeMemory {
 
     fn update_points_map(&mut self, obs: &Observation) {
         if obs.match_steps == 0 {
+            assert_eq!(obs.team_points, [0, 0]);
             self.points_last_turn = 0;
             return;
         }

@@ -1,8 +1,42 @@
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::estimate_vision_power_map;
+use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::Observation;
 use itertools::Itertools;
 use numpy::ndarray::Zip;
+
+const MIN_PROBABILITY_EPSILON: f64 = 1e-4;
+
+/// Represents the probability distribution over the likelihood of each option being the true one
+struct Likelihoods<T: Copy> {
+    options: Vec<T>,
+    weights: Vec<f64>,
+}
+
+impl<T: Copy> Likelihoods<T> {
+    fn renormalize(&mut self) {
+        let sum: f64 = self.weights.iter().copied().sum();
+        self.weights.iter_mut().for_each(|w| *w /= sum);
+    }
+
+    /// Renormalize, but don't allow probabilities to go (much) below EPSILON
+    fn conservative_renormalize(&mut self) {
+        self.renormalize();
+        let sum: f64 = self
+            .weights
+            .iter()
+            .copied()
+            .map(|w| w.max(MIN_PROBABILITY_EPSILON))
+            .sum();
+        self.weights.iter_mut().for_each(|w| *w /= sum);
+    }
+
+    fn iter_options_mut_weights(
+        &mut self,
+    ) -> impl Iterator<Item = (T, &mut f64)> {
+        self.options.iter().copied().zip_eq(self.weights.iter_mut())
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct HiddenParametersMemory {
@@ -90,17 +124,53 @@ fn determine_nebula_tile_vision_reduction(
 }
 
 fn estimate_nebula_tile_energy_reduction(
-    unit_energies_previous_step: &mut [i32],
-    nebula_tile_energy_reduction_weights: &mut [f32],
-    nebula_tile_energy_reduction_options: &[i32],
-    energy_field_weight: &[f32],
-    energy_field_deltas: &[i32],
+    unit_energies_last_turn: &mut [i32],
+    _nebula_tile_energy_reduction_likelihoods: &mut Likelihoods<i32>,
+    _energy_field_likelihoods: &Likelihoods<i32>,
     obs: &Observation,
-    prior_actions: &[Action],
+    params: KnownVariableParams,
+    last_actions: &[Action],
 ) {
+    // TODO: No need for base case?
+    // if obs.match_steps == 0 {
+    //     last_unit_energies.iter_mut().for_each(|e| *e = 0);
+    //     return;
+    // }
 
-    // Perform computation to determine what our units' energy should be this turn,
-    //  assuming no energy loss
+    // NB: This assumes that units don't take invalid actions (like moving into an asteroid)
+    let expected_unit_energies = unit_energies_last_turn
+        .iter()
+        .copied()
+        .zip_eq(last_actions)
+        .map(|(e, a)| match a {
+            Action::NoOp => e,
+            Action::Up | Action::Right | Action::Down | Action::Left => {
+                e - params.unit_move_cost
+            },
+            Action::Sap(_) => e - params.unit_sap_cost,
+        })
+        .collect_vec();
+
+    let opp_units = obs.get_opp_units();
+    for (_expected, _actual) in obs
+        .get_my_units()
+        .iter()
+        .filter(|u| {
+            opp_units.iter().any(|opp_u| {
+                // Skip units that we know could have been sapped
+                let [dx, dy] = opp_u.pos.subtract(u.pos);
+                dx <= params.unit_sap_range && dy <= params.unit_sap_range
+            })
+        })
+        .map(|u| (expected_unit_energies[u.id], u.energy))
+    {
+        todo!()
+        // energy_field_likelihoods.
+        // let weights, updated_energy
+        // for (possible_e_next_turn, likelihood)
+    }
+
+    // TODO: Set energy last turn + account for dead units
 }
 
 #[cfg(test)]

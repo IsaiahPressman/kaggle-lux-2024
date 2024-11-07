@@ -278,6 +278,11 @@ impl Observation {
     }
 
     #[inline(always)]
+    pub fn get_opp_units(&self) -> &[Unit] {
+        &self.units[1 - self.team_id]
+    }
+
+    #[inline(always)]
     pub fn get_my_points(&self) -> u32 {
         self.team_points[self.team_id]
     }
