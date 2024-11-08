@@ -107,14 +107,15 @@ impl RelicNodeMemory {
                 self.known_points_map[pos.as_index()] = true;
                 self.points_map[pos.as_index()] = 1.0;
             });
+        } else if unaccounted_new_points > frontier_locations.len() {
+            panic!(
+                "unaccounted_new_points {} > frontier_locations.len() {}",
+                unaccounted_new_points,
+                frontier_locations.len()
+            );
         } else {
             let mean_points =
                 unaccounted_new_points as f32 / frontier_locations.len() as f32;
-            assert!(
-                0.0 < mean_points && mean_points < 1.0,
-                "mean_points = {}",
-                mean_points
-            );
             frontier_locations.into_iter().for_each(|pos| {
                 let idx = pos.as_index();
                 self.points_sum_map[idx] += mean_points;
@@ -155,6 +156,7 @@ impl RelicNodeMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::state::Unit;
     use numpy::ndarray::arr2;
 
     #[test]
@@ -230,14 +232,137 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_update_points_map() {
-        todo!()
+        let map_size = [4, 4];
+        let mut memory = RelicNodeMemory::new(map_size);
+        let mut obs = Observation::default();
+        obs.match_steps = 1;
+        obs.units[0] = vec![
+            Unit::with_pos(Pos::new(0, 0)),
+            Unit::with_pos(Pos::new(0, 1)),
+        ];
+        obs.team_points = [1, 0];
+        memory.known_points_map[[0, 0]] = true;
+        memory.update_points_map(&obs);
+        assert_eq!(memory.points_last_turn, 1);
+        assert_eq!(
+            memory.known_points_map,
+            arr2(&[
+                [true, true, false, false],
+                [false, false, false, false],
+                [false, false, false, false],
+                [false, false, false, false]
+            ])
+        );
+        assert_eq!(
+            memory.points_map,
+            arr2(&[
+                [0., 1., 0., 0.],
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.]
+            ])
+        );
+
+        obs.units[0] = vec![
+            Unit::with_pos(Pos::new(1, 0)),
+            Unit::with_pos(Pos::new(1, 1)),
+        ];
+        obs.team_points = [3, 0];
+        memory.update_points_map(&obs);
+        assert_eq!(memory.points_last_turn, 3);
+        assert_eq!(
+            memory.known_points_map,
+            arr2(&[
+                [true, true, false, false],
+                [true, true, false, false],
+                [false, false, false, false],
+                [false, false, false, false]
+            ])
+        );
+        assert_eq!(
+            memory.points_map,
+            arr2(&[
+                [0., 1., 0., 0.],
+                [1., 1., 0., 0.],
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.]
+            ])
+        );
+
+        obs.units[0] = vec![
+            Unit::with_pos(Pos::new(0, 0)),
+            Unit::with_pos(Pos::new(2, 0)),
+            Unit::with_pos(Pos::new(2, 1)),
+        ];
+        obs.team_points = [4, 0];
+        memory.update_points_map(&obs);
+        assert_eq!(memory.points_last_turn, 4);
+        assert_eq!(
+            memory.known_points_map,
+            arr2(&[
+                [true, true, false, false],
+                [true, true, false, false],
+                [false, false, false, false],
+                [false, false, false, false]
+            ])
+        );
+        assert_eq!(
+            memory.points_map,
+            arr2(&[
+                [0., 1., 0., 0.],
+                [1., 1., 0., 0.],
+                [0.5, 0.5, 0., 0.],
+                [0., 0., 0., 0.]
+            ])
+        );
     }
 
     #[test]
-    #[ignore]
+    #[should_panic(expected = "unaccounted_new_points")]
+    fn test_update_points_map_panics() {
+        let map_size = [4, 4];
+        let mut memory = RelicNodeMemory::new(map_size);
+        let mut obs = Observation::default();
+        obs.match_steps = 1;
+        obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
+        obs.team_points = [1, 0];
+        memory.known_points_map[[0, 0]] = true;
+        memory.update_points_map(&obs);
+    }
+
+    #[test]
     fn test_register_all_relic_nodes_found() {
-        todo!()
+        let map_size = [5, 5];
+        let mut memory = RelicNodeMemory::new(map_size);
+        memory.relic_nodes = vec![Pos::new(0, 1)];
+        memory.points_map.fill(0.5);
+
+        memory.register_all_relic_nodes_found();
+        assert!(memory.all_nodes_registered);
+        assert_eq!(
+            memory.explored_nodes_map,
+            Array2::from_elem(map_size, true)
+        );
+        assert_eq!(
+            memory.points_map,
+            arr2(&[
+                [0.5, 0.5, 0.5, 0.5, 0.0],
+                [0.5, 0.5, 0.5, 0.5, 0.0],
+                [0.5, 0.5, 0.5, 0.5, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0]
+            ])
+        );
+        assert_eq!(
+            memory.known_points_map,
+            arr2(&[
+                [false, false, false, false, true],
+                [false, false, false, false, true],
+                [false, false, false, false, true],
+                [true, true, true, true, true],
+                [true, true, true, true, true],
+            ])
+        );
     }
 }

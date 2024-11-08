@@ -1673,6 +1673,7 @@ mod tests {
     }
 
     #[rstest]
+    #[ignore = "slow"]
     #[case("replay_2202956.json")]
     fn test_full_game(#[case] file_name: &str) {
         let path = Path::new(file!())

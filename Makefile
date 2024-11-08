@@ -13,6 +13,8 @@ rs-format:
 	cargo +nightly fmt
 rs-test:
 	cargo test
+rs-test-full:
+	cargo test -- --include-ignored
 rs-lint:
 	cargo clippy -- -D warnings
 rs-prepare: rs-format rs-test rs-lint
@@ -23,7 +25,7 @@ build:
 build-release:
 	maturin develop --release
 
-test: rs-test py-test
+test: rs-test-full py-test
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format test check
 
