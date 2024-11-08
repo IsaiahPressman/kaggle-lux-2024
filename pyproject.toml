@@ -14,6 +14,7 @@ dependencies = [
     "luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3#subdirectory=src",
     "tqdm>=4.66.6",
     "types-tqdm>=4.66.0.20240417",
+    "jax[cuda12]>=0.4.35",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"

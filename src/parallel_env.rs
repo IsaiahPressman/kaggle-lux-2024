@@ -1,4 +1,6 @@
+use crate::feature_engineering::energy_field_frequencies::ENERGY_FIELD_PROBABILITIES;
 use crate::feature_engineering::memory::Memory;
+use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
     KnownVariableParams, VariableParams, FIXED_PARAMS,
 };
@@ -15,39 +17,15 @@ type Done = bool;
 #[pyclass]
 pub struct ParallelEnv {
     n_envs: usize,
-    states: Vec<State>,
-    memories: Vec<[Memory; 2]>,
-    params: Vec<VariableParams>,
-    known_params: Vec<KnownVariableParams>,
+    env_data: Vec<EnvData>,
 }
 
 #[pymethods]
 impl ParallelEnv {
     #[new]
     fn new(n_envs: usize) -> Self {
-        let (states, (memories, (params, known_params))) = (0..n_envs)
-            .map(|_| {
-                let params = VariableParams::default();
-                let known_params = KnownVariableParams::from(params.clone());
-                (
-                    State::default(),
-                    (
-                        [
-                            Memory::new(FIXED_PARAMS.map_size),
-                            Memory::new(FIXED_PARAMS.map_size),
-                        ],
-                        (params, known_params),
-                    ),
-                )
-            })
-            .unzip();
-        Self {
-            n_envs,
-            states,
-            memories,
-            params,
-            known_params,
-        }
+        let env_data = (0..n_envs).map(|_| EnvData::default()).collect();
+        Self { n_envs, env_data }
     }
 
     fn soft_reset(&mut self) {
@@ -67,8 +45,9 @@ impl ParallelEnv {
         let mut obs: Vec<f32> = vec![0.; self.n_envs];
         let mut reward: Vec<Reward> = vec![(0, 0); self.n_envs];
         let mut done: Vec<Done> = vec![false; self.n_envs];
-        self.states
+        self.env_data
             .iter_mut()
+            .map(|ed| &mut ed.state)
             .zip_eq(obs.iter_mut())
             .zip_eq(reward.iter_mut())
             .zip_eq(done.iter_mut())
@@ -96,4 +75,37 @@ fn get_result_inplace(
     *obs = s.total_steps as f32;
     *reward = (1, 2);
     *done = true;
+}
+
+struct EnvData {
+    state: State,
+    memories: [Memory; 2],
+    params: VariableParams,
+    known_params: KnownVariableParams,
+}
+
+impl Default for EnvData {
+    fn default() -> Self {
+        let state = State::default();
+        let params = VariableParams::default();
+        let known_params = KnownVariableParams::from(params.clone());
+        let memories = [
+            Memory::new(
+                ENERGY_FIELD_PROBABILITIES.clone(),
+                &FIXED_PARAMS,
+                &PARAM_RANGES,
+            ),
+            Memory::new(
+                ENERGY_FIELD_PROBABILITIES.clone(),
+                &FIXED_PARAMS,
+                &PARAM_RANGES,
+            ),
+        ];
+        Self {
+            state,
+            memories,
+            params,
+            known_params,
+        }
+    }
 }

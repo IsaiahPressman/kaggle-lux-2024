@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use std::collections::BTreeMap;
 use std::fmt;
 
 pub const PROBABILITY_EPSILON: f64 = 1e-10;
@@ -8,7 +9,7 @@ fn is_valid_probability_sum(sum: f64) -> bool {
 }
 
 /// Represents a valid probability distribution over options
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Probabilities<T> {
     options: Vec<T>,
     probs: Vec<f64>,
@@ -23,16 +24,33 @@ impl<T: Default> Default for Probabilities<T> {
     }
 }
 
-impl<T: Copy> Probabilities<T> {
+impl<T> Probabilities<T>
+where
+    T: Copy + Ord,
+{
     pub fn new(options: Vec<T>, probs: Vec<f64>) -> Self {
         let result = Self { options, probs };
         result.validate();
         result
     }
 
-    pub fn new_uniform(options: Vec<T>) -> Self {
-        let probs = vec![1.0 / options.len() as f64; options.len()];
+    pub fn from_counts(options: Vec<T>, counts: Vec<usize>) -> Self {
+        let total = counts.iter().copied().sum::<usize>() as f64;
+        let (options, probs) = options
+            .into_iter()
+            .zip_eq(counts)
+            .map(|(opt, freq)| (opt, freq as f64 / total))
+            .unzip();
         Self::new(options, probs)
+    }
+
+    pub fn new_uniform(options: Vec<T>) -> Self {
+        let mut options_reduced: BTreeMap<T, usize> = BTreeMap::new();
+        for o in options.into_iter() {
+            *options_reduced.entry(o).or_default() += 1;
+        }
+        let (options, counts) = options_reduced.into_iter().unzip();
+        Self::from_counts(options, counts)
     }
 
     fn validate(&self) {
@@ -84,7 +102,7 @@ impl<T> TryFrom<Likelihoods<T>> for Probabilities<T> {
 }
 
 /// Represents the likelihoods of various options, where likelihood >= 0
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Likelihoods<T> {
     options: Vec<T>,
     weights: Vec<f64>,
@@ -155,6 +173,25 @@ impl<T> From<Probabilities<T>> for Likelihoods<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(vec![0, 1, 2, 3], vec![0, 1, 2, 3], vec![0.25; 4])]
+    #[case(vec![3, 0, 2, 1], vec![0, 1, 2, 3], vec![0.25; 4])]
+    #[case(
+        vec![0, 1, 0, 3, 3, 2],
+        vec![0, 1, 2, 3],
+        vec![2. / 6., 1. / 6., 1. / 6., 2. / 6.],
+    )]
+    fn test_new_uniform(
+        #[case] options: Vec<usize>,
+        #[case] expected_options: Vec<usize>,
+        #[case] expected_probs: Vec<f64>,
+    ) {
+        let probabilities = Probabilities::new_uniform(options);
+        assert_eq!(probabilities.options, expected_options);
+        assert_eq!(probabilities.probs, expected_probs);
+    }
 
     #[test]
     fn test_likelihoods_renormalize() {

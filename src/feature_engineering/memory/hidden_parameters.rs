@@ -3,11 +3,13 @@ use crate::feature_engineering::memory::probabilities::{
 };
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::estimate_vision_power_map;
+use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
-use crate::rules_engine::state::Observation;
+use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::Zip;
 use std::cmp::{max, min};
+use std::mem;
 
 const MIN_PROBABILITY: f64 = 1e-4;
 
@@ -16,25 +18,33 @@ pub struct HiddenParametersMemory {
     nebula_tile_vision_reduction_options: Vec<i32>,
     nebula_tile_vision_reduction_mask: Vec<bool>,
     nebula_tile_energy_reduction_probs: Probabilities<i32>,
-    unit_sap_dropoff_factor_probs: Probabilities<f32>,
-    unit_energy_void_dropoff_factor_probs: Probabilities<f32>,
+    my_unit_energies_last_turn: Vec<Option<i32>>,
+    energy_field_probs: Probabilities<i32>,
+    // TODO
+    // unit_sap_dropoff_factor_probs: Probabilities<f32>,
+    // unit_energy_void_factor_probs: Probabilities<f32>,
 }
 
 impl HiddenParametersMemory {
     pub fn new(
-        nebula_tile_vision_reduction_options: Vec<i32>,
-        nebula_tile_energy_reduction_probs: Probabilities<i32>,
-        unit_sap_dropoff_factor_probs: Probabilities<f32>,
-        unit_energy_void_dropoff_factor_probs: Probabilities<f32>,
+        param_ranges: &ParamRanges,
+        energy_field_probs: Probabilities<i32>,
+        max_units: usize,
     ) -> Self {
         let nebula_tile_vision_reduction_mask =
-            vec![true; nebula_tile_vision_reduction_options.len()];
+            vec![true; param_ranges.nebula_tile_vision_reduction.len()];
+        let nebula_tile_energy_reduction_probs = Probabilities::new_uniform(
+            param_ranges.nebula_tile_energy_reduction.clone(),
+        );
+        let my_unit_energies_last_turn = vec![None; max_units];
         Self {
-            nebula_tile_vision_reduction_options,
+            nebula_tile_vision_reduction_options: param_ranges
+                .nebula_tile_vision_reduction
+                .clone(),
             nebula_tile_vision_reduction_mask,
             nebula_tile_energy_reduction_probs,
-            unit_sap_dropoff_factor_probs,
-            unit_energy_void_dropoff_factor_probs,
+            energy_field_probs,
+            my_unit_energies_last_turn,
         }
     }
 
@@ -51,6 +61,43 @@ impl HiddenParametersMemory {
             .iter()
             .map(|mask| if *mask { weight } else { 0.0 })
             .collect()
+    }
+
+    pub fn get_nebula_tile_energy_reduction_weights(&self) -> Vec<f32> {
+        self.nebula_tile_energy_reduction_probs
+            .iter_probs()
+            .map(|p| p as f32)
+            .collect()
+    }
+
+    pub fn update_memory(
+        &mut self,
+        obs: &Observation,
+        last_actions: &[Action],
+        fixed_params: &FixedParams,
+        variable_params: &KnownVariableParams,
+    ) {
+        determine_nebula_tile_vision_reduction(
+            &mut self.nebula_tile_vision_reduction_mask,
+            &self.nebula_tile_vision_reduction_options,
+            obs,
+            fixed_params.map_size,
+            variable_params.unit_sensor_range,
+        );
+        self.nebula_tile_energy_reduction_probs =
+            estimate_nebula_tile_energy_reduction(
+                mem::take(&mut self.nebula_tile_energy_reduction_probs),
+                obs,
+                &self.my_unit_energies_last_turn,
+                last_actions,
+                &self.energy_field_probs,
+                fixed_params,
+                variable_params,
+            );
+        update_unit_energies(
+            &mut self.my_unit_energies_last_turn,
+            obs.get_my_units(),
+        );
     }
 }
 
@@ -95,17 +142,18 @@ fn determine_nebula_tile_vision_reduction(
     }
 }
 
+#[must_use]
 fn estimate_nebula_tile_energy_reduction(
-    mut unit_energies_last_turn: Vec<Option<i32>>,
     nebula_tile_energy_reduction_probs: Probabilities<i32>,
-    energy_field_probs: &Probabilities<i32>,
     obs: &Observation,
+    my_unit_energies_last_turn: &[Option<i32>],
+    last_actions: &[Action],
+    energy_field_probs: &Probabilities<i32>,
     fixed_params: &FixedParams,
     params: &KnownVariableParams,
-    last_actions: &[Action],
-) -> (Vec<Option<i32>>, Probabilities<i32>) {
+) -> Probabilities<i32> {
     // NB: This assumes that units don't take invalid actions (like moving into an asteroid)
-    let unit_energies_before_field = unit_energies_last_turn
+    let unit_energies_before_field = my_unit_energies_last_turn
         .iter()
         .zip_eq(last_actions)
         .map(|(e_opt, a)| {
@@ -168,19 +216,18 @@ fn estimate_nebula_tile_energy_reduction(
                 .for_each(|(n_weight, w)| *n_weight *= *w);
         }
     }
-    unit_energies_last_turn.fill(None);
-    obs.get_my_units()
-        .iter()
-        .for_each(|u| unit_energies_last_turn[u.id] = Some(u.energy));
-
     nebula_tile_energy_reduction_likelihoods
         .conservative_renormalize(MIN_PROBABILITY);
-    let nebula_tile_energy_reduction_probs =
-        nebula_tile_energy_reduction_likelihoods
-            .try_into()
-            .unwrap_or_else(|err| panic!("{}", err));
+    nebula_tile_energy_reduction_likelihoods
+        .try_into()
+        .unwrap_or_else(|err| panic!("{}", err))
+}
 
-    (unit_energies_last_turn, nebula_tile_energy_reduction_probs)
+fn update_unit_energies(unit_energies: &mut [Option<i32>], units: &[Unit]) {
+    unit_energies.fill(None);
+    units
+        .iter()
+        .for_each(|u| unit_energies[u.id] = Some(u.energy));
 }
 
 #[cfg(test)]
@@ -329,22 +376,15 @@ mod tests {
         let nebula_tile_energy_reduction_probs =
             Probabilities::new_uniform(vec![0, 1, 2]);
 
-        let (unit_energies_result, probs_result) =
-            estimate_nebula_tile_energy_reduction(
-                unit_energies_last_turn.clone(),
-                nebula_tile_energy_reduction_probs,
-                &energy_field_probs,
-                &obs,
-                &fixed_params,
-                &params,
-                &last_actions,
-            );
-        let mut expected_unit_energies =
-            vec![None; unit_energies_last_turn.len()];
-        my_units
-            .iter()
-            .for_each(|u| expected_unit_energies[u.id] = Some(u.energy));
-        assert_eq!(unit_energies_result, expected_unit_energies);
+        let probs_result = estimate_nebula_tile_energy_reduction(
+            nebula_tile_energy_reduction_probs,
+            &obs,
+            &unit_energies_last_turn,
+            &last_actions,
+            &energy_field_probs,
+            &fixed_params,
+            &params,
+        );
         for (result_p, expected_p) in
             probs_result.iter_probs().zip_eq(expected_probs)
         {

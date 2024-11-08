@@ -31,7 +31,7 @@ Fixed parameters:
 
 Parameters provided at game start:
 - unit_move_cost [1, 6)
-- unit_sap_cost [2, 5)
+- unit_sap_cost [30, 51)
 - unit_sap_range [3, 8)
 - unit_sensor_range [2, 5)
 
