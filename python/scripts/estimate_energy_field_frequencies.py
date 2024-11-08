@@ -103,5 +103,4 @@ def dump_frequencies(frequencies: list[Frequency], seed: int, path: Path) -> Non
 
 
 if __name__ == "__main__":
-    jax.config.update("jax_platform_name", "gpu")
     main()
