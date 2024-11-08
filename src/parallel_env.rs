@@ -1,5 +1,7 @@
-use crate::feature_engineering::memory::RelicNodeMemory;
-use crate::rules_engine::params::{KnownVariableParams, Params, MAP_SIZE};
+use crate::feature_engineering::memory::Memory;
+use crate::rules_engine::params::{
+    KnownVariableParams, VariableParams, FIXED_PARAMS,
+};
 use crate::rules_engine::state::State;
 use itertools::Itertools;
 use numpy::ndarray::Array5;
@@ -14,8 +16,8 @@ type Done = bool;
 pub struct ParallelEnv {
     n_envs: usize,
     states: Vec<State>,
-    memories: Vec<[RelicNodeMemory; 2]>,
-    params: Vec<Params>,
+    memories: Vec<[Memory; 2]>,
+    params: Vec<VariableParams>,
     known_params: Vec<KnownVariableParams>,
 }
 
@@ -25,14 +27,14 @@ impl ParallelEnv {
     fn new(n_envs: usize) -> Self {
         let (states, (memories, (params, known_params))) = (0..n_envs)
             .map(|_| {
-                let params = Params::default();
+                let params = VariableParams::default();
                 let known_params = KnownVariableParams::from(params.clone());
                 (
                     State::default(),
                     (
                         [
-                            RelicNodeMemory::new(MAP_SIZE),
-                            RelicNodeMemory::new(MAP_SIZE),
+                            Memory::new(FIXED_PARAMS.map_size),
+                            Memory::new(FIXED_PARAMS.map_size),
                         ],
                         (params, known_params),
                     ),

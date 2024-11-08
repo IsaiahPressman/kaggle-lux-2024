@@ -1,15 +1,17 @@
 use crate::rules_engine::action::Action;
-use crate::rules_engine::params::Params;
-use crate::rules_engine::state::{
-    EnergyNode, Pos, State, Unit, ASTEROID_TILE, EMPTY_TILE, NEBULA_TILE,
-};
+use crate::rules_engine::params::{FixedParams, VariableParams};
+use crate::rules_engine::state::{EnergyNode, Pos, State, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{arr2, Array2, Array3};
 use serde::Deserialize;
 
+const EMPTY_TILE: u8 = 0;
+const NEBULA_TILE: u8 = 1;
+const ASTEROID_TILE: u8 = 2;
+
 #[derive(Deserialize)]
 pub struct FullReplay {
-    pub params: Params,
+    pub params: CombinedParams,
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
@@ -20,7 +22,7 @@ impl FullReplay {
         let mut result = Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
             let game_over = obs.team_wins.iter().sum::<u32>()
-                >= self.params.match_count_per_episode;
+                >= self.params.fixed.match_count_per_episode;
             let mut state = State {
                 units: obs.get_units(),
                 asteroids: obs.get_asteroids(),
@@ -31,7 +33,7 @@ impl FullReplay {
                 ),
                 relic_node_locations: obs.get_relic_node_locations(),
                 relic_node_points_map: obs
-                    .get_relic_node_points_map(self.params.get_map_size()),
+                    .get_relic_node_points_map(self.params.fixed.map_size),
                 team_points: obs.team_points,
                 team_wins: obs.team_wins,
                 total_steps: obs.steps,
@@ -63,7 +65,11 @@ impl FullReplay {
             .iter()
             .map(|obs| {
                 Array3::from_shape_vec(
-                    (2, self.params.map_width, self.params.map_height),
+                    (
+                        2,
+                        self.params.fixed.map_width,
+                        self.params.fixed.map_height,
+                    ),
                     obs.vision_power_map
                         .iter()
                         .flatten()
@@ -81,7 +87,7 @@ impl FullReplay {
             .iter()
             .map(|obs| {
                 Array2::from_shape_vec(
-                    self.params.get_map_size(),
+                    self.params.fixed.map_size,
                     obs.map_features.energy.iter().flatten().copied().collect(),
                 )
                 .unwrap()
@@ -95,6 +101,14 @@ impl FullReplay {
             .map(|acts| acts.clone().into_actions())
             .collect()
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CombinedParams {
+    #[serde(flatten)]
+    pub fixed: FixedParams,
+    #[serde(flatten)]
+    pub variable: VariableParams,
 }
 
 #[derive(Clone, Deserialize)]

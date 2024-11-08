@@ -2,10 +2,6 @@ use itertools::Itertools;
 use numpy::ndarray::Array2;
 use std::cmp::{max, min};
 
-pub const EMPTY_TILE: u8 = 0;
-pub const NEBULA_TILE: u8 = 1;
-pub const ASTEROID_TILE: u8 = 2;
-
 fn sin_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (d * x + y).sin() * z
 }
@@ -291,7 +287,7 @@ impl Observation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules_engine::params::{MAP_HEIGHT, MAP_SIZE, MAP_WIDTH};
+    use crate::rules_engine::params::FIXED_PARAMS;
 
     #[test]
     fn test_pos_wrapped_translate() {
@@ -326,9 +322,15 @@ mod tests {
 
     #[test]
     fn test_pos_reflect() {
-        for (x, y) in (0..MAP_WIDTH).cartesian_product(0..MAP_HEIGHT) {
+        for (x, y) in (0..FIXED_PARAMS.map_width)
+            .cartesian_product(0..FIXED_PARAMS.map_height)
+        {
             let pos = Pos::new(x, y);
-            assert_eq!(pos.reflect(MAP_SIZE).reflect(MAP_SIZE), pos);
+            assert_eq!(
+                pos.reflect(FIXED_PARAMS.map_size)
+                    .reflect(FIXED_PARAMS.map_size),
+                pos
+            );
         }
 
         let map_size = [24, 24];

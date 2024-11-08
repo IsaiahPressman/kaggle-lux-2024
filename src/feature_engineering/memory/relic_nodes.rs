@@ -1,4 +1,4 @@
-use crate::rules_engine::params::MAX_RELIC_NODES;
+use crate::rules_engine::params::FIXED_PARAMS;
 use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, Zip};
@@ -34,7 +34,7 @@ impl RelicNodeMemory {
     }
 
     fn check_if_all_relic_nodes_found(&self) -> bool {
-        self.relic_nodes.len() >= MAX_RELIC_NODES
+        self.relic_nodes.len() >= FIXED_PARAMS.max_relic_nodes
             || self.explored_nodes_map.iter().all(|explored| *explored)
     }
 

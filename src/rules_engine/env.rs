@@ -1,5 +1,5 @@
 use super::action::Action;
-use super::params::Params;
+use super::params::{FixedParams, VariableParams, FIXED_PARAMS};
 use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, Axis};
@@ -11,13 +11,14 @@ pub fn step(
     state: &mut State,
     rng: &mut ThreadRng,
     actions: &[Vec<Action>; 2],
-    params: &Params,
+    params: &VariableParams,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
 ) -> ([Observation; 2], GameResult) {
     if state.done {
         panic!("Game over, need to reset State")
     }
 
+    let fixed_params = FIXED_PARAMS;
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -25,29 +26,39 @@ pub fn step(
     let actions = get_relevant_actions(actions, &state.units);
     move_units(
         &mut state.units,
-        &get_map_mask(&state.asteroids, params.get_map_size()),
+        &get_map_mask(&state.asteroids, fixed_params.map_size),
         &actions,
+        fixed_params.map_size,
         params,
     );
     let energy_before_sapping = get_unit_energies(&state.units);
-    sap_units(&mut state.units, &energy_before_sapping, &actions, params);
+    sap_units(
+        &mut state.units,
+        &energy_before_sapping,
+        &actions,
+        fixed_params.map_size,
+        params,
+    );
     resolve_collisions_and_energy_void_fields(
         &mut state.units,
         &energy_before_sapping,
+        fixed_params.map_size,
         params,
     );
     apply_energy_field(
         &mut state.units,
-        &get_energy_field(&state.energy_nodes, params),
-        &get_map_mask(&state.nebulae, params.get_map_size()),
+        &get_energy_field(&state.energy_nodes, &fixed_params),
+        &get_map_mask(&state.nebulae, fixed_params.map_size),
+        &fixed_params,
         params,
     );
-    if state.match_steps % params.spawn_rate == 0 {
-        spawn_units(&mut state.units, params)
+    if state.match_steps % fixed_params.spawn_rate == 0 {
+        spawn_units(&mut state.units, &fixed_params)
     }
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
         &state.nebulae,
+        fixed_params.map_size,
         params,
     );
     move_space_objects(
@@ -55,6 +66,7 @@ pub fn step(
         &energy_node_deltas.unwrap_or_else(|| {
             get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
         }),
+        fixed_params.map_size,
         params,
     );
     update_relic_scores(
@@ -62,13 +74,13 @@ pub fn step(
         &state.units,
         &state.relic_node_points_map,
     );
-    let match_winner = get_match_result(state, params);
+    let match_winner = get_match_result(state, fixed_params.max_steps_in_match);
     step_match(state, match_winner);
     let game_winner = step_game(
         &mut state.total_steps,
         &mut state.done,
         &state.team_wins,
-        params,
+        &fixed_params,
     );
     (
         get_observation(state, &vision_power_map),
@@ -101,7 +113,8 @@ fn move_units(
     units: &mut [Vec<Unit>; 2],
     asteroid_mask: &Array2<bool>,
     actions: &[Vec<Action>; 2],
-    params: &Params,
+    map_size: [usize; 2],
+    params: &VariableParams,
 ) {
     for (unit, action) in units
         .iter_mut()
@@ -120,13 +133,12 @@ fn move_units(
         };
         // This behavior is almost certainly a bug in the main simulator
         if deltas[0] < 0 || deltas[1] < 0 {
-            let wrapped_pos =
-                unit.pos.wrapped_translate(deltas, params.get_map_size());
+            let wrapped_pos = unit.pos.wrapped_translate(deltas, map_size);
             if asteroid_mask[wrapped_pos.as_index()] {
                 continue;
             }
         };
-        let new_pos = unit.pos.bounded_translate(deltas, params.get_map_size());
+        let new_pos = unit.pos.bounded_translate(deltas, map_size);
         if asteroid_mask[new_pos.as_index()] {
             continue;
         }
@@ -154,7 +166,8 @@ fn sap_units(
     units: &mut [Vec<Unit>; 2],
     unit_energies: &[Vec<i32>; 2],
     actions: &[Vec<Action>; 2],
-    params: &Params,
+    map_size: [usize; 2],
+    params: &VariableParams,
 ) {
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut sap_count = vec![0; units[opp].len()];
@@ -179,7 +192,7 @@ fn sap_units(
         {
             let unit = &mut units[team][unit_idx];
             let Some(target_pos) =
-                unit.pos.maybe_translate(sap_deltas, params.get_map_size())
+                unit.pos.maybe_translate(sap_deltas, map_size)
             else {
                 continue;
             };
@@ -209,21 +222,16 @@ fn sap_units(
 fn resolve_collisions_and_energy_void_fields(
     units: &mut [Vec<Unit>; 2],
     unit_energies: &[Vec<i32>; 2],
-    params: &Params,
+    map_size: [usize; 2],
+    params: &VariableParams,
 ) {
-    let unit_aggregate_energy_void_map = get_unit_aggregate_energy_void_map(
-        units,
-        unit_energies,
-        params.get_map_size(),
-    );
+    let unit_aggregate_energy_void_map =
+        get_unit_aggregate_energy_void_map(units, unit_energies, map_size);
     // TODO: unit_counts_map and aggregate_energy_map are sparse - maybe could use a better
     //  datastructure? BTreeMap? Vec?
-    let unit_counts_map = get_unit_counts_map(units, params.get_map_size());
-    let unit_aggregate_energy_map = get_unit_aggregate_energy_map(
-        units,
-        unit_energies,
-        params.get_map_size(),
-    );
+    let unit_counts_map = get_unit_counts_map(units, map_size);
+    let unit_aggregate_energy_map =
+        get_unit_aggregate_energy_map(units, unit_energies, map_size);
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut to_remove = Vec::new();
         for (i, unit) in units[team].iter_mut().enumerate() {
@@ -314,7 +322,8 @@ fn apply_energy_field(
     units: &mut [Vec<Unit>; 2],
     energy_field: &Array2<i32>,
     nebula_mask: &Array2<bool>,
-    params: &Params,
+    fixed_params: &FixedParams,
+    params: &VariableParams,
 ) {
     for (unit, energy_gain) in units
         .iter_mut()
@@ -331,19 +340,20 @@ fn apply_energy_field(
         .filter(|(u, energy_gain)| u.energy >= 0 || u.energy + energy_gain >= 0)
     {
         unit.energy = min(
-            max(unit.energy + energy_gain, params.min_unit_energy),
-            params.max_unit_energy,
+            max(unit.energy + energy_gain, fixed_params.min_unit_energy),
+            fixed_params.max_unit_energy,
         )
     }
 }
 
 fn get_energy_field(
     energy_nodes: &[EnergyNode],
-    params: &Params,
+    fixed_params: &FixedParams,
 ) -> Array2<i32> {
-    let [width, height] = params.get_map_size();
+    let width = fixed_params.map_width;
+    let height = fixed_params.map_height;
     let mut energy_field_3d =
-        Array3::zeros((params.max_energy_nodes, width, height));
+        Array3::zeros((fixed_params.max_energy_nodes, width, height));
     for (((i, node), x), y) in energy_nodes
         .iter()
         .enumerate()
@@ -362,8 +372,8 @@ fn get_energy_field(
         .map(|&v| v.round_ties_even() as i32)
         .map(|&v| {
             min(
-                max(v, params.min_energy_per_tile),
-                params.max_energy_per_tile,
+                max(v, fixed_params.min_energy_per_tile),
+                fixed_params.max_energy_per_tile,
             )
         })
 }
@@ -376,11 +386,11 @@ fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
     sum_of_squares.sqrt()
 }
 
-fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
+fn spawn_units(units: &mut [Vec<Unit>; 2], fixed_params: &FixedParams) {
     for (team, team_units) in units
         .iter_mut()
         .enumerate()
-        .filter(|(_, team_units)| team_units.len() < params.max_units)
+        .filter(|(_, team_units)| team_units.len() < fixed_params.max_units)
     {
         let u_id = if team_units.is_empty() || team_units[0].id > 0 {
             0
@@ -407,11 +417,14 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], params: &Params) {
 
         let pos = match team {
             0 => Pos::new(0, 0),
-            1 => Pos::new(params.map_width - 1, params.map_height - 1),
+            1 => Pos::new(
+                fixed_params.map_width - 1,
+                fixed_params.map_height - 1,
+            ),
             n => panic!("this town ain't big enough for the {} of us", n),
         };
 
-        let new_unit = Unit::new(pos, params.init_unit_energy, u_id);
+        let new_unit = Unit::new(pos, fixed_params.init_unit_energy, u_id);
         team_units.insert(u_id, new_unit);
     }
 }
@@ -435,12 +448,13 @@ pub fn estimate_vision_power_map(
 fn compute_vision_power_map_from_params(
     units: &[Vec<Unit>],
     nebulae: &[Pos],
-    params: &Params,
+    map_size: [usize; 2],
+    params: &VariableParams,
 ) -> Array3<i32> {
     compute_vision_power_map(
         units,
         nebulae,
-        params.get_map_size(),
+        map_size,
         params.unit_sensor_range,
         params.nebula_tile_vision_reduction,
     )
@@ -485,7 +499,8 @@ fn compute_vision_power_map(
 fn move_space_objects(
     state: &mut State,
     energy_node_deltas: &[[isize; 2]],
-    params: &Params,
+    map_size: [usize; 2],
+    params: &VariableParams,
 ) {
     if state.total_steps as f32 * params.nebula_tile_drift_speed % 1.0 == 0.0
         && params.nebula_tile_drift_speed != 0.0
@@ -495,7 +510,7 @@ fn move_space_objects(
             -params.nebula_tile_drift_speed.signum() as isize,
         ];
         for pos in state.asteroids.iter_mut().chain(state.nebulae.iter_mut()) {
-            *pos = pos.wrapped_translate(deltas, params.get_map_size())
+            *pos = pos.wrapped_translate(deltas, map_size)
         }
     }
 
@@ -507,7 +522,7 @@ fn move_space_objects(
             .chain(energy_node_deltas.iter().map(|[dx, dy]| [-dy, -dx]))
             .zip_eq(state.energy_nodes.iter_mut())
         {
-            node.pos = node.pos.bounded_translate(deltas, params.get_map_size())
+            node.pos = node.pos.bounded_translate(deltas, map_size)
         }
     }
 }
@@ -515,7 +530,7 @@ fn move_space_objects(
 fn get_random_energy_node_deltas(
     rng: &mut ThreadRng,
     energy_node_count: usize,
-    params: &Params,
+    params: &VariableParams,
 ) -> Vec<[isize; 2]> {
     let uniform = Uniform::new(
         -params.energy_node_drift_magnitude,
@@ -549,8 +564,8 @@ fn update_relic_scores(
     }
 }
 
-fn get_match_result(state: &State, params: &Params) -> Option<u8> {
-    if state.match_steps < params.max_steps_in_match {
+fn get_match_result(state: &State, max_steps_in_match: u32) -> Option<u8> {
+    if state.match_steps < max_steps_in_match {
         return None;
     }
     match state.team_points[0].cmp(&state.team_points[1]) {
@@ -589,7 +604,7 @@ fn step_game(
     total_steps: &mut u32,
     game_over: &mut bool,
     team_wins: &[u32; 2],
-    params: &Params,
+    fixed_params: &FixedParams,
 ) -> Option<u8> {
     // NB: Early termination is not used in the original implementation
     *total_steps += 1;
@@ -604,7 +619,8 @@ fn step_game(
     }
 
     if *total_steps
-        < (params.max_steps_in_match + 1) * params.match_count_per_episode
+        < (fixed_params.max_steps_in_match + 1)
+            * fixed_params.match_count_per_episode
     {
         return None;
     }
@@ -683,7 +699,6 @@ fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules_engine::params::{MAP_SIZE, MAX_RELIC_NODES};
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3, stack};
@@ -696,7 +711,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Game over")]
     fn test_step_panics_without_reset() {
-        let params = Params::default();
+        let params = VariableParams::default();
         let mut state = State::default();
         state.done = true;
         step(
@@ -710,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_move_units() {
-        let params = Params::default();
+        let params = VariableParams::default();
         let mut units = [
             vec![
                 // Unit can't move without energy, costs no energy
@@ -734,7 +749,7 @@ mod tests {
             ],
         ];
         let asteroid_mask =
-            get_map_mask(&vec![Pos::new(23, 22)], params.get_map_size());
+            get_map_mask(&vec![Pos::new(23, 22)], FIXED_PARAMS.map_size);
         let actions = [
             vec![Action::Left, Action::Left, Action::Right],
             vec![Action::Down, Action::Up],
@@ -759,7 +774,13 @@ mod tests {
                 Unit::with_pos_and_energy(Pos::new(23, 23), 100),
             ],
         ];
-        move_units(&mut units, &asteroid_mask, &actions, &params);
+        move_units(
+            &mut units,
+            &asteroid_mask,
+            &actions,
+            FIXED_PARAMS.map_size,
+            &params,
+        );
         assert_eq!(units, expected_moved_units);
     }
 
@@ -777,7 +798,7 @@ mod tests {
 
     #[test]
     fn test_sap_units() {
-        let mut params = Params::default();
+        let mut params = VariableParams::default();
         let sap_cost = 5;
         params.unit_sap_cost = sap_cost;
         params.unit_sap_dropoff_factor = 0.5;
@@ -844,13 +865,19 @@ mod tests {
             ],
         ];
         let unit_energies = get_unit_energies(&units);
-        sap_units(&mut units, &unit_energies, &actions, &params);
+        sap_units(
+            &mut units,
+            &unit_energies,
+            &actions,
+            FIXED_PARAMS.map_size,
+            &params,
+        );
         assert_eq!(units, expected_sapped_units);
     }
 
     #[test]
     fn test_resolve_collisions_and_energy_void_fields() {
-        let mut params = Params::default();
+        let mut params = VariableParams::default();
         params.unit_energy_void_factor = 0.25;
         let mut units = [
             vec![
@@ -888,6 +915,7 @@ mod tests {
         resolve_collisions_and_energy_void_fields(
             &mut units,
             &unit_energies,
+            FIXED_PARAMS.map_size,
             &params,
         );
         assert_eq!(units, expected_result);
@@ -964,10 +992,11 @@ mod tests {
 
     #[test]
     fn test_apply_energy_field() {
-        let mut params = Params::default();
+        let mut fixed_params = FIXED_PARAMS;
+        fixed_params.min_unit_energy = 0;
+        fixed_params.max_unit_energy = 100;
+        let mut params = VariableParams::default();
         params.nebula_tile_energy_reduction = 10;
-        params.min_unit_energy = 0;
-        params.max_unit_energy = 100;
         let energy_field = arr2(&[[-10, 2], [5, 10]]);
         let nebula_mask = arr2(&[[false, false], [true, false]]);
         let mut units = [
@@ -1003,11 +1032,11 @@ mod tests {
                 // Power loss (due to fields or nebulas) cannot bring a unit below min_unit_energy
                 Unit::with_pos_and_energy(
                     Pos::new(0, 0),
-                    params.min_unit_energy,
+                    fixed_params.min_unit_energy,
                 ),
                 Unit::with_pos_and_energy(
                     Pos::new(1, 0),
-                    params.min_unit_energy,
+                    fixed_params.min_unit_energy,
                 ),
             ],
             vec![
@@ -1016,11 +1045,17 @@ mod tests {
                 // Units cannot gain power beyond max_unit_energy
                 Unit::with_pos_and_energy(
                     Pos::new(1, 1),
-                    params.max_unit_energy,
+                    fixed_params.max_unit_energy,
                 ),
             ],
         ];
-        apply_energy_field(&mut units, &energy_field, &nebula_mask, &params);
+        apply_energy_field(
+            &mut units,
+            &energy_field,
+            &nebula_mask,
+            &fixed_params,
+            &params,
+        );
         assert_eq!(units, expected_result);
     }
 
@@ -1045,7 +1080,6 @@ mod tests {
         let json_data = fs::read_to_string(path).unwrap();
         let test_case: EnergyFieldTestCase =
             serde_json::from_str(&json_data).unwrap();
-        let params = Params::default();
         let energy_nodes: Vec<EnergyNode> = test_case
             .energy_nodes
             .iter()
@@ -1056,11 +1090,11 @@ mod tests {
             })
             .collect();
         let expected_result = Array2::from_shape_vec(
-            params.get_map_size(),
+            FIXED_PARAMS.map_size,
             test_case.energy_field.iter().flatten().copied().collect(),
         )
         .unwrap();
-        let result = get_energy_field(&energy_nodes, &params);
+        let result = get_energy_field(&energy_nodes, &FIXED_PARAMS);
         println!("{}", result.clone() - expected_result.clone());
         assert_eq!(result, expected_result);
     }
@@ -1081,7 +1115,7 @@ mod tests {
 
     #[test]
     fn test_spawn_units_id_0() {
-        let params = Params::default();
+        let fixed_params = FIXED_PARAMS;
         let mut units = [
             // Empty vector; should spawn unit with id 0
             vec![],
@@ -1090,20 +1124,20 @@ mod tests {
         ];
         let expected_result = [
             // Empty vector; should spawn unit with id 0
-            vec![Unit::new(Pos::new(0, 0), params.init_unit_energy, 0)],
+            vec![Unit::new(Pos::new(0, 0), fixed_params.init_unit_energy, 0)],
             // Vector missing id 0; add it
             vec![
-                Unit::new(Pos::new(23, 23), params.init_unit_energy, 0),
+                Unit::new(Pos::new(23, 23), fixed_params.init_unit_energy, 0),
                 Unit::new(Pos::new(1, 1), 42, 1),
             ],
         ];
-        spawn_units(&mut units, &params);
+        spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
     }
 
     #[test]
     fn test_spawn_units_id_last_and_max_units() {
-        let params = Params::default();
+        let fixed_params = FIXED_PARAMS;
         let mut units = [
             // Contains all IDs; should add next one
             vec![
@@ -1112,7 +1146,7 @@ mod tests {
                 Unit::new(Pos::new(1, 1), -5, 2),
             ],
             // Contains max units; don't add any
-            (0..params.max_units)
+            (0..fixed_params.max_units)
                 .map(|id| Unit::new(Pos::new(9, 9), 42, id))
                 .collect(),
         ];
@@ -1122,18 +1156,18 @@ mod tests {
                 Unit::new(Pos::new(1, 1), -5, 0),
                 Unit::new(Pos::new(1, 1), -5, 1),
                 Unit::new(Pos::new(1, 1), -5, 2),
-                Unit::new(Pos::new(0, 0), params.init_unit_energy, 3),
+                Unit::new(Pos::new(0, 0), fixed_params.init_unit_energy, 3),
             ],
             // Contains max units; don't add any
             units[1].clone(),
         ];
-        spawn_units(&mut units, &params);
+        spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
     }
 
     #[test]
     fn test_spawn_units_inserts_unit_id() {
-        let params = Params::default();
+        let fixed_params = FIXED_PARAMS;
         let mut units = [
             // Insert unit at correct location
             vec![
@@ -1152,7 +1186,7 @@ mod tests {
             // Insert unit at correct location
             vec![
                 Unit::new(Pos::new(1, 1), 42, 0),
-                Unit::new(Pos::new(0, 0), params.init_unit_energy, 1),
+                Unit::new(Pos::new(0, 0), fixed_params.init_unit_energy, 1),
                 Unit::new(Pos::new(1, 1), 42, 2),
                 Unit::new(Pos::new(1, 1), 42, 4),
             ],
@@ -1160,19 +1194,19 @@ mod tests {
             vec![
                 Unit::new(Pos::new(9, 9), 42, 0),
                 Unit::new(Pos::new(9, 9), 42, 1),
-                Unit::new(Pos::new(23, 23), params.init_unit_energy, 2),
+                Unit::new(Pos::new(23, 23), fixed_params.init_unit_energy, 2),
                 Unit::new(Pos::new(9, 9), 42, 4),
             ],
         ];
-        spawn_units(&mut units, &params);
+        spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
     }
 
     #[test]
     fn test_compute_vision_power_map_one_unit() {
-        let mut params = Params::default();
-        params.map_width = 5;
-        params.map_height = 5;
+        let mut fixed_params = FIXED_PARAMS;
+        fixed_params.set_map_size([5, 5]);
+        let mut params = VariableParams::default();
         params.unit_sensor_range = 1;
         let units = [
             vec![Unit::with_pos(Pos::new(2, 2))],
@@ -1195,16 +1229,21 @@ mod tests {
             ],
         ]);
         assert_eq!(
-            compute_vision_power_map_from_params(&units, &Vec::new(), &params),
+            compute_vision_power_map_from_params(
+                &units,
+                &Vec::new(),
+                fixed_params.map_size,
+                &params
+            ),
             expected_result
         );
     }
 
     #[test]
     fn test_compute_vision_power_map_handles_edge_of_map() {
-        let mut params = Params::default();
-        params.map_width = 3;
-        params.map_height = 3;
+        let mut fixed_params = FIXED_PARAMS;
+        fixed_params.set_map_size([3, 3]);
+        let mut params = VariableParams::default();
         params.unit_sensor_range = 1;
         let units = [
             vec![Unit::with_pos(Pos::new(0, 0))],
@@ -1215,16 +1254,21 @@ mod tests {
             [[0, 0, 0], [0, 1, 1], [0, 1, 2]],
         ]);
         assert_eq!(
-            compute_vision_power_map_from_params(&units, &Vec::new(), &params),
+            compute_vision_power_map_from_params(
+                &units,
+                &Vec::new(),
+                fixed_params.map_size,
+                &params
+            ),
             expected_result
         );
     }
 
     #[test]
     fn test_compute_vision_power_map_is_additive_with_nebulae() {
-        let mut params = Params::default();
-        params.map_width = 5;
-        params.map_height = 5;
+        let mut fixed_params = FIXED_PARAMS;
+        fixed_params.set_map_size([5, 5]);
+        let mut params = VariableParams::default();
         params.unit_sensor_range = 1;
         params.nebula_tile_vision_reduction = 5;
         let units = [
@@ -1255,14 +1299,19 @@ mod tests {
             ],
         ]);
         assert_eq!(
-            compute_vision_power_map_from_params(&units, &nebulae, &params),
+            compute_vision_power_map_from_params(
+                &units,
+                &nebulae,
+                fixed_params.map_size,
+                &params
+            ),
             expected_result
         );
     }
 
     #[test]
     fn test_move_space_objects() {
-        let mut params = Params::default();
+        let mut params = VariableParams::default();
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
@@ -1303,7 +1352,12 @@ mod tests {
             EnergyNode::new_at(Pos::new(10, 17)),
             EnergyNode::new_at(Pos::new(0, 0)),
         ];
-        move_space_objects(&mut state, &energy_node_deltas, &params);
+        move_space_objects(
+            &mut state,
+            &energy_node_deltas,
+            FIXED_PARAMS.map_size,
+            &params,
+        );
         assert_eq!(state.asteroids, expected_asteroids);
         assert_eq!(state.nebulae, expected_nebulae);
         assert_eq!(state.energy_nodes, expected_energy_nodes);
@@ -1311,7 +1365,7 @@ mod tests {
 
     #[test]
     fn test_move_space_objects_no_op() {
-        let mut params = Params::default();
+        let mut params = VariableParams::default();
         params.nebula_tile_drift_speed = -0.05;
         params.energy_node_drift_speed = 0.02;
         params.energy_node_drift_magnitude = 5.0;
@@ -1324,7 +1378,12 @@ mod tests {
         ];
         state.total_steps = 7;
         let orig_state = state.clone();
-        move_space_objects(&mut state, &[[-1, 2]], &params);
+        move_space_objects(
+            &mut state,
+            &[[-1, 2]],
+            FIXED_PARAMS.map_size,
+            &params,
+        );
         assert_eq!(state, orig_state);
     }
 
@@ -1355,45 +1414,45 @@ mod tests {
 
     #[test]
     fn test_get_match_result() {
-        let params = Params::default();
+        let max_steps_in_match = FIXED_PARAMS.max_steps_in_match;
         let mut state = State::default();
         state.team_points = [25, 24];
-        state.match_steps = params.max_steps_in_match - 1;
-        let result = get_match_result(&state, &params);
+        state.match_steps = max_steps_in_match - 1;
+        let result = get_match_result(&state, max_steps_in_match);
         assert!(result.is_none());
 
         state.match_steps += 1;
-        let result = get_match_result(&state, &params);
+        let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(0));
 
         state.team_points = [25, 26];
-        let result = get_match_result(&state, &params);
+        let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(1));
     }
 
     #[test]
     fn test_get_match_result_tiebreaks_points() {
-        let params = Params::default();
+        let max_steps_in_match = FIXED_PARAMS.max_steps_in_match;
         let mut state = State::default();
         state.team_points = [10, 10];
-        state.match_steps = params.max_steps_in_match;
+        state.match_steps = max_steps_in_match;
         state.units = [
             vec![Unit::with_energy(20), Unit::with_energy(30)],
             vec![Unit::with_energy(49)],
         ];
-        let result = get_match_result(&state, &params);
+        let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(0));
 
         state.units = [
             vec![Unit::with_energy(20), Unit::with_energy(30)],
             vec![Unit::with_energy(51)],
         ];
-        let result = get_match_result(&state, &params);
+        let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(1));
 
         // Ties favor player 1
         state.units = [vec![], vec![]];
-        let result = get_match_result(&state, &params);
+        let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(0));
     }
 
@@ -1424,53 +1483,53 @@ mod tests {
 
     #[test]
     fn test_step_game() {
-        let params = Params::default();
-        let start_step = (params.max_steps_in_match + 1)
-            * params.match_count_per_episode
+        let fixed_params = FIXED_PARAMS;
+        let start_step = (fixed_params.max_steps_in_match + 1)
+            * fixed_params.match_count_per_episode
             - 2;
         let mut total_steps = start_step;
         let mut game_over = false;
         let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 2], &params);
+            step_game(&mut total_steps, &mut game_over, &[2, 2], &fixed_params);
         assert_eq!(total_steps, start_step + 1);
         assert!(result.is_none());
         assert!(!game_over);
 
         let result =
-            step_game(&mut total_steps, &mut game_over, &[3, 2], &params);
+            step_game(&mut total_steps, &mut game_over, &[3, 2], &fixed_params);
         assert_eq!(result, Some(0));
         assert!(game_over);
 
         total_steps -= 1;
         game_over = false;
         let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 3], &params);
+            step_game(&mut total_steps, &mut game_over, &[2, 3], &fixed_params);
         assert_eq!(result, Some(1));
         assert!(game_over);
     }
 
     #[test]
     fn test_step_game_finishes_early() {
-        let params = Params::default();
+        let fixed_params = FIXED_PARAMS;
 
         let mut total_steps = 0;
         let mut game_over = false;
         let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 1], &params);
+            step_game(&mut total_steps, &mut game_over, &[2, 1], &fixed_params);
         assert!(result.is_none());
         assert!(!game_over);
 
         let mut total_steps = 0;
         let mut game_over = false;
         let result =
-            step_game(&mut total_steps, &mut game_over, &[3, 0], &params);
+            step_game(&mut total_steps, &mut game_over, &[3, 0], &fixed_params);
         assert_eq!(result, Some(0));
         assert!(game_over);
 
         let mut total_steps = 0;
         let mut game_over = false;
         let result =
-            step_game(&mut total_steps, &mut game_over, &[1, 3], &params);
+            step_game(&mut total_steps, &mut game_over, &[1, 3], &fixed_params);
         assert_eq!(result, Some(1));
         assert!(game_over);
     }
@@ -1478,11 +1537,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "Team wins tied")]
     fn test_step_game_panics() {
-        let params = Params::default();
-        let mut total_steps = (params.max_steps_in_match + 1)
-            * params.match_count_per_episode
+        let fixed_params = FIXED_PARAMS;
+        let mut total_steps = (fixed_params.max_steps_in_match + 1)
+            * fixed_params.match_count_per_episode
             - 1;
-        step_game(&mut total_steps, &mut false, &[2, 2], &params);
+        step_game(&mut total_steps, &mut false, &[2, 2], &fixed_params);
     }
 
     #[test]
@@ -1629,9 +1688,8 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut game_over = false;
 
-        // Assert some constants are correct
-        assert_eq!(full_replay.params.get_map_size(), MAP_SIZE);
-        assert_eq!(full_replay.params.max_relic_nodes, MAX_RELIC_NODES);
+        // Assert fixed params are correct
+        assert_eq!(full_replay.params.fixed, FIXED_PARAMS);
 
         // Run the whole game checking the simulation matches on each step
         for (((s_next_s, actions), vision_power_map), energy_field) in
@@ -1645,7 +1703,10 @@ mod tests {
                 panic!()
             };
             assert_eq!(
-                get_energy_field(&state.energy_nodes, &full_replay.params),
+                get_energy_field(
+                    &state.energy_nodes,
+                    &full_replay.params.fixed
+                ),
                 energy_field
             );
 
@@ -1655,7 +1716,7 @@ mod tests {
                 &mut state,
                 &mut rng,
                 actions,
-                &full_replay.params,
+                &full_replay.params.variable,
                 Some(
                     energy_node_deltas[0..energy_node_deltas.len() / 2].into(),
                 ),

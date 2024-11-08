@@ -1,4 +1,4 @@
-use crate::rules_engine::params::{MAP_HEIGHT, MAP_WIDTH, TEAMS};
+use crate::rules_engine::params::{FIXED_PARAMS, TEAMS};
 use crate::rules_engine::state::{Observation, Unit};
 use numpy::ndarray::{Array4, ArrayViewMut2, ArrayViewMut3, Axis};
 use strum::{EnumCount, IntoEnumIterator};
@@ -27,7 +27,12 @@ const UNIT_ENERGY_NORM: f32 = 400.0;
 
 /// Returns an array of shape (teams, channels, 24, 24)
 pub fn basic_obs_space(observations: [Observation; 2]) -> Array4<f32> {
-    let mut out = Array4::zeros((TEAMS, Feature::COUNT, MAP_WIDTH, MAP_HEIGHT));
+    let mut out = Array4::zeros((
+        TEAMS,
+        Feature::COUNT,
+        FIXED_PARAMS.map_width,
+        FIXED_PARAMS.map_height,
+    ));
     for (team, obs) in observations.iter().enumerate() {
         write_team_obs(&mut out.index_axis_mut(Axis(0), team), team, obs);
     }
