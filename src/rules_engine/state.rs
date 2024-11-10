@@ -1,3 +1,4 @@
+use crate::rules_engine::params::FIXED_PARAMS;
 use itertools::Itertools;
 use numpy::ndarray::Array2;
 use std::cmp::{max, min};
@@ -106,7 +107,7 @@ impl From<Pos> for [usize; 2] {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Unit {
     pub pos: Pos,
     pub energy: i32,
@@ -257,10 +258,15 @@ impl Observation {
         Observation {
             team_id,
             sensor_mask,
-            units: [Vec::new(), Vec::new()],
+            units: [
+                Vec::with_capacity(FIXED_PARAMS.max_units),
+                Vec::with_capacity(FIXED_PARAMS.max_units),
+            ],
             asteroids: Vec::new(),
             nebulae: Vec::new(),
-            relic_node_locations: Vec::new(),
+            relic_node_locations: Vec::with_capacity(
+                FIXED_PARAMS.max_relic_nodes,
+            ),
             team_points,
             team_wins,
             total_steps,

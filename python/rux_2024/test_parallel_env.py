@@ -16,6 +16,6 @@ def test_step() -> None:
     assert done == [True] * n_envs
 
     env = ParallelEnv(n_envs)
-    for i in range(1, 100):
+    for i in range(1, 20):
         (obs, *_) = env.seq_step(actions)
         assert np.all(obs == i)

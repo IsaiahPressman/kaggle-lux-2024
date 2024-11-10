@@ -1,11 +1,13 @@
-use crate::rules_engine::params::{FIXED_PARAMS, TEAMS};
 use crate::rules_engine::state::{Observation, Unit};
-use numpy::ndarray::{Array4, ArrayViewMut2, ArrayViewMut3, Axis};
+use itertools::Itertools;
+use numpy::ndarray::{
+    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
+};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
-enum Feature {
+enum SpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
@@ -15,6 +17,10 @@ enum Feature {
     Nebula,
     RelicNode,
     RelicNodePoint,
+}
+
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
+enum GlobalFeature {
     MyTeamPoints,
     OppTeamPoints,
     MyTeamWins,
@@ -25,47 +31,51 @@ enum Feature {
 const UNIT_COUNT_NORM: f32 = 4.0;
 const UNIT_ENERGY_NORM: f32 = 400.0;
 
-/// Returns an array of shape (teams, channels, 24, 24)
-pub fn basic_obs_space(observations: [Observation; 2]) -> Array4<f32> {
-    let mut out = Array4::zeros((
-        TEAMS,
-        Feature::COUNT,
-        FIXED_PARAMS.map_width,
-        FIXED_PARAMS.map_height,
-    ));
-    for (team, obs) in observations.iter().enumerate() {
-        write_team_obs(&mut out.index_axis_mut(Axis(0), team), team, obs);
+/// Writes into spatial_out of shape (teams, s_channels, map_width, map_height) and
+/// global_out of shape (teams, g_channels)
+pub fn write_basic_obs_space(
+    spatial_out: &mut ArrayViewMut4<f32>,
+    global_out: &mut ArrayViewMut2<f32>,
+    observations: &[Observation; 2],
+) {
+    for ((obs, team_spatial_out), team_global_out) in observations
+        .iter()
+        .zip_eq(spatial_out.axis_iter_mut(Axis(0)))
+        .zip_eq(global_out.axis_iter_mut(Axis(0)))
+    {
+        write_team_obs(team_spatial_out, team_global_out, obs);
     }
-    out
 }
 
 fn write_team_obs(
-    out: &mut ArrayViewMut3<f32>,
-    team: usize,
+    mut spatial_out: ArrayViewMut3<f32>,
+    mut global_out: ArrayViewMut1<f32>,
     obs: &Observation,
 ) {
-    use Feature::*;
+    use GlobalFeature::*;
+    use SpatialFeature::*;
 
-    let opp = 1 - team;
-    for f in Feature::iter() {
-        let mut slice = out.index_axis_mut(Axis(0), f as usize);
-        match f {
+    let opp = 1 - obs.team_id;
+    for (sf, mut slice) in
+        SpatialFeature::iter().zip_eq(spatial_out.axis_iter_mut(Axis(0)))
+    {
+        match sf {
             Visible => {
                 slice.assign(
                     &obs.sensor_mask.map(|v| if *v { 1.0 } else { 0.0 }),
                 );
             },
             MyUnitCount => {
-                write_unit_counts(&mut slice, &obs.units[team]);
+                write_unit_counts(slice, &obs.units[obs.team_id]);
             },
             OppUnitCount => {
-                write_unit_counts(&mut slice, &obs.units[opp]);
+                write_unit_counts(slice, &obs.units[opp]);
             },
             MyUnitEnergy => {
-                write_unit_energies(&mut slice, &obs.units[team]);
+                write_unit_energies(slice, &obs.units[obs.team_id]);
             },
             OppUnitEnergy => {
-                write_unit_energies(&mut slice, &obs.units[opp]);
+                write_unit_energies(slice, &obs.units[opp]);
             },
             Asteroid => {
                 obs.asteroids
@@ -82,29 +92,34 @@ fn write_team_obs(
             RelicNodePoint => {
                 todo!()
             },
+        }
+    }
+
+    for (gf, value) in GlobalFeature::iter().zip_eq(global_out.iter_mut()) {
+        match gf {
             MyTeamPoints => {
-                todo!()
+                *value = obs.team_points[obs.team_id] as f32;
             },
             OppTeamPoints => {
-                todo!()
+                *value = obs.team_points[1 - obs.team_id] as f32;
             },
             MyTeamWins => {
-                todo!()
+                *value = obs.team_wins[obs.team_id] as f32;
             },
             OppTeamWins => {
-                todo!()
+                *value = obs.team_wins[1 - obs.team_id] as f32;
             },
         }
     }
 }
 
-fn write_unit_counts(slice: &mut ArrayViewMut2<f32>, units: &[Unit]) {
+fn write_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     units
         .iter()
         .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
 }
 
-fn write_unit_energies(slice: &mut ArrayViewMut2<f32>, units: &[Unit]) {
+fn write_unit_energies(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     units.iter().for_each(|u| {
         slice[u.pos.as_index()] += u.energy as f32 / UNIT_ENERGY_NORM
     });

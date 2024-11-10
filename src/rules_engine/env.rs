@@ -125,10 +125,9 @@ fn move_units(
         .filter(|(u, _)| u.energy >= params.unit_move_cost)
     {
         let deltas = match action {
-            Action::Up => [0, -1],
-            Action::Right => [1, 0],
-            Action::Down => [0, 1],
-            Action::Left => [-1, 0],
+            Action::Up | Action::Right | Action::Down | Action::Left => {
+                action.as_move_delta()
+            },
             Action::NoOp | Action::Sap(_) => continue,
         };
         // This behavior is almost certainly a bug in the main simulator
