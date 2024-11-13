@@ -7,6 +7,9 @@ use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
 use std::cmp::{max, min, Ordering};
 
+pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
+    [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
 pub fn step(
     state: &mut State,
     rng: &mut ThreadRng,
@@ -271,7 +274,7 @@ fn get_unit_aggregate_energy_void_map(
                 .zip_eq(team_energies.iter().copied())
                 .map(move |(u, ue)| (t, u, ue))
         })
-        .cartesian_product([[-1, 0], [1, 0], [0, -1], [0, 1]])
+        .cartesian_product(ENERGY_VOID_DELTAS)
     {
         let Some(Pos { x, y }) = unit.pos.maybe_translate(delta, map_size)
         else {
@@ -339,10 +342,9 @@ fn apply_energy_field(
         })
         .filter(|(u, energy_gain)| u.energy >= 0 || u.energy + energy_gain >= 0)
     {
-        unit.energy = min(
-            max(unit.energy + energy_gain, fixed_params.min_unit_energy),
-            fixed_params.max_unit_energy,
-        )
+        unit.energy = (unit.energy + energy_gain)
+            .min(fixed_params.max_unit_energy)
+            .max(fixed_params.min_unit_energy)
     }
 }
 
