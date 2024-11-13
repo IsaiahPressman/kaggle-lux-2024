@@ -5,7 +5,7 @@ use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
-use std::cmp::{max, min, Ordering};
+use std::cmp::Ordering;
 
 pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
     [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -373,10 +373,8 @@ fn get_energy_field(
         .sum_axis(Axis(0))
         .map(|&v| v.round_ties_even() as i32)
         .map(|&v| {
-            min(
-                max(v, fixed_params.min_energy_per_tile),
-                fixed_params.max_energy_per_tile,
-            )
+            v.min(fixed_params.max_energy_per_tile)
+                .max(fixed_params.min_energy_per_tile)
         })
 }
 
@@ -482,8 +480,8 @@ fn compute_vision_power_map(
         vision_power_map
             .slice_mut(s![
                 team,
-                x.saturating_sub(range)..min(x + range + 1, width),
-                y.saturating_sub(range)..min(y + range + 1, height),
+                x.saturating_sub(range)..(x + range + 1).min(width),
+                y.saturating_sub(range)..(y + range + 1).min(height),
             ])
             .iter_mut()
             .for_each(|value| *value += 1);
