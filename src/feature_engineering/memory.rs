@@ -1,8 +1,8 @@
 mod hidden_parameters;
 pub mod probabilities;
 mod relic_nodes;
+mod utils;
 
-use crate::feature_engineering::memory::probabilities::Probabilities;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::FixedParams;
 use hidden_parameters::HiddenParametersMemory;
@@ -14,17 +14,9 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(
-        energy_field_probabilities: Probabilities<i32>,
-        fixed_params: &FixedParams,
-        param_ranges: &ParamRanges,
-    ) -> Self {
+    pub fn new(fixed_params: &FixedParams, param_ranges: &ParamRanges) -> Self {
         let relic_nodes = RelicNodeMemory::new(fixed_params.map_size);
-        let hidden_parameters = HiddenParametersMemory::new(
-            param_ranges,
-            energy_field_probabilities,
-            fixed_params.max_units,
-        );
+        let hidden_parameters = HiddenParametersMemory::new(param_ranges);
         Self {
             hidden_parameters,
             relic_nodes,

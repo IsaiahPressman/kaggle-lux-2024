@@ -11,7 +11,7 @@ fn div_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (x / (d + 1.) + y) * z
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pos {
     pub x: usize,
     pub y: usize,
@@ -129,9 +129,17 @@ impl Unit {
 
     pub fn with_energy(energy: i32) -> Self {
         Unit {
-            pos: Pos::new(0, 0),
+            pos: Pos::default(),
             energy,
             id: 0,
+        }
+    }
+
+    pub fn with_id(id: usize) -> Self {
+        Unit {
+            pos: Pos::default(),
+            energy: 0,
+            id,
         }
     }
 
@@ -235,8 +243,9 @@ impl GameResult {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Observation {
     pub team_id: usize,
-    pub sensor_mask: Array2<bool>,
     pub units: [Vec<Unit>; 2],
+    pub sensor_mask: Array2<bool>,
+    pub energy_field: Array2<Option<i32>>,
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub relic_node_locations: Vec<Pos>,
@@ -250,6 +259,7 @@ impl Observation {
     pub fn new(
         team_id: usize,
         sensor_mask: Array2<bool>,
+        energy_field: Array2<Option<i32>>,
         team_points: [u32; 2],
         team_wins: [u32; 2],
         total_steps: u32,
@@ -257,11 +267,12 @@ impl Observation {
     ) -> Self {
         Observation {
             team_id,
-            sensor_mask,
             units: [
                 Vec::with_capacity(FIXED_PARAMS.max_units),
                 Vec::with_capacity(FIXED_PARAMS.max_units),
             ],
+            sensor_mask,
+            energy_field,
             asteroids: Vec::new(),
             nebulae: Vec::new(),
             relic_node_locations: Vec::with_capacity(
