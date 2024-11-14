@@ -1,4 +1,5 @@
 mod hidden_parameters;
+mod masked_possibilities;
 pub mod probabilities;
 mod relic_nodes;
 mod utils;

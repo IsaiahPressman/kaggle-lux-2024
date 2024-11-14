@@ -1,4 +1,4 @@
-use crate::feature_engineering::memory::probabilities::Probabilities;
+use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
 use crate::rules_engine::env::{estimate_vision_power_map, ENERGY_VOID_DELTAS};
@@ -13,79 +13,50 @@ const MIN_LIKELIHOOD_WEIGHT: f64 = 1e-4;
 
 #[derive(Debug, Default)]
 pub struct HiddenParametersMemory {
-    nebula_tile_vision_reduction_options: Vec<i32>,
-    nebula_tile_vision_reduction_mask: Vec<bool>,
-    nebula_tile_energy_reduction_options: Vec<i32>,
-    nebula_tile_energy_reduction_mask: Vec<bool>,
-    unit_sap_dropoff_factor_probs: Probabilities<f32>,
-    last_obs_data: LastObservationData,
+    pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
+    pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
+    pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
     // TODO
-    // unit_energy_void_factor_probs: Probabilities<f32>,
+    // unit_energy_void_factor: MaskedPossibilities<f32>,
+    last_obs_data: LastObservationData,
 }
 
 impl HiddenParametersMemory {
     pub fn new(param_ranges: &ParamRanges) -> Self {
-        let nebula_tile_vision_reduction_options = param_ranges
-            .nebula_tile_vision_reduction
-            .iter()
-            .copied()
-            .sorted()
-            .dedup()
-            .collect_vec();
-        let nebula_tile_vision_reduction_mask =
-            vec![true; param_ranges.nebula_tile_vision_reduction.len()];
-        let nebula_tile_energy_reduction_options = param_ranges
-            .nebula_tile_energy_reduction
-            .iter()
-            .copied()
-            .sorted()
-            .dedup()
-            .collect_vec();
-        let nebula_tile_energy_reduction_mask =
-            vec![true; param_ranges.nebula_tile_energy_reduction.len()];
-        let unit_sap_dropoff_factor_probs =
-            Probabilities::new_uniform_unreduced(
-                param_ranges.unit_sap_dropoff_factor.clone(),
-            );
+        let nebula_tile_vision_reduction = MaskedPossibilities::from_options(
+            param_ranges
+                .nebula_tile_vision_reduction
+                .iter()
+                .copied()
+                .sorted()
+                .dedup()
+                .collect_vec(),
+        );
+        let nebula_tile_energy_reduction = MaskedPossibilities::from_options(
+            param_ranges
+                .nebula_tile_energy_reduction
+                .iter()
+                .copied()
+                .sorted()
+                .dedup()
+                .collect_vec(),
+        );
+        let unit_sap_dropoff_factor = MaskedPossibilities::from_options(
+            param_ranges
+                .unit_sap_dropoff_factor
+                .iter()
+                .copied()
+                .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                .dedup()
+                .collect_vec(),
+        );
         let last_obs_data = LastObservationData::default();
         Self {
-            nebula_tile_vision_reduction_options,
-            nebula_tile_vision_reduction_mask,
-            nebula_tile_energy_reduction_options,
-            nebula_tile_energy_reduction_mask,
-            unit_sap_dropoff_factor_probs,
+            nebula_tile_vision_reduction,
+            nebula_tile_energy_reduction,
+            unit_sap_dropoff_factor,
             last_obs_data,
         }
-    }
-
-    pub fn get_nebula_tile_vision_reduction_weights(&self) -> Vec<f32> {
-        let sum = self
-            .nebula_tile_vision_reduction_mask
-            .iter()
-            .filter(|mask| **mask)
-            .count();
-        assert!(sum > 0, "nebula_tile_vision_reduction_mask is all false");
-
-        let weight = 1.0 / sum as f32;
-        self.nebula_tile_vision_reduction_mask
-            .iter()
-            .map(|mask| if *mask { weight } else { 0.0 })
-            .collect()
-    }
-
-    pub fn get_nebula_tile_energy_reduction_weights(&self) -> Vec<f32> {
-        let sum = self
-            .nebula_tile_energy_reduction_mask
-            .iter()
-            .filter(|mask| **mask)
-            .count();
-        assert!(sum > 0, "nebula_tile_energy_reduction_mask is all false");
-
-        let weight = 1.0 / sum as f32;
-        self.nebula_tile_energy_reduction_mask
-            .iter()
-            .map(|mask| if *mask { weight } else { 0.0 })
-            .collect()
     }
 
     pub fn update_memory(
@@ -95,31 +66,17 @@ impl HiddenParametersMemory {
         fixed_params: &FixedParams,
         variable_params: &KnownVariableParams,
     ) {
-        if self
-            .nebula_tile_vision_reduction_mask
-            .iter()
-            .filter(|mask| **mask)
-            .count()
-            > 1
-        {
+        if self.nebula_tile_vision_reduction.still_unsolved() {
             determine_nebula_tile_vision_reduction(
-                &mut self.nebula_tile_vision_reduction_mask,
-                &self.nebula_tile_vision_reduction_options,
+                &mut self.nebula_tile_vision_reduction,
                 obs,
                 fixed_params.map_size,
                 variable_params.unit_sensor_range,
             );
         }
-        if self
-            .nebula_tile_energy_reduction_mask
-            .iter()
-            .filter(|mask| **mask)
-            .count()
-            > 1
-        {
+        if self.nebula_tile_energy_reduction.still_unsolved() {
             determine_nebula_tile_energy_reduction(
-                &mut self.nebula_tile_energy_reduction_mask,
-                &self.nebula_tile_energy_reduction_options,
+                &mut self.nebula_tile_energy_reduction,
                 obs,
                 &self.last_obs_data.my_units_last_turn,
                 last_actions,
@@ -127,18 +84,17 @@ impl HiddenParametersMemory {
                 variable_params,
             );
         }
+        if self.unit_sap_dropoff_factor.still_unsolved() {
+            determine_unit_sap_dropoff_factor(
+                &mut self.unit_sap_dropoff_factor,
+                obs,
+                &self.last_obs_data,
+                last_actions,
+                fixed_params,
+                variable_params,
+            );
+        }
 
-        // self.nebula_tile_energy_reduction_probs =
-        //     determine_nebula_tile_energy_reduction(
-        //         mem::take(&mut self.nebula_tile_energy_reduction_probs),
-        //         obs,
-        //         &self.last_obs_data.my_units_last_turn,
-        //         last_actions,
-        //         &self.energy_field_probs,
-        //         fixed_params,
-        //         variable_params,
-        //     );
-        todo!("self.unit_sap_dropoff_factor_probs = estimate_unit_sap_dropoff_factor();");
         // TODO: Update last_obs_data
     }
 }
@@ -150,8 +106,7 @@ struct LastObservationData {
 }
 
 fn determine_nebula_tile_vision_reduction(
-    nebula_tile_vision_reduction_mask: &mut [bool],
-    nebula_tile_vision_reduction_options: &[i32],
+    nebula_tile_vision_reduction_options: &mut MaskedPossibilities<i32>,
     obs: &Observation,
     map_size: [usize; 2],
     unit_sensor_range: usize,
@@ -166,8 +121,7 @@ fn determine_nebula_tile_vision_reduction(
         .for_each(|expected_vision, can_see| {
             if *expected_vision > 0 && !can_see {
                 nebula_tile_vision_reduction_options
-                    .iter()
-                    .zip_eq(nebula_tile_vision_reduction_mask.iter_mut())
+                    .iter_options_mut_mask()
                     .for_each(|(vision_reduction, mask)| {
                         if vision_reduction < expected_vision {
                             *mask = false
@@ -176,14 +130,13 @@ fn determine_nebula_tile_vision_reduction(
             }
         });
 
-    if nebula_tile_vision_reduction_mask.iter().all(|mask| !mask) {
+    if nebula_tile_vision_reduction_options.all_masked() {
         panic!("nebula_tile_vision_reduction_mask is all false")
     }
 }
 
 fn determine_nebula_tile_energy_reduction(
-    nebula_tile_energy_reduction_mask: &mut [bool],
-    nebula_tile_energy_reduction_options: &[i32],
+    nebula_tile_energy_reduction_options: &mut MaskedPossibilities<i32>,
     obs: &Observation,
     my_units_last_turn: &[Unit],
     last_actions: &[Action],
@@ -227,12 +180,11 @@ fn determine_nebula_tile_energy_reduction(
             })
         })
     {
-        for (&energy_loss, mask) in nebula_tile_energy_reduction_options
-            .iter()
-            .zip_eq(nebula_tile_energy_reduction_mask.iter_mut())
+        for (energy_loss, mask) in nebula_tile_energy_reduction_options
+            .iter_options_mut_mask()
             .filter(|(_, mask)| **mask)
         {
-            if (energy_before_nebula - energy_loss)
+            if (energy_before_nebula - *energy_loss)
                 .min(fixed_params.max_unit_energy)
                 .max(fixed_params.min_unit_energy)
                 != actual
@@ -242,15 +194,14 @@ fn determine_nebula_tile_energy_reduction(
         }
     }
 
-    if nebula_tile_energy_reduction_mask.iter().all(|mask| !mask) {
+    if nebula_tile_energy_reduction_options.all_masked() {
         // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!("nebula_tile_energy_reduction_mask is all false")
     }
 }
 
 fn determine_unit_sap_dropoff_factor(
-    unit_sap_dropoff_factor_mask: &mut [bool],
-    unit_sap_dropoff_factor_options: &[f32],
+    unit_sap_dropoff_factor: &mut MaskedPossibilities<f32>,
     obs: &Observation,
     last_obs_data: &LastObservationData,
     my_last_actions: &[Action],
@@ -295,9 +246,8 @@ fn determine_unit_sap_dropoff_factor(
         let energy_before_action = opp_unit_last_turn.energy - direct_sap_loss
             + obs.energy_field[opp_unit_now.pos.as_index()]
                 .expect("Missing energy field for visible opp_unit");
-        for (&sap_dropoff_factor, mask) in unit_sap_dropoff_factor_options
-            .iter()
-            .zip_eq(unit_sap_dropoff_factor_mask.iter_mut())
+        for (&sap_dropoff_factor, mask) in unit_sap_dropoff_factor
+            .iter_options_mut_mask()
             .filter(|(_, mask)| **mask)
         {
             let adj_sap_loss = ((adj_sap_count * params.unit_sap_cost) as f32
@@ -323,7 +273,7 @@ fn determine_unit_sap_dropoff_factor(
         }
     }
 
-    if unit_sap_dropoff_factor_mask.iter().all(|mask| !mask) {
+    if unit_sap_dropoff_factor.all_masked() {
         // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!("unit_sap_dropoff_factor_mask is all false")
     }
@@ -381,37 +331,9 @@ mod tests {
     use rstest::rstest;
 
     #[test]
-    fn test_get_nebula_tile_vision_reduction_weights() {
-        let mut memory = HiddenParametersMemory::default();
-        memory.nebula_tile_vision_reduction_mask = vec![true; 3];
-        let result = memory.get_nebula_tile_vision_reduction_weights();
-        assert_eq!(result, vec![1.0 / 3.0; 3]);
-
-        memory.nebula_tile_vision_reduction_mask = vec![false, true, false];
-        let result = memory.get_nebula_tile_vision_reduction_weights();
-        assert_eq!(result, vec![0.0, 1.0, 0.0]);
-
-        memory.nebula_tile_vision_reduction_mask = vec![true; 2];
-        let result = memory.get_nebula_tile_vision_reduction_weights();
-        assert_eq!(result, vec![0.5; 2]);
-
-        memory.nebula_tile_vision_reduction_mask = vec![true, false];
-        let result = memory.get_nebula_tile_vision_reduction_weights();
-        assert_eq!(result, vec![1.0, 0.0]);
-    }
-
-    #[test]
-    #[should_panic(expected = "nebula_tile_vision_reduction_mask is all false")]
-    fn test_get_nebula_tile_vision_reduction_weights_panics() {
-        let mut memory = HiddenParametersMemory::default();
-        memory.nebula_tile_vision_reduction_mask = vec![false, false];
-        memory.get_nebula_tile_vision_reduction_weights();
-    }
-
-    #[test]
     fn test_determine_nebula_tile_vision_reduction() {
-        let mut mask = vec![true, true, true];
-        let options = vec![0, 1, 2];
+        let mut possibilities =
+            MaskedPossibilities::from_options(vec![0, 1, 2]);
         let map_size = [3, 3];
         let unit_sensor_range = 1;
 
@@ -424,13 +346,12 @@ mod tests {
         obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
 
         determine_nebula_tile_vision_reduction(
-            &mut mask,
-            &options,
+            &mut possibilities,
             &obs,
             map_size,
             unit_sensor_range,
         );
-        assert_eq!(mask, vec![false, true, true]);
+        assert_eq!(possibilities.get_mask(), vec![false, true, true]);
     }
 
     #[rstest]
@@ -438,9 +359,9 @@ mod tests {
     #[should_panic(expected = "nebula_tile_vision_reduction_mask is all false")]
     #[case(vec![true, true, false])]
     fn test_determine_nebula_tile_vision_reduction_panics(
-        #[case] mut mask: Vec<bool>,
+        #[case] mask: Vec<bool>,
     ) {
-        let options = vec![0, 1, 2];
+        let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
         let map_size = [3, 3];
         let unit_sensor_range = 1;
 
@@ -453,12 +374,11 @@ mod tests {
         obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
 
         determine_nebula_tile_vision_reduction(
-            &mut mask,
-            &options,
+            &mut possibilities,
             &obs,
             map_size,
             unit_sensor_range,
-        )
+        );
     }
 
     #[rstest]
@@ -539,18 +459,17 @@ mod tests {
         let fixed_params = FIXED_PARAMS;
         let mut params = KnownVariableParams::default();
         params.unit_sap_range = 0;
-        let nebula_tile_energy_reduction_options = vec![0, 1, 2, 10];
-        let mut result = vec![true; nebula_tile_energy_reduction_options.len()];
+        let mut possibilities =
+            MaskedPossibilities::from_options(vec![0, 1, 2, 10]);
         determine_nebula_tile_energy_reduction(
-            &mut result,
-            &nebula_tile_energy_reduction_options,
+            &mut possibilities,
             &obs,
             &my_units_last_turn,
             &last_actions,
             &fixed_params,
             &params,
         );
-        assert_eq!(result, expected_result);
+        assert_eq!(possibilities.get_mask(), expected_result);
     }
 
     #[rstest]
@@ -558,9 +477,9 @@ mod tests {
     #[should_panic(expected = "nebula_tile_energy_reduction_mask is all false")]
     #[case(vec![true, true, false])]
     fn test_determine_nebula_tile_energy_reduction_panics(
-        #[case] mut mask: Vec<bool>,
+        #[case] mask: Vec<bool>,
     ) {
-        let options = vec![0, 1, 2];
+        let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
         let mut obs = Observation::default();
         obs.units = [vec![Unit::new(Pos::new(0, 0), 10, 0)], Vec::new()];
         obs.nebulae = vec![Pos::new(0, 0)];
@@ -568,8 +487,7 @@ mod tests {
         let my_units_last_turn = vec![Unit::new(Pos::new(0, 0), 10, 0)];
         let last_actions = vec![NoOp];
         determine_nebula_tile_energy_reduction(
-            &mut mask,
-            &options,
+            &mut possibilities,
             &obs,
             &my_units_last_turn,
             &last_actions,
@@ -578,16 +496,129 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore]
-    fn test_determine_unit_sap_dropoff_factor() {
-        todo!("LEFT OFF HERE")
+    #[rstest]
+    // Not adjacent
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Sap([1, 1])],
+        vec![Unit::new(Pos::new(1, 1), 100, 0)],
+        vec![Unit::new(Pos::new(1, 1), 91, 0)],
+        vec![true, true, true],
+    )]
+    // Adjacent to sap
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
+        vec![Sap([-3, -3])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 90, 0)],
+        vec![false, false, true],
+    )]
+    // Adjacent to sap, rounds down
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
+        vec![Sap([-3, -3])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 98, 0)],
+        vec![true, false, false],
+    )]
+    // Adjacent to multiple sap actions
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Sap([-3, -3]), Sap([-3, -3])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 95, 0)],
+        vec![true, false, false],
+    )]
+    // Ignore units hit by energy void field
+    #[case(
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Sap([1, 0])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 90, 0)],
+        vec![true, true, true],
+    )]
+    // Counts move action cost
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
+        vec![Sap([-3, -3])],
+        vec![Unit::new(Pos::new(0, 1), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 93, 0)],
+        vec![false, true, false],
+    )]
+    // Considers both NoOp and Sap actions for opposing units
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Sap([-3, -3]), Sap([-3, -3])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 80, 0)],
+        vec![false, true, true],
+    )]
+    // Hit by direct and adjacent sap
+    #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Sap([-3, -3]), Sap([-4, -4])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 85, 0)],
+        vec![false, true, false],
+    )]
+    fn test_determine_unit_sap_dropoff_factor(
+        #[case] my_units: Vec<Unit>,
+        #[case] last_actions: Vec<Action>,
+        #[case] opp_units_last_turn: Vec<Unit>,
+        #[case] opp_units: Vec<Unit>,
+        #[case] expected_result: Vec<bool>,
+    ) {
+        let mut possibilities =
+            MaskedPossibilities::from_options(vec![0.25, 0.5, 1.0]);
+        let mut obs = Observation::default();
+        obs.units = [my_units.clone(), opp_units];
+        obs.energy_field = arr2(&[[Some(0), Some(1), Some(2)]; 3]);
+        let mut last_obs_data = LastObservationData::default();
+        last_obs_data.my_units_last_turn = my_units;
+        last_obs_data.opp_units_last_turn = opp_units_last_turn;
+        let mut params = KnownVariableParams::default();
+        params.unit_move_cost = 2;
+        params.unit_sap_cost = 10;
+        determine_unit_sap_dropoff_factor(
+            &mut possibilities,
+            &obs,
+            &last_obs_data,
+            &last_actions,
+            &FIXED_PARAMS,
+            &params,
+        );
+        assert_eq!(possibilities.get_mask(), expected_result);
     }
 
-    #[test]
-    #[ignore]
-    fn test_determine_unit_sap_dropoff_factor_panics() {
-        todo!()
+    #[rstest]
+    #[case(vec![true, true, true])]
+    #[should_panic(expected = "unit_sap_dropoff_factor_mask is all false")]
+    #[case(vec![true, true, false])]
+    fn test_determine_unit_sap_dropoff_factor_panics(
+        #[case] dropoff_mask: Vec<bool>,
+    ) {
+        let mut possibilities =
+            MaskedPossibilities::new(vec![0.25, 0.5, 1.0], dropoff_mask);
+        let my_units = vec![Unit::new(Pos::new(4, 4), 10, 0)];
+        let mut obs = Observation::default();
+        obs.units = [my_units.clone(), vec![Unit::new(Pos::new(0, 0), 90, 0)]];
+        obs.energy_field = arr2(&[[Some(0), Some(1), Some(2)]; 3]);
+        let mut last_obs_data = LastObservationData::default();
+        last_obs_data.my_units_last_turn = my_units;
+        last_obs_data.opp_units_last_turn =
+            vec![Unit::new(Pos::new(0, 0), 100, 0)];
+        let last_actions = vec![Sap([-3, -3])];
+        let mut params = KnownVariableParams::default();
+        params.unit_move_cost = 2;
+        params.unit_sap_cost = 10;
+        determine_unit_sap_dropoff_factor(
+            &mut possibilities,
+            &obs,
+            &last_obs_data,
+            &last_actions,
+            &FIXED_PARAMS,
+            &params,
+        );
     }
 
     #[test]
