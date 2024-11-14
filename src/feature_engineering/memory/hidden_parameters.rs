@@ -16,8 +16,7 @@ pub struct HiddenParametersMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
     pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
     pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
-    // TODO
-    // unit_energy_void_factor: MaskedPossibilities<f32>,
+    pub unit_energy_void_factor: MaskedPossibilities<f32>,
     last_obs_data: LastObservationData,
 }
 
@@ -50,11 +49,21 @@ impl HiddenParametersMemory {
                 .dedup()
                 .collect_vec(),
         );
+        let unit_energy_void_factor = MaskedPossibilities::from_options(
+            param_ranges
+                .unit_energy_void_factor
+                .iter()
+                .copied()
+                .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                .dedup()
+                .collect_vec(),
+        );
         let last_obs_data = LastObservationData::default();
         Self {
             nebula_tile_vision_reduction,
             nebula_tile_energy_reduction,
             unit_sap_dropoff_factor,
+            unit_energy_void_factor,
             last_obs_data,
         }
     }
@@ -94,8 +103,13 @@ impl HiddenParametersMemory {
                 variable_params,
             );
         }
+        if self.unit_energy_void_factor.still_unsolved() {
+            // determine_unit_energy_void_factor(
+            //     &mut self.unit_energy_void_factor,
+            // );
+        }
 
-        // TODO: Update last_obs_data
+        todo!("Update last_obs_data")
     }
 }
 
@@ -319,6 +333,17 @@ fn compute_sap_count_maps(
         }
     }
     (sap_count, adjacent_sap_count)
+}
+
+fn determine_unit_energy_void_factor(
+    unit_energy_void_factor: &mut MaskedPossibilities<f32>,
+    obs: &Observation,
+    last_obs_data: &LastObservationData,
+    my_last_actions: &[Action],
+    fixed_params: &FixedParams,
+    params: &KnownVariableParams,
+) {
+    // TODO: Left off here
 }
 
 #[cfg(test)]
