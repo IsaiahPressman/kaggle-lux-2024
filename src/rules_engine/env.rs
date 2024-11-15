@@ -2,10 +2,13 @@ use super::action::Action;
 use super::params::{FixedParams, VariableParams, FIXED_PARAMS};
 use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
 use itertools::Itertools;
-use numpy::ndarray::{s, Array2, Array3, Axis};
+use numpy::ndarray::{s, Array2, Array3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
-use std::cmp::{max, min, Ordering};
+use std::cmp::Ordering;
+
+pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
+    [[-1, 0], [1, 0], [0, -1], [0, 1]];
 
 pub fn step(
     state: &mut State,
@@ -45,9 +48,10 @@ pub fn step(
         fixed_params.map_size,
         params,
     );
+    let energy_field = get_energy_field(&state.energy_nodes, &fixed_params);
     apply_energy_field(
         &mut state.units,
-        &get_energy_field(&state.energy_nodes, &fixed_params),
+        &energy_field,
         &get_map_mask(&state.nebulae, fixed_params.map_size),
         &fixed_params,
         params,
@@ -83,7 +87,7 @@ pub fn step(
         &fixed_params,
     );
     (
-        get_observation(state, &vision_power_map),
+        get_observation(state, &vision_power_map, &energy_field),
         GameResult::new(match_winner, game_winner),
     )
 }
@@ -270,7 +274,7 @@ fn get_unit_aggregate_energy_void_map(
                 .zip_eq(team_energies.iter().copied())
                 .map(move |(u, ue)| (t, u, ue))
         })
-        .cartesian_product([[-1, 0], [1, 0], [0, -1], [0, 1]])
+        .cartesian_product(ENERGY_VOID_DELTAS)
     {
         let Some(Pos { x, y }) = unit.pos.maybe_translate(delta, map_size)
         else {
@@ -338,10 +342,9 @@ fn apply_energy_field(
         })
         .filter(|(u, energy_gain)| u.energy >= 0 || u.energy + energy_gain >= 0)
     {
-        unit.energy = min(
-            max(unit.energy + energy_gain, fixed_params.min_unit_energy),
-            fixed_params.max_unit_energy,
-        )
+        unit.energy = (unit.energy + energy_gain)
+            .min(fixed_params.max_unit_energy)
+            .max(fixed_params.min_unit_energy)
     }
 }
 
@@ -370,10 +373,8 @@ fn get_energy_field(
         .sum_axis(Axis(0))
         .map(|&v| v.round_ties_even() as i32)
         .map(|&v| {
-            min(
-                max(v, fixed_params.min_energy_per_tile),
-                fixed_params.max_energy_per_tile,
-            )
+            v.min(fixed_params.max_energy_per_tile)
+                .max(fixed_params.min_energy_per_tile)
         })
 }
 
@@ -433,9 +434,8 @@ pub fn estimate_vision_power_map(
     map_size: [usize; 2],
     unit_sensor_range: usize,
 ) -> Array2<i32> {
-    let units = units.iter().cloned().collect_vec();
     let vision_estimate = compute_vision_power_map(
-        &[units],
+        &[units.to_vec()],
         &Vec::new(),
         map_size,
         unit_sensor_range,
@@ -445,7 +445,7 @@ pub fn estimate_vision_power_map(
 }
 
 fn compute_vision_power_map_from_params(
-    units: &[Vec<Unit>],
+    units: &[Vec<Unit>; 2],
     nebulae: &[Pos],
     map_size: [usize; 2],
     params: &VariableParams,
@@ -480,8 +480,8 @@ fn compute_vision_power_map(
         vision_power_map
             .slice_mut(s![
                 team,
-                x.saturating_sub(range)..min(x + range + 1, width),
-                y.saturating_sub(range)..min(y + range + 1, height),
+                x.saturating_sub(range)..(x + range + 1).min(width),
+                y.saturating_sub(range)..(y + range + 1).min(height),
             ])
             .iter_mut()
             .for_each(|value| *value += 1);
@@ -637,12 +637,16 @@ fn step_game(
 fn get_observation(
     state: &State,
     vision_power_map: &Array3<i32>,
+    energy_field: &Array2<i32>,
 ) -> [Observation; 2] {
     let [p1_mask, p2_mask] = get_sensor_masks(vision_power_map);
+    let p1_energy_field = get_masked_energy_field(&p1_mask, energy_field);
+    let p2_energy_field = get_masked_energy_field(&p2_mask, energy_field);
     let mut observations = [
         Observation::new(
             0,
             p1_mask,
+            p1_energy_field,
             state.team_points,
             state.team_wins,
             state.total_steps,
@@ -651,6 +655,7 @@ fn get_observation(
         Observation::new(
             1,
             p2_mask,
+            p2_energy_field,
             state.team_points,
             state.team_wins,
             state.total_steps,
@@ -693,6 +698,15 @@ fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
         vision_power_map.slice(s![0, .., ..]).map(|&v| v > 0),
         vision_power_map.slice(s![1, .., ..]).map(|&v| v > 0),
     ]
+}
+
+fn get_masked_energy_field(
+    vision_mask: &Array2<bool>,
+    energy_field: &Array2<i32>,
+) -> Array2<Option<i32>> {
+    Zip::from(vision_mask)
+        .and(energy_field)
+        .map_collect(|visible, e| if *visible { Some(*e) } else { None })
 }
 
 #[cfg(test)]
@@ -1547,22 +1561,29 @@ mod tests {
     fn test_get_observation() {
         let mut state = State::default();
         let vision_power_map = arr3(&[
-            // P1 only sees top left corner [0-1, 0-1]
+            // P1 only sees top left corner [0-1, 0-1] and bottom left
             [
                 [1, 1, 0, 0, 0],
                 [1, 1, 0, 0, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0],
             ],
-            // P2 only sees bottom right corner [3-4, 3-4]
+            // P2 only sees bottom right corner [3-4, 3-4] and bottom left
             [
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 1, 1],
-                [0, 0, 0, 1, 1],
+                [1, 0, 0, 1, 1],
             ],
+        ]);
+        let energy_field = arr2(&[
+            [0, 1, 2, 3, 4],
+            [5, 6, 7, 8, 9],
+            [10, 11, 12, 13, 14],
+            [15, 16, 17, 18, 19],
+            [20, 21, 22, 23, 24],
         ]);
         // Player's units are always visible, but opposing units are visible only
         // when seen by sensor mask
@@ -1608,26 +1629,39 @@ mod tests {
         state.team_wins = [1, 1];
         state.total_steps = 250;
         state.match_steps = 50;
-        let expected_sensor_maps = [
-            arr2(&[
-                [true, true, false, false, false],
-                [true, true, false, false, false],
-                [false, false, false, false, false],
-                [false, false, false, false, false],
-                [false, false, false, false, false],
-            ]),
-            arr2(&[
-                [false, false, false, false, false],
-                [false, false, false, false, false],
-                [false, false, false, false, false],
-                [false, false, false, true, true],
-                [false, false, false, true, true],
-            ]),
-        ];
+        let p1_expected_sensor_map = arr2(&[
+            [true, true, false, false, false],
+            [true, true, false, false, false],
+            [false, false, false, false, false],
+            [false, false, false, false, false],
+            [true, false, false, false, false],
+        ]);
+        let p2_expected_sensor_map = arr2(&[
+            [false, false, false, false, false],
+            [false, false, false, false, false],
+            [false, false, false, false, false],
+            [false, false, false, true, true],
+            [true, false, false, true, true],
+        ]);
+        let p1_expected_energy_field = arr2(&[
+            [Some(0), Some(1), None, None, None],
+            [Some(5), Some(6), None, None, None],
+            [None; 5],
+            [None; 5],
+            [Some(20), None, None, None, None],
+        ]);
+        let p2_expected_energy_field = arr2(&[
+            [None; 5],
+            [None; 5],
+            [None; 5],
+            [None, None, None, Some(18), Some(19)],
+            [Some(20), None, None, Some(23), Some(24)],
+        ]);
         let mut expected_result = [
             Observation::new(
                 0,
-                expected_sensor_maps[0].clone(),
+                p1_expected_sensor_map,
+                p1_expected_energy_field,
                 state.team_points,
                 state.team_wins,
                 state.total_steps,
@@ -1635,7 +1669,8 @@ mod tests {
             ),
             Observation::new(
                 1,
-                expected_sensor_maps[1].clone(),
+                p2_expected_sensor_map,
+                p2_expected_energy_field,
                 state.team_points,
                 state.team_wins,
                 state.total_steps,
@@ -1667,7 +1702,7 @@ mod tests {
         expected_result[0].relic_node_locations = vec![Pos::new(0, 0)];
         expected_result[1].relic_node_locations = vec![Pos::new(4, 4)];
 
-        let result = get_observation(&state, &vision_power_map);
+        let result = get_observation(&state, &vision_power_map, &energy_field);
         assert_eq!(result, expected_result);
     }
 

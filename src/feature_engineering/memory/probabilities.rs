@@ -26,7 +26,7 @@ impl<T: Default> Default for Probabilities<T> {
 
 impl<T> Probabilities<T>
 where
-    T: Copy + Ord,
+    T: Copy,
 {
     pub fn new(options: Vec<T>, probs: Vec<f64>) -> Self {
         let result = Self { options, probs };
@@ -44,12 +44,8 @@ where
         Self::new(options, probs)
     }
 
-    pub fn new_uniform(options: Vec<T>) -> Self {
-        let mut options_reduced: BTreeMap<T, usize> = BTreeMap::new();
-        for o in options.into_iter() {
-            *options_reduced.entry(o).or_default() += 1;
-        }
-        let (options, counts) = options_reduced.into_iter().unzip();
+    pub fn new_uniform_unreduced(options: Vec<T>) -> Self {
+        let counts = vec![1; options.len()];
         Self::from_counts(options, counts)
     }
 
@@ -73,6 +69,20 @@ where
 
     pub fn iter_probs(&self) -> impl Iterator<Item = f64> + '_ {
         self.probs.iter().copied()
+    }
+}
+
+impl<T> Probabilities<T>
+where
+    T: Copy + Ord,
+{
+    pub fn new_uniform(options: Vec<T>) -> Self {
+        let mut options_reduced: BTreeMap<T, usize> = BTreeMap::new();
+        for o in options.into_iter() {
+            *options_reduced.entry(o).or_default() += 1;
+        }
+        let (options, counts) = options_reduced.into_iter().unzip();
+        Self::from_counts(options, counts)
     }
 }
 

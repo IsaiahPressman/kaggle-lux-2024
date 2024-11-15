@@ -1,4 +1,3 @@
-use crate::feature_engineering::energy_field_frequencies::ENERGY_FIELD_PROBABILITIES;
 use crate::feature_engineering::memory::Memory;
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
@@ -90,16 +89,8 @@ impl Default for EnvData {
         let params = VariableParams::default();
         let known_params = KnownVariableParams::from(params.clone());
         let memories = [
-            Memory::new(
-                ENERGY_FIELD_PROBABILITIES.clone(),
-                &FIXED_PARAMS,
-                &PARAM_RANGES,
-            ),
-            Memory::new(
-                ENERGY_FIELD_PROBABILITIES.clone(),
-                &FIXED_PARAMS,
-                &PARAM_RANGES,
-            ),
+            Memory::new(&FIXED_PARAMS, &PARAM_RANGES),
+            Memory::new(&FIXED_PARAMS, &PARAM_RANGES),
         ];
         Self {
             state,
