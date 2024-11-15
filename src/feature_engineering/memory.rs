@@ -1,3 +1,4 @@
+mod energy_field;
 mod hidden_parameters;
 mod masked_possibilities;
 pub mod probabilities;
