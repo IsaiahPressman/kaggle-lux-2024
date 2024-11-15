@@ -16,7 +16,7 @@ pub struct HiddenParametersMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
     pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
     pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
-    pub unit_energy_void_factor: MaskedPossibilities<f32>,
+    // TODO pub unit_energy_void_factor: MaskedPossibilities<f32>,
     last_obs_data: LastObservationData,
 }
 
@@ -49,21 +49,20 @@ impl HiddenParametersMemory {
                 .dedup()
                 .collect_vec(),
         );
-        let unit_energy_void_factor = MaskedPossibilities::from_options(
-            param_ranges
-                .unit_energy_void_factor
-                .iter()
-                .copied()
-                .sorted_by(|a, b| a.partial_cmp(b).unwrap())
-                .dedup()
-                .collect_vec(),
-        );
+        // let unit_energy_void_factor = MaskedPossibilities::from_options(
+        //     param_ranges
+        //         .unit_energy_void_factor
+        //         .iter()
+        //         .copied()
+        //         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+        //         .dedup()
+        //         .collect_vec(),
+        // );
         let last_obs_data = LastObservationData::default();
         Self {
             nebula_tile_vision_reduction,
             nebula_tile_energy_reduction,
             unit_sap_dropoff_factor,
-            unit_energy_void_factor,
             last_obs_data,
         }
     }
@@ -93,23 +92,21 @@ impl HiddenParametersMemory {
                 variable_params,
             );
         }
+        let sap_count_maps = compute_sap_count_maps(
+            &self.last_obs_data.my_units_last_turn,
+            last_actions,
+            fixed_params.map_size,
+        );
         if self.unit_sap_dropoff_factor.still_unsolved() {
             determine_unit_sap_dropoff_factor(
                 &mut self.unit_sap_dropoff_factor,
                 obs,
                 &self.last_obs_data,
-                last_actions,
-                fixed_params,
+                &sap_count_maps,
                 variable_params,
             );
         }
-        if self.unit_energy_void_factor.still_unsolved() {
-            // determine_unit_energy_void_factor(
-            //     &mut self.unit_energy_void_factor,
-            // );
-        }
-
-        todo!("Update last_obs_data")
+        self.last_obs_data = LastObservationData::copy_from_obs(obs);
     }
 }
 
@@ -117,6 +114,19 @@ impl HiddenParametersMemory {
 struct LastObservationData {
     my_units_last_turn: Vec<Unit>,
     opp_units_last_turn: Vec<Unit>,
+}
+
+impl LastObservationData {
+    fn copy_from_obs(obs: &Observation) -> Self {
+        let my_units_last_turn =
+            obs.get_my_units().iter().copied().collect_vec();
+        let opp_units_last_turn =
+            obs.get_opp_units().iter().copied().collect_vec();
+        Self {
+            my_units_last_turn,
+            opp_units_last_turn,
+        }
+    }
 }
 
 fn determine_nebula_tile_vision_reduction(
@@ -214,19 +224,49 @@ fn determine_nebula_tile_energy_reduction(
     }
 }
 
+fn compute_sap_count_maps(
+    units_last_turn: &[Unit],
+    last_actions: &[Action],
+    map_size: [usize; 2],
+) -> (BTreeMap<Pos, i32>, BTreeMap<Pos, i32>) {
+    // NB: Assumes that all units that tried to sap had enough energy and were successful
+    let mut sap_count = BTreeMap::new();
+    let mut adjacent_sap_count = BTreeMap::new();
+    for sap_target_pos in units_last_turn.iter().filter_map(|u| {
+        if let Sap(sap_deltas) = last_actions[u.id] {
+            Some(
+                u.pos
+                    .maybe_translate(sap_deltas, map_size)
+                    .expect("Invalid sap_deltas"),
+            )
+        } else {
+            None
+        }
+    }) {
+        *sap_count.entry(sap_target_pos).or_insert(0) += 1;
+        for adjacent_pos in
+            (-1..=1).cartesian_product(-1..=1).filter_map(|(dx, dy)| {
+                if dx == 0 && dy == 0 {
+                    None
+                } else {
+                    sap_target_pos.maybe_translate([dx, dy], map_size)
+                }
+            })
+        {
+            *adjacent_sap_count.entry(adjacent_pos).or_insert(0) += 1;
+        }
+    }
+    (sap_count, adjacent_sap_count)
+}
+
 fn determine_unit_sap_dropoff_factor(
     unit_sap_dropoff_factor: &mut MaskedPossibilities<f32>,
     obs: &Observation,
     last_obs_data: &LastObservationData,
-    my_last_actions: &[Action],
-    fixed_params: &FixedParams,
+    sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
     params: &KnownVariableParams,
 ) {
-    let (sap_count_map, adjacent_sap_count_map) = compute_sap_count_maps(
-        &last_obs_data.my_units_last_turn,
-        my_last_actions,
-        fixed_params,
-    );
+    let (sap_count_map, adjacent_sap_count_map) = sap_count_maps;
     // NB: Assumes that units don't take invalid energy-wasting actions, like moving off the map
     let id_to_opp_unit: BTreeMap<usize, Unit> =
         obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
@@ -293,57 +333,46 @@ fn determine_unit_sap_dropoff_factor(
     }
 }
 
-fn compute_sap_count_maps(
-    units_last_turn: &[Unit],
-    last_actions: &[Action],
-    fixed_params: &FixedParams,
-) -> (BTreeMap<Pos, i32>, BTreeMap<Pos, i32>) {
-    // NB: Assumes that all units that tried to sap had enough energy and were successful
-    let mut sap_count = BTreeMap::new();
-    let mut adjacent_sap_count = BTreeMap::new();
-    for sap_target_pos in units_last_turn.iter().filter_map(|u| {
-        if let Sap(sap_deltas) = last_actions[u.id] {
-            Some(
-                u.pos
-                    .maybe_translate(sap_deltas, fixed_params.map_size)
-                    .expect("Invalid sap_deltas"),
-            )
-        } else {
-            None
-        }
-    }) {
-        sap_count
-            .entry(sap_target_pos)
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
-        for adjacent_pos in
-            (-1..=1).cartesian_product(-1..=1).filter_map(|(dx, dy)| {
-                if dx == 0 && dy == 0 {
-                    None
-                } else {
-                    sap_target_pos
-                        .maybe_translate([dx, dy], fixed_params.map_size)
-                }
-            })
-        {
-            adjacent_sap_count
-                .entry(adjacent_pos)
-                .and_modify(|count| *count += 1)
-                .or_insert(1);
-        }
-    }
-    (sap_count, adjacent_sap_count)
-}
+// TODO
+// fn determine_unit_energy_void_factor(
+//     unit_energy_void_factor: &mut MaskedPossibilities<f32>,
+//     unit_sap_dropoff_factor: Option<f32>,
+//     obs: &Observation,
+//     last_obs_data: &LastObservationData,
+//     sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
+//     params: &KnownVariableParams,
+// ) {
+//     let (sap_count_map, adjacent_sap_count_map) = sap_count_maps;
+//     let opp_unit_count_map = get_unit_counts_map(obs.get_opp_units());
+//     let id_to_opp_unit: BTreeMap<usize, Unit> =
+//         obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
+//     let my_units = obs.get_my_units();
+//     for (opp_unit_last_turn, opp_unit_now, energy_void_base) in last_obs_data
+//         .opp_units_last_turn
+//         .iter()
+//         .filter_map(|u_last_turn| {
+//             id_to_opp_unit
+//                 .get(&u_last_turn.id)
+//                 .map(|u_now| (u_last_turn, u_now))
+//         })
+//         // NB: This won't always filter correctly if dead units are removed from observation,
+//         //  since they could apply an energy void and die in the same step
+//         // TODO: calculate my unit energies after moving but before sapping for energy void base
+//         // .filter_map(|(opp_unit_last_turn, opp_unit_now)| {
+//         //     my_units.iter().filter(|my_unit| {
+//         //         ENERGY_VOID_DELTAS
+//         //             .contains(&opp_unit_now.pos.subtract(my_unit.pos))
+//         //     }).map(|u| u.energy)
+//         // })
+//     {}
+// }
 
-fn determine_unit_energy_void_factor(
-    unit_energy_void_factor: &mut MaskedPossibilities<f32>,
-    obs: &Observation,
-    last_obs_data: &LastObservationData,
-    my_last_actions: &[Action],
-    fixed_params: &FixedParams,
-    params: &KnownVariableParams,
-) {
-    // TODO: Left off here
+fn get_unit_counts_map(units: &[Unit]) -> BTreeMap<Pos, u8> {
+    let mut result = BTreeMap::new();
+    for u in units {
+        *result.entry(u.pos).or_insert(0) += 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -521,6 +550,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_compute_sap_count_maps() {
+        let units = vec![
+            Unit::new(Pos::new(2, 2), 0, 0),
+            Unit::new(Pos::new(2, 2), 0, 2),
+            Unit::new(Pos::new(2, 2), 0, 3),
+            Unit::new(Pos::new(2, 1), 0, 4),
+        ];
+        let actions = vec![
+            NoOp,
+            // Ignore unused action
+            Sap([-3, -3]),
+            Sap([0, 0]),
+            Sap([-2, -2]),
+            Sap([-2, -1]),
+        ];
+        let (sap_count, adjacent_sap_count) =
+            compute_sap_count_maps(&units, &actions, FIXED_PARAMS.map_size);
+        let expected_sap_count =
+            BTreeMap::from([(Pos::new(2, 2), 1), (Pos::new(0, 0), 2)]);
+        assert_eq!(sap_count, expected_sap_count);
+        let expected_adjacent_sap_count = BTreeMap::from([
+            (Pos::new(0, 1), 2),
+            (Pos::new(1, 0), 2),
+            (Pos::new(1, 1), 3),
+            (Pos::new(1, 2), 1),
+            (Pos::new(1, 3), 1),
+            (Pos::new(2, 1), 1),
+            (Pos::new(2, 3), 1),
+            (Pos::new(3, 1), 1),
+            (Pos::new(3, 2), 1),
+            (Pos::new(3, 3), 1),
+        ]);
+        assert_eq!(adjacent_sap_count, expected_adjacent_sap_count);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid sap_deltas")]
+    fn test_test_compute_sap_count_maps_panics() {
+        let units = vec![Unit::new(Pos::new(0, 0), 0, 0)];
+        let actions = vec![Sap([-1, -1])];
+        compute_sap_count_maps(&units, &actions, FIXED_PARAMS.map_size);
+    }
+
     #[rstest]
     // Not adjacent
     #[case(
@@ -604,12 +677,16 @@ mod tests {
         let mut params = KnownVariableParams::default();
         params.unit_move_cost = 2;
         params.unit_sap_cost = 10;
+        let sap_count_maps = compute_sap_count_maps(
+            &last_obs_data.my_units_last_turn,
+            &last_actions,
+            FIXED_PARAMS.map_size,
+        );
         determine_unit_sap_dropoff_factor(
             &mut possibilities,
             &obs,
             &last_obs_data,
-            &last_actions,
-            &FIXED_PARAMS,
+            &sap_count_maps,
             &params,
         );
         assert_eq!(possibilities.get_mask(), expected_result);
@@ -636,59 +713,33 @@ mod tests {
         let mut params = KnownVariableParams::default();
         params.unit_move_cost = 2;
         params.unit_sap_cost = 10;
+        let sap_count_maps = compute_sap_count_maps(
+            &last_obs_data.my_units_last_turn,
+            &last_actions,
+            FIXED_PARAMS.map_size,
+        );
         determine_unit_sap_dropoff_factor(
             &mut possibilities,
             &obs,
             &last_obs_data,
-            &last_actions,
-            &FIXED_PARAMS,
+            &sap_count_maps,
             &params,
         );
     }
 
     #[test]
-    fn test_compute_sap_count_maps() {
+    fn test_get_unit_counts_map() {
         let units = vec![
-            Unit::new(Pos::new(2, 2), 0, 0),
-            Unit::new(Pos::new(2, 2), 0, 2),
-            Unit::new(Pos::new(2, 2), 0, 3),
-            Unit::new(Pos::new(2, 1), 0, 4),
+            // Handle stacked units
+            Unit::with_pos(Pos::new(0, 0)),
+            Unit::with_pos(Pos::new(0, 1)),
+            Unit::with_pos(Pos::new(0, 0)),
+            Unit::with_pos(Pos::new(0, 1)),
+            Unit::with_pos(Pos::new(0, 1)),
         ];
-        let actions = vec![
-            NoOp,
-            // Ignore unused action
-            Sap([-3, -3]),
-            Sap([0, 0]),
-            Sap([-2, -2]),
-            Sap([-2, -1]),
-        ];
-        let fixed_params = FIXED_PARAMS;
-        let (sap_count, adjacent_sap_count) =
-            compute_sap_count_maps(&units, &actions, &fixed_params);
-        let expected_sap_count =
-            BTreeMap::from([(Pos::new(2, 2), 1), (Pos::new(0, 0), 2)]);
-        assert_eq!(sap_count, expected_sap_count);
-        let expected_adjacent_sap_count = BTreeMap::from([
-            (Pos::new(0, 1), 2),
-            (Pos::new(1, 0), 2),
-            (Pos::new(1, 1), 3),
-            (Pos::new(1, 2), 1),
-            (Pos::new(1, 3), 1),
-            (Pos::new(2, 1), 1),
-            (Pos::new(2, 3), 1),
-            (Pos::new(3, 1), 1),
-            (Pos::new(3, 2), 1),
-            (Pos::new(3, 3), 1),
-        ]);
-        assert_eq!(adjacent_sap_count, expected_adjacent_sap_count);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid sap_deltas")]
-    fn test_test_compute_sap_count_maps_panics() {
-        let units = vec![Unit::new(Pos::new(0, 0), 0, 0)];
-        let actions = vec![Sap([-1, -1])];
-        let fixed_params = FIXED_PARAMS;
-        compute_sap_count_maps(&units, &actions, &fixed_params);
+        let expected_result =
+            BTreeMap::from([(Pos::new(0, 0), 2), (Pos::new(0, 1), 3)]);
+        let result = get_unit_counts_map(&units);
+        assert_eq!(result, expected_result);
     }
 }
