@@ -10,12 +10,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 itertools = "0.13.0"
-numpy = "0.21.0"
-pyo3 = "0.21"
+numpy = "0.22.1"
+pyo3 = "0.22"
 rand = "0.8.5"
 rstest = "0.23.0"
 serde_json = "1.0.132"
-serde = { version = "1.0.210", features = ["derive"] }
+serde = { version = "1.0.215", features = ["derive"] }
 rayon = "1.10.0"
 strum_macros = "0.26.4"
 strum = { version = "0.26.3", features = ["derive"] }
