@@ -29,7 +29,7 @@ impl EnergyFieldMemory {
         if Zip::from(&new_energy_field).and(&self.energy_field).all(
             |new_energy, energy_last_turn| {
                 energy_last_turn
-                    .is_some_and(|e| e == new_energy.expect(NEW_ENERGY_ERR))
+                    .is_none_or(|e| e == new_energy.expect(NEW_ENERGY_ERR))
             },
         ) {
             // If there are no conflicts between this turn and last turns non-null values,
@@ -48,18 +48,18 @@ impl EnergyFieldMemory {
 }
 
 fn update_energy_field(
-    mut new_energy_field: ArrayViewMut2<Option<i32>>,
+    mut known_energy_field: ArrayViewMut2<Option<i32>>,
     obs_energy_field: ArrayView2<Option<i32>>,
 ) {
-    Zip::from(new_energy_field.view_mut())
+    Zip::from(known_energy_field.view_mut())
         .and(obs_energy_field)
-        .for_each(|new_energy, &obs_energy| {
+        .for_each(|known_energy, &obs_energy| {
             if obs_energy.is_some() {
-                *new_energy = obs_energy;
+                *known_energy = obs_energy;
             }
         });
 
-    symmetrize(new_energy_field);
+    symmetrize(known_energy_field);
 }
 
 fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
@@ -78,19 +78,91 @@ fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
 mod tests {
     use super::*;
     use numpy::ndarray::arr2;
-    use pretty_assertions::assert_eq;
     use rstest::rstest;
 
-    #[test]
-    #[ignore]
-    fn test_update_memory() {
-        // TODO
+    #[rstest]
+    // The observed field matches what's known - just update
+    #[case(
+        arr2(&[
+            [Some(1), Some(2), None, Some(5)],
+            [None; 4],
+            [None, None, None, Some(2)],
+            [Some(8), None, None, Some(1)],
+        ]),
+        arr2(&[
+            [None, Some(2), Some(3), None],
+            [None, Some(4), Some(6), None],
+            [None, Some(7), None, None],
+            [None; 4],
+        ]),
+        arr2(&[
+            [Some(1), Some(2), Some(3), Some(5)],
+            [None, Some(4), Some(6), Some(3)],
+            [None, Some(7), Some(4), Some(2)],
+            [Some(8), None, None, Some(1)],
+        ])
+    )]
+    // The observed field doesn't match what's known - reset known to None and update
+    #[case(
+        arr2(&[
+            [Some(1), Some(2), None, Some(5)],
+            [None; 4],
+            [None, None, None, Some(2)],
+            [None, None, None, Some(1)],
+        ]),
+        arr2(&[
+            [None, Some(2), None, Some(6)],
+            [Some(2), Some(3), None, None],
+            [None, None, Some(3), None],
+            [None; 4],
+        ]),
+        arr2(&[
+            [None, Some(2), None, Some(6)],
+            [Some(2), Some(3), None, None],
+            [None, None, Some(3), Some(2)],
+            [None, None, Some(2), None],
+        ])
+    )]
+    fn test_update_memory(
+        #[case] known_energy_field: Array2<Option<i32>>,
+        #[case] obs_energy_field: Array2<Option<i32>>,
+        #[case] expected_result: Array2<Option<i32>>,
+    ) {
+        let mut memory = EnergyFieldMemory::new([4, 4]);
+        memory.energy_field = known_energy_field;
+        let mut obs = Observation::default();
+        obs.energy_field = obs_energy_field;
+
+        memory.update_memory(&obs);
+        assert_eq!(memory.energy_field, expected_result);
     }
 
     #[test]
-    #[ignore]
     fn test_update_energy_field() {
-        // TODO
+        let mut known_energy_field = arr2(&[
+            [Some(1), Some(2), None, Some(5)],
+            [None; 4],
+            [None, None, None, Some(2)],
+            [None, None, None, Some(1)],
+        ]);
+        let obs_energy_field = arr2(&[
+            [None, Some(2), None, Some(6)],
+            [Some(3), Some(3), Some(4), None],
+            [None, None, Some(3), None],
+            [None; 4],
+        ]);
+        let expected_result = arr2(&[
+            [Some(1), Some(2), None, Some(6)],
+            [Some(3), Some(3), Some(4), None],
+            [None, None, Some(3), Some(2)],
+            [None, None, Some(3), Some(1)],
+        ]);
+
+        update_energy_field(
+            known_energy_field.view_mut(),
+            obs_energy_field.view(),
+        );
+        assert_eq!(known_energy_field, expected_result);
     }
 
     #[rstest]
