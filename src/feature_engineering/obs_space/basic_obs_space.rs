@@ -18,8 +18,8 @@ enum SpatialFeature {
     Nebula,
     RelicNode,
     RelicNodeExplored,
-    RelicNodePoint,      // Guesstimate of the value
-    KnownRelicNodePoint, // Known Relic Node points
+    RelicNodePoints,      // Guesstimate of the points value
+    RelicNodePointsKnown, // Whether the guessed value is known to be correct
     EnergyField,
 }
 
@@ -38,6 +38,7 @@ enum GlobalFeature {
 // Normalizing constants
 const UNIT_COUNT_NORM: f32 = 4.0;
 const UNIT_ENERGY_NORM: f32 = 400.0;
+const ENERGY_FIELD_NORM: f32 = 7.0;
 
 /// Writes into spatial_out of shape (teams, s_channels, map_width, map_height) and
 /// global_out of shape (teams, g_channels)
@@ -97,27 +98,26 @@ fn write_team_obs(
                 obs.nebulae.iter().for_each(|n| slice[n.as_index()] = 1.0);
             },
             RelicNode => {
-                mem.relic_nodes
-                    .relic_nodes
+                mem.get_relic_nodes()
                     .iter()
                     .for_each(|r| slice[r.as_index()] = 1.0);
             },
             RelicNodeExplored => Zip::from(&mut slice)
-                .and(&mem.relic_nodes.explored_nodes_map)
+                .and(mem.get_explored_relic_nodes_map())
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
-            RelicNodePoint => slice.assign(&mem.relic_nodes.points_map),
-            KnownRelicNodePoint => Zip::from(&mut slice)
-                .and(&mem.relic_nodes.known_points_map)
+            RelicNodePoints => slice.assign(mem.get_relic_points_map()),
+            RelicNodePointsKnown => Zip::from(&mut slice)
+                .and(mem.get_known_relic_points_map())
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
             EnergyField => Zip::from(&mut slice)
-                .and(&mem.energy_field.energy_field)
+                .and(mem.get_energy_field())
                 .for_each(|out, &energy| {
                     if let Some(e) = energy {
-                        *out = e as f32
+                        *out = e as f32 / ENERGY_FIELD_NORM
                     }
                 }),
         }
@@ -143,23 +143,17 @@ fn write_team_obs(
             },
             NebulaTileVisionReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &mem.hidden_parameters
-                        .nebula_tile_vision_reduction
-                        .get_weighted_possibilities(),
+                    &mem.get_nebula_tile_vision_reduction_weights(),
                 );
             },
             NebulaTileEnergyReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &mem.hidden_parameters
-                        .nebula_tile_energy_reduction
-                        .get_weighted_possibilities(),
+                    &mem.get_nebula_tile_energy_reduction_weights(),
                 );
             },
             UnitSapDropoffFactor => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &mem.hidden_parameters
-                        .unit_sap_dropoff_factor
-                        .get_weighted_possibilities(),
+                    &mem.get_unit_sap_dropoff_factor_weights(),
                 );
             },
             End => {
@@ -231,6 +225,7 @@ mod tests {
                         option_count as isize
                     );
                 },
+                End => panic!("End should be the last feature"),
                 _ => {
                     assert_eq!(feature as isize, next_feature as isize - 1)
                 },

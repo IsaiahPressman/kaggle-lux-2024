@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 pub struct RelicNodeMemory {
     pub relic_nodes: Vec<Pos>,
     pub explored_nodes_map: Array2<bool>,
-    pub known_points_map: Array2<bool>,
     pub points_map: Array2<f32>,
+    pub known_points_map: Array2<bool>,
     points_sum_map: Array2<f32>,
     points_count_map: Array2<u32>,
     points_last_turn: u32,
@@ -23,8 +23,8 @@ impl RelicNodeMemory {
         RelicNodeMemory {
             relic_nodes: Vec::new(),
             explored_nodes_map: Array2::default(map_size),
-            known_points_map: Array2::default(map_size),
             points_map: Array2::default(map_size),
+            known_points_map: Array2::default(map_size),
             points_sum_map: Array2::zeros(map_size),
             points_count_map: Array2::zeros(map_size),
             points_last_turn: 0,
