@@ -12,9 +12,9 @@ use hidden_parameters::HiddenParametersMemory;
 use relic_nodes::RelicNodeMemory;
 
 pub struct Memory {
-    energy_field: EnergyFieldMemory,
-    hidden_parameters: HiddenParametersMemory,
-    relic_nodes: RelicNodeMemory,
+    pub energy_field: EnergyFieldMemory,
+    pub hidden_parameters: HiddenParametersMemory,
+    pub relic_nodes: RelicNodeMemory,
 }
 
 impl Memory {
