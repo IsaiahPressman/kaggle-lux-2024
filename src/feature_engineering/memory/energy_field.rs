@@ -2,9 +2,6 @@ use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
 
-const NEW_ENERGY_ERR: &str =
-    "Missing new_energy where there was observed energy last turn";
-
 /// Tracks everything known by a player currently about the energy field
 #[derive(Debug)]
 pub struct EnergyFieldMemory {
@@ -26,10 +23,11 @@ impl EnergyFieldMemory {
             new_energy_field.view_mut(),
             obs.energy_field.view(),
         );
+        let err_msg =
+            "Missing new_energy where there was observed energy last turn";
         if Zip::from(&new_energy_field).and(&self.energy_field).all(
             |new_energy, energy_last_turn| {
-                energy_last_turn
-                    .is_none_or(|e| e == new_energy.expect(NEW_ENERGY_ERR))
+                energy_last_turn.is_none_or(|e| e == new_energy.expect(err_msg))
             },
         ) {
             // If there are no conflicts between this turn and last turns non-null values,

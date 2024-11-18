@@ -16,7 +16,7 @@ pub struct HiddenParametersMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
     pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
     pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
-    // TODO pub unit_energy_void_factor: MaskedPossibilities<f32>,
+    // pub unit_energy_void_factor: MaskedPossibilities<f32>,
     last_obs_data: LastObservationData,
 }
 
@@ -333,7 +333,6 @@ fn determine_unit_sap_dropoff_factor(
     }
 }
 
-// TODO
 // fn determine_unit_energy_void_factor(
 //     unit_energy_void_factor: &mut MaskedPossibilities<f32>,
 //     unit_sap_dropoff_factor: Option<f32>,
