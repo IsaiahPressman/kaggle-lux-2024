@@ -19,8 +19,8 @@ pub fn write_basic_action_space(
 ) {
     for ((obs, team_action_mask), team_sap_mask) in observations
         .iter()
-        .zip_eq(action_mask.axis_iter_mut(Axis(0)))
-        .zip_eq(sap_mask.axis_iter_mut(Axis(0)))
+        .zip_eq(action_mask.outer_iter_mut())
+        .zip_eq(sap_mask.outer_iter_mut())
     {
         write_team_actions(
             team_action_mask,
@@ -134,12 +134,16 @@ mod tests {
 
     #[test]
     fn test_write_team_actions() {
-        let mut variable_params = KnownVariableParams::default();
-        variable_params.unit_move_cost = 1;
-        variable_params.unit_sap_cost = 5;
-        variable_params.unit_sap_range = 1;
-        let mut fixed_params = FIXED_PARAMS;
-        fixed_params.max_units = 8;
+        let variable_params = KnownVariableParams {
+            unit_move_cost: 1,
+            unit_sap_cost: 5,
+            unit_sap_range: 1,
+            ..Default::default()
+        };
+        let mut fixed_params = FixedParams {
+            max_units: 8,
+            ..FIXED_PARAMS
+        };
         fixed_params.set_map_size([5, 5]);
         let mut action_mask =
             Array2::default((fixed_params.max_units, Action::COUNT));
@@ -148,30 +152,35 @@ mod tests {
             fixed_params.map_width,
             fixed_params.map_height,
         ));
-        let mut obs = Observation::default();
-        obs.units = [
-            vec![
-                // Can't move UP or LEFT, not in range to sap
-                Unit::new(Pos::new(0, 0), 100, 0),
-                // Can't move DOWN or RIGHT, can sap
-                Unit::new(Pos::new(4, 4), 100, 1),
-                // No units with ID 2
-                // Not enough energy to sap or move
-                Unit::new(Pos::new(1, 1), 0, 3),
-                // Not enough energy to sap, blocked some by asteroid
-                Unit::new(Pos::new(1, 1), variable_params.unit_move_cost, 4),
-                // Can sap, but barely reaches, blocked some by asteroid
-                Unit::new(Pos::new(2, 2), 100, 5),
-                // Can sap, not blocked
-                Unit::new(Pos::new(3, 3), 100, 6),
+        let obs = Observation {
+            units: [
+                vec![
+                    // Can't move UP or LEFT, not in range to sap
+                    Unit::new(Pos::new(0, 0), 100, 0),
+                    // Can't move DOWN or RIGHT, can sap
+                    Unit::new(Pos::new(4, 4), 100, 1),
+                    // No units with ID 2
+                    // Not enough energy to sap or move
+                    Unit::new(Pos::new(1, 1), 0, 3),
+                    // Not enough energy to sap, blocked some by asteroid
+                    Unit::new(
+                        Pos::new(1, 1),
+                        variable_params.unit_move_cost,
+                        4,
+                    ),
+                    // Can sap, but barely reaches, blocked some by asteroid
+                    Unit::new(Pos::new(2, 2), 100, 5),
+                    // Can sap, not blocked
+                    Unit::new(Pos::new(3, 3), 100, 6),
+                ],
+                vec![
+                    // One visible sap target
+                    Unit::with_pos(Pos::new(3, 4)),
+                ],
             ],
-            vec![
-                // One visible sap target
-                Unit::with_pos(Pos::new(3, 4)),
-            ],
-        ];
-        obs.asteroids = vec![Pos::new(1, 2)];
-
+            asteroids: vec![Pos::new(1, 2)],
+            ..Default::default()
+        };
         write_team_actions(
             action_mask.view_mut(),
             sap_mask.view_mut(),
@@ -223,16 +232,18 @@ mod tests {
 
     #[test]
     fn test_get_sap_targets_map() {
-        let mut obs = Observation::default();
         let map_size = [5, 5];
-        obs.units = [
-            Vec::new(),
-            vec![
-                Unit::with_pos(Pos::new(0, 0)),
-                Unit::with_pos(Pos::new(0, 1)),
-                Unit::with_pos(Pos::new(2, 3)),
+        let obs = Observation {
+            units: [
+                Vec::new(),
+                vec![
+                    Unit::with_pos(Pos::new(0, 0)),
+                    Unit::with_pos(Pos::new(0, 1)),
+                    Unit::with_pos(Pos::new(2, 3)),
+                ],
             ],
-        ];
+            ..Default::default()
+        };
         let sap_targets_mask = get_sap_targets_map(&obs, map_size);
         let expected_sap_targets_mask = arr2(&[
             [true, true, true, false, false],

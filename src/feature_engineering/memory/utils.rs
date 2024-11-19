@@ -62,8 +62,7 @@ mod tests {
         #[case] expected: Vec<Option<Unit>>,
     ) {
         let iterator = FullUnitsIterator::new(&units, 4);
-        let result =
-            iterator.map(|opt_u| opt_u.map(|u| u.clone())).collect_vec();
+        let result = iterator.map(|opt_u| opt_u.copied()).collect_vec();
         assert_eq!(result, expected);
     }
 }

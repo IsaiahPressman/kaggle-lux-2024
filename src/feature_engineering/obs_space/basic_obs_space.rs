@@ -2,7 +2,7 @@ use crate::feature_engineering::memory::Memory;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
-    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis, Zip,
+    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Zip,
 };
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
@@ -51,8 +51,8 @@ pub fn write_basic_obs_space(
     for (((obs, mem), team_spatial_out), team_global_out) in observations
         .iter()
         .zip_eq(memories)
-        .zip_eq(spatial_out.axis_iter_mut(Axis(0)))
-        .zip_eq(global_out.axis_iter_mut(Axis(0)))
+        .zip_eq(spatial_out.outer_iter_mut())
+        .zip_eq(global_out.outer_iter_mut())
     {
         write_team_obs(team_spatial_out, team_global_out, obs, mem);
     }
@@ -69,7 +69,7 @@ fn write_team_obs(
 
     let opp = 1 - obs.team_id;
     for (sf, mut slice) in
-        SpatialFeature::iter().zip_eq(spatial_out.axis_iter_mut(Axis(0)))
+        SpatialFeature::iter().zip_eq(spatial_out.outer_iter_mut())
     {
         match sf {
             Visible => {

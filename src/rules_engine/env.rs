@@ -706,7 +706,7 @@ fn get_masked_energy_field(
 ) -> Array2<Option<i32>> {
     Zip::from(vision_mask)
         .and(energy_field)
-        .map_collect(|visible, e| if *visible { Some(*e) } else { None })
+        .map_collect(|visible, &e| visible.then_some(e))
 }
 
 #[cfg(test)]
@@ -725,8 +725,10 @@ mod tests {
     #[should_panic(expected = "Game over")]
     fn test_step_panics_without_reset() {
         let params = VariableParams::default();
-        let mut state = State::default();
-        state.done = true;
+        let mut state = State {
+            done: true,
+            ..Default::default()
+        };
         step(
             &mut state,
             &mut rand::thread_rng(),
@@ -762,7 +764,7 @@ mod tests {
             ],
         ];
         let asteroid_mask =
-            get_map_mask(&vec![Pos::new(23, 22)], FIXED_PARAMS.map_size);
+            get_map_mask(&[Pos::new(23, 22)], FIXED_PARAMS.map_size);
         let actions = [
             vec![Action::Left, Action::Left, Action::Right],
             vec![Action::Down, Action::Up],
@@ -811,10 +813,12 @@ mod tests {
 
     #[test]
     fn test_sap_units() {
-        let mut params = VariableParams::default();
         let sap_cost = 5;
-        params.unit_sap_cost = sap_cost;
-        params.unit_sap_dropoff_factor = 0.5;
+        let params = VariableParams {
+            unit_sap_cost: sap_cost,
+            unit_sap_dropoff_factor: 0.5,
+            ..Default::default()
+        };
         let mut units = [
             vec![
                 // Can't sap off the edge of the map, costs no energy
@@ -890,8 +894,10 @@ mod tests {
 
     #[test]
     fn test_resolve_collisions_and_energy_void_fields() {
-        let mut params = VariableParams::default();
-        params.unit_energy_void_factor = 0.25;
+        let params = VariableParams {
+            unit_energy_void_factor: 0.25,
+            ..Default::default()
+        };
         let mut units = [
             vec![
                 // Don't collide with self, less energy loses
@@ -1005,11 +1011,15 @@ mod tests {
 
     #[test]
     fn test_apply_energy_field() {
-        let mut fixed_params = FIXED_PARAMS;
-        fixed_params.min_unit_energy = 0;
-        fixed_params.max_unit_energy = 100;
-        let mut params = VariableParams::default();
-        params.nebula_tile_energy_reduction = 10;
+        let fixed_params = FixedParams {
+            min_unit_energy: 0,
+            max_unit_energy: 100,
+            ..FIXED_PARAMS
+        };
+        let params = VariableParams {
+            nebula_tile_energy_reduction: 10,
+            ..Default::default()
+        };
         let energy_field = arr2(&[[-10, 2], [5, 10]]);
         let nebula_mask = arr2(&[[false, false], [true, false]]);
         let mut units = [
@@ -1219,8 +1229,10 @@ mod tests {
     fn test_compute_vision_power_map_one_unit() {
         let mut fixed_params = FIXED_PARAMS;
         fixed_params.set_map_size([5, 5]);
-        let mut params = VariableParams::default();
-        params.unit_sensor_range = 1;
+        let params = VariableParams {
+            unit_sensor_range: 1,
+            ..Default::default()
+        };
         let units = [
             vec![Unit::with_pos(Pos::new(2, 2))],
             vec![Unit::with_pos(Pos::new(1, 1))],
@@ -1256,8 +1268,10 @@ mod tests {
     fn test_compute_vision_power_map_handles_edge_of_map() {
         let mut fixed_params = FIXED_PARAMS;
         fixed_params.set_map_size([3, 3]);
-        let mut params = VariableParams::default();
-        params.unit_sensor_range = 1;
+        let params = VariableParams {
+            unit_sensor_range: 1,
+            ..Default::default()
+        };
         let units = [
             vec![Unit::with_pos(Pos::new(0, 0))],
             vec![Unit::with_pos(Pos::new(2, 2))],
@@ -1281,9 +1295,11 @@ mod tests {
     fn test_compute_vision_power_map_is_additive_with_nebulae() {
         let mut fixed_params = FIXED_PARAMS;
         fixed_params.set_map_size([5, 5]);
-        let mut params = VariableParams::default();
-        params.unit_sensor_range = 1;
-        params.nebula_tile_vision_reduction = 5;
+        let params = VariableParams {
+            unit_sensor_range: 1,
+            nebula_tile_vision_reduction: 5,
+            ..Default::default()
+        };
         let units = [
             vec![
                 Unit::with_pos(Pos::new(1, 1)),
@@ -1324,35 +1340,39 @@ mod tests {
 
     #[test]
     fn test_move_space_objects() {
-        let mut params = VariableParams::default();
-        params.nebula_tile_drift_speed = -0.05;
-        params.energy_node_drift_speed = 0.02;
-        params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::default();
-        state.asteroids = vec![
-            // Moves normally
-            Pos::new(10, 10),
-            // Wraps as expected
-            Pos::new(0, 0),
-            Pos::new(23, 23),
-        ];
-        state.nebulae = vec![
-            // Moves normally
-            Pos::new(11, 11),
-            // Wraps as expected
-            Pos::new(0, 0),
-            Pos::new(23, 23),
-        ];
-        state.energy_nodes = vec![
-            // Moves normally
-            EnergyNode::new_at(Pos::new(12, 12)),
-            // Stops at edge of board
-            EnergyNode::new_at(Pos::new(21, 22)),
-            // Moves normally
-            EnergyNode::new_at(Pos::new(14, 14)),
-            // Stops at edge of board
-            EnergyNode::new_at(Pos::new(1, 2)),
-        ];
+        let params = VariableParams {
+            nebula_tile_drift_speed: -0.05,
+            energy_node_drift_speed: 0.02,
+            energy_node_drift_magnitude: 5.0,
+            ..Default::default()
+        };
+        let mut state = State {
+            asteroids: vec![
+                // Moves normally
+                Pos::new(10, 10),
+                // Wraps as expected
+                Pos::new(0, 0),
+                Pos::new(23, 23),
+            ],
+            nebulae: vec![
+                // Moves normally
+                Pos::new(11, 11),
+                // Wraps as expected
+                Pos::new(0, 0),
+                Pos::new(23, 23),
+            ],
+            energy_nodes: vec![
+                // Moves normally
+                EnergyNode::new_at(Pos::new(12, 12)),
+                // Stops at edge of board
+                EnergyNode::new_at(Pos::new(21, 22)),
+                // Moves normally
+                EnergyNode::new_at(Pos::new(14, 14)),
+                // Stops at edge of board
+                EnergyNode::new_at(Pos::new(1, 2)),
+            ],
+            ..Default::default()
+        };
         let energy_node_deltas = vec![[-3, 4], [3, 3]];
 
         let expected_asteroids =
@@ -1378,18 +1398,22 @@ mod tests {
 
     #[test]
     fn test_move_space_objects_no_op() {
-        let mut params = VariableParams::default();
-        params.nebula_tile_drift_speed = -0.05;
-        params.energy_node_drift_speed = 0.02;
-        params.energy_node_drift_magnitude = 5.0;
-        let mut state = State::default();
-        state.asteroids = vec![Pos::new(1, 1)];
-        state.nebulae = vec![Pos::new(2, 2)];
-        state.energy_nodes = vec![
-            EnergyNode::new_at(Pos::new(3, 3)),
-            EnergyNode::new_at(Pos::new(4, 4)),
-        ];
-        state.total_steps = 7;
+        let params = VariableParams {
+            nebula_tile_drift_speed: -0.05,
+            energy_node_drift_speed: 0.02,
+            energy_node_drift_magnitude: 5.0,
+            ..Default::default()
+        };
+        let mut state = State {
+            asteroids: vec![Pos::new(1, 1)],
+            nebulae: vec![Pos::new(2, 2)],
+            energy_nodes: vec![
+                EnergyNode::new_at(Pos::new(3, 3)),
+                EnergyNode::new_at(Pos::new(4, 4)),
+            ],
+            total_steps: 7,
+            ..Default::default()
+        };
         let orig_state = state.clone();
         move_space_objects(
             &mut state,
@@ -1428,9 +1452,11 @@ mod tests {
     #[test]
     fn test_get_match_result() {
         let max_steps_in_match = FIXED_PARAMS.max_steps_in_match;
-        let mut state = State::default();
-        state.team_points = [25, 24];
-        state.match_steps = max_steps_in_match - 1;
+        let mut state = State {
+            team_points: [25, 24],
+            match_steps: max_steps_in_match - 1,
+            ..Default::default()
+        };
         let result = get_match_result(&state, max_steps_in_match);
         assert!(result.is_none());
 
@@ -1446,13 +1472,15 @@ mod tests {
     #[test]
     fn test_get_match_result_tiebreaks_points() {
         let max_steps_in_match = FIXED_PARAMS.max_steps_in_match;
-        let mut state = State::default();
-        state.team_points = [10, 10];
-        state.match_steps = max_steps_in_match;
-        state.units = [
-            vec![Unit::with_energy(20), Unit::with_energy(30)],
-            vec![Unit::with_energy(49)],
-        ];
+        let mut state = State {
+            team_points: [10, 10],
+            match_steps: max_steps_in_match,
+            units: [
+                vec![Unit::with_energy(20), Unit::with_energy(30)],
+                vec![Unit::with_energy(49)],
+            ],
+            ..Default::default()
+        };
         let result = get_match_result(&state, max_steps_in_match);
         assert_eq!(result, Some(0));
 
@@ -1471,10 +1499,12 @@ mod tests {
 
     #[test]
     fn test_step_match() {
-        let mut state = State::default();
-        state.team_points = [20, 10];
-        state.team_wins = [1, 1];
-        state.match_steps = 5;
+        let mut state = State {
+            team_points: [20, 10],
+            team_wins: [1, 1],
+            match_steps: 5,
+            ..Default::default()
+        };
         step_match(&mut state, None);
         assert_eq!(state.team_points, [20, 10]);
         assert_eq!(state.team_wins, [1, 1]);
@@ -1524,7 +1554,6 @@ mod tests {
     #[test]
     fn test_step_game_finishes_early() {
         let fixed_params = FIXED_PARAMS;
-
         let mut total_steps = 0;
         let mut game_over = false;
         let result =
@@ -1559,7 +1588,6 @@ mod tests {
 
     #[test]
     fn test_get_observation() {
-        let mut state = State::default();
         let vision_power_map = arr3(&[
             // P1 only sees top left corner [0-1, 0-1] and bottom left
             [
@@ -1585,50 +1613,53 @@ mod tests {
             [15, 16, 17, 18, 19],
             [20, 21, 22, 23, 24],
         ]);
-        // Player's units are always visible, but opposing units are visible only
-        // when seen by sensor mask
-        state.units = [
-            vec![
-                Unit::with_pos(Pos::new(0, 0)),
-                Unit::with_pos(Pos::new(3, 3)),
+        let state = State {
+            // Player's units are always visible, but opposing units are visible only
+            // when seen by sensor mask
+            units: [
+                vec![
+                    Unit::with_pos(Pos::new(0, 0)),
+                    Unit::with_pos(Pos::new(3, 3)),
+                ],
+                vec![
+                    Unit::with_pos(Pos::new(1, 1)),
+                    Unit::with_pos(Pos::new(4, 4)),
+                ],
             ],
-            vec![
-                Unit::with_pos(Pos::new(1, 1)),
-                Unit::with_pos(Pos::new(4, 4)),
+            asteroids: vec![
+                // Visible to p1
+                Pos::new(0, 1),
+                // Invisible for all players
+                Pos::new(2, 2),
+                Pos::new(2, 3),
+                // Visible to p2
+                Pos::new(3, 4),
             ],
-        ];
-        state.asteroids = vec![
-            // Visible to p1
-            Pos::new(0, 1),
-            // Invisible for all players
-            Pos::new(2, 2),
-            Pos::new(2, 3),
-            // Visible to p2
-            Pos::new(3, 4),
-        ];
-        state.nebulae = vec![
-            // Visible to p1
-            Pos::new(1, 0),
-            // Invisible for all players
-            Pos::new(0, 4),
-            Pos::new(1, 4),
-            // Visible to p2
-            Pos::new(4, 3),
-        ];
-        state.relic_node_locations = vec![
-            // Visible to p1
-            Pos::new(0, 0),
-            // Invisible for all players
-            Pos::new(3, 0),
-            Pos::new(3, 2),
-            // Visible to p2
-            Pos::new(4, 4),
-        ];
-        // Features always available
-        state.team_points = [10, 20];
-        state.team_wins = [1, 1];
-        state.total_steps = 250;
-        state.match_steps = 50;
+            nebulae: vec![
+                // Visible to p1
+                Pos::new(1, 0),
+                // Invisible for all players
+                Pos::new(0, 4),
+                Pos::new(1, 4),
+                // Visible to p2
+                Pos::new(4, 3),
+            ],
+            relic_node_locations: vec![
+                // Visible to p1
+                Pos::new(0, 0),
+                // Invisible for all players
+                Pos::new(3, 0),
+                Pos::new(3, 2),
+                // Visible to p2
+                Pos::new(4, 4),
+            ],
+            // Features always available
+            team_points: [10, 20],
+            team_wins: [1, 1],
+            total_steps: 250,
+            match_steps: 50,
+            ..Default::default()
+        };
         let p1_expected_sensor_map = arr2(&[
             [true, true, false, false, false],
             [true, true, false, false, false],

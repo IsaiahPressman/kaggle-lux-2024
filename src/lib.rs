@@ -1,6 +1,6 @@
 #![allow(dead_code)] // TODO: Re-enable this lint later
 mod feature_engineering;
-pub mod parallel_env;
+mod parallel_env;
 mod rules_engine;
 
 use numpy::ndarray::Array2;

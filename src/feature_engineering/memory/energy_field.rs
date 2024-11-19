@@ -128,8 +128,10 @@ mod tests {
     ) {
         let mut memory = EnergyFieldMemory::new([4, 4]);
         memory.energy_field = known_energy_field;
-        let mut obs = Observation::default();
-        obs.energy_field = obs_energy_field;
+        let obs = Observation {
+            energy_field: obs_energy_field,
+            ..Default::default()
+        };
 
         memory.update_memory(&obs);
         assert_eq!(memory.energy_field, expected_result);

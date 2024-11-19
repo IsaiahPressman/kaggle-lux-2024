@@ -390,13 +390,15 @@ mod tests {
         let map_size = [3, 3];
         let unit_sensor_range = 1;
 
-        let mut obs = Observation::default();
-        obs.sensor_mask = arr2(&[
-            [true, false, true],
-            [false, false, true],
-            [true, true, true],
-        ]);
-        obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
+        let obs = Observation {
+            sensor_mask: arr2(&[
+                [true, false, true],
+                [false, false, true],
+                [true, true, true],
+            ]),
+            units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
+            ..Default::default()
+        };
 
         determine_nebula_tile_vision_reduction(
             &mut possibilities,
@@ -418,13 +420,15 @@ mod tests {
         let map_size = [3, 3];
         let unit_sensor_range = 1;
 
-        let mut obs = Observation::default();
-        obs.sensor_mask = arr2(&[
-            [false, false, true],
-            [false, false, true],
-            [true, true, true],
-        ]);
-        obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
+        let obs = Observation {
+            sensor_mask: arr2(&[
+                [false, false, true],
+                [false, false, true],
+                [true, true, true],
+            ]),
+            units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
+            ..Default::default()
+        };
 
         determine_nebula_tile_vision_reduction(
             &mut possibilities,
@@ -496,22 +500,28 @@ mod tests {
         #[case] my_units: Vec<Unit>,
         #[case] expected_result: Vec<bool>,
     ) {
-        let mut obs = Observation::default();
-        obs.units = [my_units, vec![Unit::with_pos(Pos::new(3, 3))]];
-        obs.nebulae = vec![
-            Pos::new(1, 0),
-            Pos::new(1, 1),
-            Pos::new(1, 2),
-            Pos::new(1, 3),
-            Pos::new(1, 4),
-            Pos::new(1, 5),
-            Pos::new(3, 3),
-        ];
-        obs.energy_field =
-            arr2(&[[Some(2), Some(1), Some(0), Some(-1), Some(-2), None]; 6]);
+        let obs = Observation {
+            units: [my_units, vec![Unit::with_pos(Pos::new(3, 3))]],
+            nebulae: vec![
+                Pos::new(1, 0),
+                Pos::new(1, 1),
+                Pos::new(1, 2),
+                Pos::new(1, 3),
+                Pos::new(1, 4),
+                Pos::new(1, 5),
+                Pos::new(3, 3),
+            ],
+            energy_field: arr2(
+                &[[Some(2), Some(1), Some(0), Some(-1), Some(-2), None]; 6],
+            ),
+
+            ..Default::default()
+        };
         let fixed_params = FIXED_PARAMS;
-        let mut params = KnownVariableParams::default();
-        params.unit_sap_range = 0;
+        let params = KnownVariableParams {
+            unit_sap_range: 0,
+            ..Default::default()
+        };
         let mut possibilities =
             MaskedPossibilities::from_options(vec![0, 1, 2, 10]);
         determine_nebula_tile_energy_reduction(
@@ -533,10 +543,12 @@ mod tests {
         #[case] mask: Vec<bool>,
     ) {
         let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
-        let mut obs = Observation::default();
-        obs.units = [vec![Unit::new(Pos::new(0, 0), 10, 0)], Vec::new()];
-        obs.nebulae = vec![Pos::new(0, 0)];
-        obs.energy_field = arr2(&[[Some(2)]]);
+        let obs = Observation {
+            units: [vec![Unit::new(Pos::new(0, 0), 10, 0)], Vec::new()],
+            nebulae: vec![Pos::new(0, 0)],
+            energy_field: arr2(&[[Some(2)]]),
+            ..Default::default()
+        };
         let my_units_last_turn = vec![Unit::new(Pos::new(0, 0), 10, 0)];
         let last_actions = vec![NoOp];
         determine_nebula_tile_energy_reduction(
@@ -667,15 +679,20 @@ mod tests {
     ) {
         let mut possibilities =
             MaskedPossibilities::from_options(vec![0.25, 0.5, 1.0]);
-        let mut obs = Observation::default();
-        obs.units = [my_units.clone(), opp_units];
-        obs.energy_field = arr2(&[[Some(0), Some(1), Some(2)]; 3]);
-        let mut last_obs_data = LastObservationData::default();
-        last_obs_data.my_units_last_turn = my_units;
-        last_obs_data.opp_units_last_turn = opp_units_last_turn;
-        let mut params = KnownVariableParams::default();
-        params.unit_move_cost = 2;
-        params.unit_sap_cost = 10;
+        let obs = Observation {
+            units: [my_units.clone(), opp_units],
+            energy_field: arr2(&[[Some(0), Some(1), Some(2)]; 3]),
+            ..Default::default()
+        };
+        let last_obs_data = LastObservationData {
+            my_units_last_turn: my_units,
+            opp_units_last_turn,
+        };
+        let params = KnownVariableParams {
+            unit_move_cost: 2,
+            unit_sap_cost: 10,
+            ..Default::default()
+        };
         let sap_count_maps = compute_sap_count_maps(
             &last_obs_data.my_units_last_turn,
             &last_actions,
@@ -701,17 +718,21 @@ mod tests {
         let mut possibilities =
             MaskedPossibilities::new(vec![0.25, 0.5, 1.0], dropoff_mask);
         let my_units = vec![Unit::new(Pos::new(4, 4), 10, 0)];
-        let mut obs = Observation::default();
-        obs.units = [my_units.clone(), vec![Unit::new(Pos::new(0, 0), 90, 0)]];
-        obs.energy_field = arr2(&[[Some(0), Some(1), Some(2)]; 3]);
-        let mut last_obs_data = LastObservationData::default();
-        last_obs_data.my_units_last_turn = my_units;
-        last_obs_data.opp_units_last_turn =
-            vec![Unit::new(Pos::new(0, 0), 100, 0)];
+        let obs = Observation {
+            units: [my_units.clone(), vec![Unit::new(Pos::new(0, 0), 90, 0)]],
+            energy_field: arr2(&[[Some(0), Some(1), Some(2)]; 3]),
+            ..Default::default()
+        };
+        let last_obs_data = LastObservationData {
+            my_units_last_turn: my_units,
+            opp_units_last_turn: vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        };
         let last_actions = vec![Sap([-3, -3])];
-        let mut params = KnownVariableParams::default();
-        params.unit_move_cost = 2;
-        params.unit_sap_cost = 10;
+        let params = KnownVariableParams {
+            unit_move_cost: 2,
+            unit_sap_cost: 10,
+            ..Default::default()
+        };
         let sap_count_maps = compute_sap_count_maps(
             &last_obs_data.my_units_last_turn,
             &last_actions,

@@ -1,13 +1,12 @@
 use crate::rules_engine::action::Action;
 use crate::rules_engine::params::{FixedParams, VariableParams};
+use crate::rules_engine::state::from_array::{
+    get_asteroids, get_energy_nodes, get_nebulae,
+};
 use crate::rules_engine::state::{EnergyNode, Pos, State, Unit};
 use itertools::Itertools;
-use numpy::ndarray::{arr2, Array2, Array3};
+use numpy::ndarray::{arr2, arr3, Array1, Array2, Array3};
 use serde::Deserialize;
-
-const EMPTY_TILE: u8 = 0;
-const NEBULA_TILE: u8 = 1;
-const ASTEROID_TILE: u8 = 2;
 
 #[derive(Deserialize)]
 pub struct FullReplay {
@@ -18,6 +17,14 @@ pub struct FullReplay {
 }
 
 impl FullReplay {
+    fn get_map_size(&self) -> [usize; 2] {
+        self.params.fixed.map_size
+    }
+
+    fn get_relic_config_size(&self) -> usize {
+        self.params.fixed.relic_config_size
+    }
+
     pub fn get_states(&self) -> Vec<State> {
         let mut result = Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
@@ -25,21 +32,25 @@ impl FullReplay {
                 >= self.params.fixed.match_count_per_episode;
             let mut state = State {
                 units: obs.get_units(),
-                asteroids: obs.get_asteroids(),
-                nebulae: obs.get_nebulae(),
+                asteroids: obs.get_asteroids(self.get_map_size()),
+                nebulae: obs.get_nebulae(self.get_map_size()),
                 energy_nodes: Self::get_energy_nodes(
                     &obs.energy_nodes,
                     &self.energy_node_fns,
                 ),
-                relic_node_locations: obs.get_relic_node_locations(),
-                relic_node_points_map: obs
-                    .get_relic_node_points_map(self.params.fixed.map_size),
                 team_points: obs.team_points,
                 team_wins: obs.team_wins,
                 total_steps: obs.steps,
                 match_steps: obs.match_steps,
                 done: game_over,
+                ..Default::default()
             };
+            state.set_relic_nodes(
+                obs.relic_nodes.iter().copied().map(Pos::from).collect(),
+                arr3(&obs.relic_node_configs).view(),
+                self.get_map_size(),
+                self.get_relic_config_size(),
+            );
             state.sort();
             result.push(state);
         }
@@ -47,29 +58,24 @@ impl FullReplay {
     }
 
     fn get_energy_nodes(
-        locations: &[[usize; 2]],
+        locations: &[[i16; 2]],
         node_fns: &[[f32; 4]],
     ) -> Vec<EnergyNode> {
-        locations
-            .iter()
-            .copied()
-            .zip_eq(node_fns.iter().copied())
-            .map(|(pos, [f_id, xyz @ ..])| {
-                EnergyNode::new(pos.into(), f_id as u8, xyz)
-            })
-            .collect()
+        let mask = Array1::from_elem(locations.len(), true);
+        get_energy_nodes(
+            arr2(locations).view(),
+            arr2(node_fns).view(),
+            mask.view(),
+        )
     }
 
     pub fn get_vision_power_maps(&self) -> Vec<Array3<i32>> {
+        let [width, height] = self.get_map_size();
         self.observations
             .iter()
             .map(|obs| {
                 Array3::from_shape_vec(
-                    (
-                        2,
-                        self.params.fixed.map_width,
-                        self.params.fixed.map_height,
-                    ),
+                    (2, width, height),
                     obs.vision_power_map
                         .iter()
                         .flatten()
@@ -87,7 +93,7 @@ impl FullReplay {
             .iter()
             .map(|obs| {
                 Array2::from_shape_vec(
-                    self.params.fixed.map_size,
+                    self.get_map_size(),
                     obs.map_features.energy.iter().flatten().copied().collect(),
                 )
                 .unwrap()
@@ -130,7 +136,7 @@ impl ReplayPlayerActions {
 struct ReplayObservation {
     units: ReplayUnits,
     units_mask: [Vec<bool>; 2],
-    energy_nodes: Vec<[usize; 2]>,
+    energy_nodes: Vec<[i16; 2]>,
     relic_nodes: Vec<[usize; 2]>,
     relic_node_configs: Vec<[[bool; 5]; 5]>,
     map_features: ReplayMapFeatures,
@@ -152,99 +158,39 @@ impl ReplayObservation {
                 .enumerate()
                 .zip_eq(self.units_mask[team].iter().copied())
                 .filter_map(|((id, (pos, [e])), alive)| {
-                    if alive {
-                        Some(Unit::new(pos.into(), e, id))
-                    } else {
-                        None
-                    }
+                    alive.then_some(Unit::new(pos.into(), e, id))
                 })
                 .collect();
         }
         result
     }
 
-    fn get_asteroids(&self) -> Vec<Pos> {
-        self.map_features
-            .tile_type
-            .iter()
-            .enumerate()
-            .flat_map(|(x, tiles)| {
-                tiles
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .map(move |(y, t)| (x, y, t))
-            })
-            .filter_map(|(x, y, t)| {
-                Self::filter_map_tile(x, y, t, ASTEROID_TILE)
-            })
-            .sorted()
-            .collect()
+    fn get_asteroids(&self, map_size: [usize; 2]) -> Vec<Pos> {
+        let tile_type = Array2::from_shape_vec(
+            map_size,
+            self.map_features
+                .tile_type
+                .iter()
+                .flatten()
+                .copied()
+                .collect(),
+        )
+        .unwrap();
+        get_asteroids(tile_type.view())
     }
 
-    fn get_nebulae(&self) -> Vec<Pos> {
-        self.map_features
-            .tile_type
-            .iter()
-            .enumerate()
-            .flat_map(|(x, tiles)| {
-                tiles
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .map(move |(y, t)| (x, y, t))
-            })
-            .filter_map(|(x, y, t)| Self::filter_map_tile(x, y, t, NEBULA_TILE))
-            .sorted()
-            .collect()
-    }
-
-    fn filter_map_tile(
-        x: usize,
-        y: usize,
-        tile_type: u8,
-        target: u8,
-    ) -> Option<Pos> {
-        if tile_type == target {
-            Some(Pos::new(x, y))
-        } else if tile_type == EMPTY_TILE
-            || tile_type == ASTEROID_TILE
-            || tile_type == NEBULA_TILE
-        {
-            None
-        } else {
-            panic!("Unrecognized tile type: {}", tile_type)
-        }
-    }
-
-    fn get_relic_node_locations(&self) -> Vec<Pos> {
-        self.relic_nodes.iter().copied().map(Pos::from).collect()
-    }
-
-    fn get_relic_node_points_map(&self, map_size: [usize; 2]) -> Array2<bool> {
-        let mut result = Array2::default(map_size);
-        for (pos, points_mask) in self
-            .relic_nodes
-            .iter()
-            .copied()
-            .map(Pos::from)
-            .zip_eq(self.relic_node_configs.iter().map(|cfg| arr2(cfg)))
-        {
-            for point_pos in points_mask
-                .indexed_iter()
-                .filter_map(|((x, y), &p)| {
-                    if p {
-                        Some([x as isize - 2, y as isize - 2])
-                    } else {
-                        None
-                    }
-                })
-                .filter_map(|deltas| pos.maybe_translate(deltas, map_size))
-            {
-                result[point_pos.as_index()] = true;
-            }
-        }
-        result
+    fn get_nebulae(&self, map_size: [usize; 2]) -> Vec<Pos> {
+        let tile_type = Array2::from_shape_vec(
+            map_size,
+            self.map_features
+                .tile_type
+                .iter()
+                .flatten()
+                .copied()
+                .collect(),
+        )
+        .unwrap();
+        get_nebulae(tile_type.view())
     }
 }
 
@@ -257,5 +203,5 @@ struct ReplayUnits {
 #[derive(Deserialize)]
 struct ReplayMapFeatures {
     energy: Vec<Vec<i32>>,
-    tile_type: Vec<Vec<u8>>,
+    tile_type: Vec<Vec<i32>>,
 }

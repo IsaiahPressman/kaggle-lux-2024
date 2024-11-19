@@ -16,7 +16,7 @@ rs-test:
 rs-test-full:
 	cargo test -- --include-ignored
 rs-lint:
-	cargo clippy -- -D warnings
+	cargo clippy --all-targets -- -D warnings
 rs-prepare: rs-format rs-test rs-lint
 
 build:

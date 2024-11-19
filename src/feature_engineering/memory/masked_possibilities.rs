@@ -58,21 +58,31 @@ mod tests {
 
     #[test]
     fn test_get_weighted_possibilities() {
-        let mut possibilities: MaskedPossibilities<usize> =
-            MaskedPossibilities::default();
-        possibilities.mask = vec![true; 3];
+        let possibilities = MaskedPossibilities {
+            options: vec![0, 1, 2],
+            mask: vec![true; 3],
+        };
         let result = possibilities.get_weighted_possibilities();
         assert_eq!(result, vec![1.0 / 3.0; 3]);
 
-        possibilities.mask = vec![false, true, false];
+        let possibilities = MaskedPossibilities {
+            options: vec![0, 1, 2],
+            mask: vec![false, true, false],
+        };
         let result = possibilities.get_weighted_possibilities();
         assert_eq!(result, vec![0.0, 1.0, 0.0]);
 
-        possibilities.mask = vec![true; 2];
+        let possibilities = MaskedPossibilities {
+            options: vec![0, 1],
+            mask: vec![true; 2],
+        };
         let result = possibilities.get_weighted_possibilities();
         assert_eq!(result, vec![0.5; 2]);
 
-        possibilities.mask = vec![true, false];
+        let possibilities = MaskedPossibilities {
+            options: vec![0, 1],
+            mask: vec![true, false],
+        };
         let result = possibilities.get_weighted_possibilities();
         assert_eq!(result, vec![1.0, 0.0]);
     }
@@ -80,9 +90,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "self.mask is all false")]
     fn test_get_weighted_possibilities_panics() {
-        let mut possibilities: MaskedPossibilities<usize> =
-            MaskedPossibilities::default();
-        possibilities.mask = vec![false; 2];
+        let possibilities = MaskedPossibilities {
+            options: vec![0, 1],
+            mask: vec![false; 2],
+        };
         possibilities.get_weighted_possibilities();
     }
 }

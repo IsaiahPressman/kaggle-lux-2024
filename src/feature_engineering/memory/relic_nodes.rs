@@ -163,14 +163,16 @@ mod tests {
     fn test_update_explored_nodes() {
         let map_size = [4, 4];
         let mut memory = RelicNodeMemory::new(map_size);
-        let mut obs = Observation::default();
-        obs.relic_node_locations = vec![Pos::new(0, 0), Pos::new(0, 1)];
-        obs.sensor_mask = arr2(&[
-            [true, true, false, false],
-            [false, true, false, false],
-            [false, false, false, false],
-            [false, false, false, false],
-        ]);
+        let obs = Observation {
+            relic_node_locations: vec![Pos::new(0, 0), Pos::new(0, 1)],
+            sensor_mask: arr2(&[
+                [true, true, false, false],
+                [false, true, false, false],
+                [false, false, false, false],
+                [false, false, false, false],
+            ]),
+            ..Default::default()
+        };
         memory.update_explored_nodes(&obs);
         assert_eq!(
             memory.relic_nodes.iter().copied().sorted().collect_vec(),
@@ -193,13 +195,15 @@ mod tests {
         assert!(!memory.check_if_all_relic_nodes_found());
         assert!(!memory.all_nodes_registered);
 
-        let mut obs = Observation::default();
-        obs.sensor_mask = arr2(&[
-            [false, true, false, true],
-            [false, true, true, true],
-            [false, false, false, false],
-            [false, false, false, false],
-        ]);
+        let obs = Observation {
+            sensor_mask: arr2(&[
+                [false, true, false, true],
+                [false, true, true, true],
+                [false, false, false, false],
+                [false, false, false, false],
+            ]),
+            ..Default::default()
+        };
         memory.update_explored_nodes(&obs);
         assert_eq!(
             memory.explored_nodes_map,
@@ -211,9 +215,11 @@ mod tests {
             ])
         );
 
-        let mut obs = Observation::default();
-        obs.relic_node_locations = vec![Pos::new(1, 1)];
-        obs.sensor_mask = Array2::default(map_size);
+        let obs = Observation {
+            relic_node_locations: vec![Pos::new(1, 1)],
+            sensor_mask: Array2::default(map_size),
+            ..Default::default()
+        };
         memory.update_explored_nodes(&obs);
         assert_eq!(
             memory.relic_nodes.iter().copied().sorted().collect_vec(),
@@ -235,13 +241,18 @@ mod tests {
     fn test_update_points_map() {
         let map_size = [4, 4];
         let mut memory = RelicNodeMemory::new(map_size);
-        let mut obs = Observation::default();
-        obs.match_steps = 1;
-        obs.units[0] = vec![
-            Unit::with_pos(Pos::new(0, 0)),
-            Unit::with_pos(Pos::new(0, 1)),
-        ];
-        obs.team_points = [1, 0];
+        let obs = Observation {
+            match_steps: 1,
+            units: [
+                vec![
+                    Unit::with_pos(Pos::new(0, 0)),
+                    Unit::with_pos(Pos::new(0, 1)),
+                ],
+                Vec::new(),
+            ],
+            team_points: [1, 0],
+            ..Default::default()
+        };
         memory.known_points_map[[0, 0]] = true;
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 1);
@@ -264,11 +275,18 @@ mod tests {
             ])
         );
 
-        obs.units[0] = vec![
-            Unit::with_pos(Pos::new(1, 0)),
-            Unit::with_pos(Pos::new(1, 1)),
-        ];
-        obs.team_points = [3, 0];
+        let obs = Observation {
+            match_steps: 1,
+            units: [
+                vec![
+                    Unit::with_pos(Pos::new(1, 0)),
+                    Unit::with_pos(Pos::new(1, 1)),
+                ],
+                Vec::new(),
+            ],
+            team_points: [3, 0],
+            ..Default::default()
+        };
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 3);
         assert_eq!(
@@ -290,12 +308,19 @@ mod tests {
             ])
         );
 
-        obs.units[0] = vec![
-            Unit::with_pos(Pos::new(0, 0)),
-            Unit::with_pos(Pos::new(2, 0)),
-            Unit::with_pos(Pos::new(2, 1)),
-        ];
-        obs.team_points = [4, 0];
+        let obs = Observation {
+            match_steps: 1,
+            units: [
+                vec![
+                    Unit::with_pos(Pos::new(0, 0)),
+                    Unit::with_pos(Pos::new(2, 0)),
+                    Unit::with_pos(Pos::new(2, 1)),
+                ],
+                Vec::new(),
+            ],
+            team_points: [4, 0],
+            ..Default::default()
+        };
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 4);
         assert_eq!(
@@ -323,10 +348,12 @@ mod tests {
     fn test_update_points_map_panics() {
         let map_size = [4, 4];
         let mut memory = RelicNodeMemory::new(map_size);
-        let mut obs = Observation::default();
-        obs.match_steps = 1;
-        obs.units[0] = vec![Unit::with_pos(Pos::new(0, 0))];
-        obs.team_points = [1, 0];
+        let obs = Observation {
+            match_steps: 1,
+            units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
+            team_points: [1, 0],
+            ..Default::default()
+        };
         memory.known_points_map[[0, 0]] = true;
         memory.update_points_map(&obs);
     }
