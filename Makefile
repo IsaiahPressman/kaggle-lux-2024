@@ -2,6 +2,8 @@ py-format:
 	rye run ruff check python/ --select I --fix
 	rye run ruff format python/
 py-test:
+	rye run pytest -vv -m "not slow" --pyargs python/
+py-test-full:
 	rye run pytest -vv --pyargs python/
 py-lint:
 	rye run ruff check python/
@@ -25,7 +27,7 @@ build:
 build-release:
 	maturin develop --release
 
-test: rs-test-full py-test
+test: rs-test-full py-test-full
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format test check
 

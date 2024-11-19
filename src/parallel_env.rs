@@ -110,11 +110,30 @@ impl ParallelEnv {
             let params = PARAM_RANGES.random_params(&mut rng);
             *env_data = EnvData::from_state_params(state, params);
         }
-        todo!("Test me from python side")
     }
 
-    fn hard_reset(&mut self) {
-        todo!()
+    /// Like soft_reset(), but forcibly terminates all environments.
+    #[allow(clippy::too_many_arguments)]
+    fn hard_reset<'py>(
+        &mut self,
+        tile_type: PyReadonlyArray3<'py, i32>,
+        energy_nodes: PyReadonlyArray3<'py, i16>,
+        energy_node_fns: PyReadonlyArray3<'py, f32>,
+        energy_nodes_mask: PyReadonlyArray2<'py, bool>,
+        relic_nodes: PyReadonlyArray3<'py, i16>,
+        relic_node_configs: PyReadonlyArray4<'py, bool>,
+        relic_nodes_mask: PyReadonlyArray2<'py, bool>,
+    ) {
+        self.env_data.iter_mut().for_each(|ed| ed.state.done = true);
+        self.soft_reset(
+            tile_type,
+            energy_nodes,
+            energy_node_fns,
+            energy_nodes_mask,
+            relic_nodes,
+            relic_node_configs,
+            relic_nodes_mask,
+        )
     }
 
     fn seq_step<'py>(

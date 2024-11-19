@@ -26,7 +26,7 @@ def test_step() -> None:
         assert np.all(obs == i)
 
 
-@pytest.mark.skip("TODO")
+@pytest.mark.slow
 def test_soft_reset() -> None:
     n_envs = 4
     env = ParallelEnv(n_envs)
@@ -47,11 +47,11 @@ def test_soft_reset() -> None:
     )
 
     env.soft_reset(
-        np.asarray(state["map_features"].tile_type),
-        np.asarray(state["energy_nodes"]),
-        np.asarray(state["energy_node_fns"]),
-        np.asarray(state["energy_nodes_mask"]),
-        np.asarray(state["relic_nodes"]),
-        np.asarray(state["relic_node_configs"]),
-        np.asarray(state["relic_nodes_mask"]),
+        tile_type=np.asarray(state["map_features"].tile_type),
+        energy_nodes=np.asarray(state["energy_nodes"]),
+        energy_node_fns=np.asarray(state["energy_node_fns"]),
+        energy_nodes_mask=np.asarray(state["energy_nodes_mask"]),
+        relic_nodes=np.asarray(state["relic_nodes"]),
+        relic_node_configs=np.asarray(state["relic_node_configs"]),
+        relic_nodes_mask=np.asarray(state["relic_nodes_mask"]),
     )
