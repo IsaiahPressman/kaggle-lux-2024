@@ -10,6 +10,24 @@ use std::cmp::Ordering;
 pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
     [[-1, 0], [1, 0], [0, -1], [0, 1]];
 
+pub fn get_reset_observation(
+    state: &State,
+    params: &VariableParams,
+) -> ([Observation; 2], GameResult) {
+    assert_eq!(state.total_steps, 0);
+    let vision_power_map = compute_vision_power_map_from_params(
+        &state.units,
+        &state.nebulae,
+        FIXED_PARAMS.map_size,
+        params,
+    );
+    let energy_field = get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
+    (
+        get_observation(state, &vision_power_map, &energy_field),
+        GameResult::new_game(),
+    )
+}
+
 pub fn step(
     state: &mut State,
     rng: &mut ThreadRng,
@@ -21,7 +39,6 @@ pub fn step(
         panic!("Game over, need to reset State")
     }
 
-    let fixed_params = FIXED_PARAMS;
     if state.match_steps == 0 {
         state.units = [Vec::new(), Vec::new()];
     }
@@ -29,9 +46,9 @@ pub fn step(
     let actions = get_relevant_actions(actions, &state.units);
     move_units(
         &mut state.units,
-        &get_map_mask(&state.asteroids, fixed_params.map_size),
+        &get_map_mask(&state.asteroids, FIXED_PARAMS.map_size),
         &actions,
-        fixed_params.map_size,
+        FIXED_PARAMS.map_size,
         params,
     );
     let energy_before_sapping = get_unit_energies(&state.units);
@@ -39,30 +56,30 @@ pub fn step(
         &mut state.units,
         &energy_before_sapping,
         &actions,
-        fixed_params.map_size,
+        FIXED_PARAMS.map_size,
         params,
     );
     resolve_collisions_and_energy_void_fields(
         &mut state.units,
         &energy_before_sapping,
-        fixed_params.map_size,
+        FIXED_PARAMS.map_size,
         params,
     );
-    let energy_field = get_energy_field(&state.energy_nodes, &fixed_params);
+    let energy_field = get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
     apply_energy_field(
         &mut state.units,
         &energy_field,
-        &get_map_mask(&state.nebulae, fixed_params.map_size),
-        &fixed_params,
+        &get_map_mask(&state.nebulae, FIXED_PARAMS.map_size),
+        &FIXED_PARAMS,
         params,
     );
-    if state.match_steps % fixed_params.spawn_rate == 0 {
-        spawn_units(&mut state.units, &fixed_params)
+    if state.match_steps % FIXED_PARAMS.spawn_rate == 0 {
+        spawn_units(&mut state.units, &FIXED_PARAMS)
     }
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
         &state.nebulae,
-        fixed_params.map_size,
+        FIXED_PARAMS.map_size,
         params,
     );
     move_space_objects(
@@ -70,7 +87,7 @@ pub fn step(
         &energy_node_deltas.unwrap_or_else(|| {
             get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
         }),
-        fixed_params.map_size,
+        FIXED_PARAMS.map_size,
         params,
     );
     update_relic_scores(
@@ -78,13 +95,13 @@ pub fn step(
         &state.units,
         &state.relic_node_points_map,
     );
-    let match_winner = get_match_result(state, fixed_params.max_steps_in_match);
+    let match_winner = get_match_result(state, FIXED_PARAMS.max_steps_in_match);
     step_match(state, match_winner);
     let game_winner = step_game(
         &mut state.total_steps,
         &mut state.done,
         &state.team_wins,
-        &fixed_params,
+        &FIXED_PARAMS,
     );
     (
         get_observation(state, &vision_power_map, &energy_field),

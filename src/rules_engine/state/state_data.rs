@@ -275,9 +275,16 @@ pub struct GameResult {
 
 impl GameResult {
     pub fn new(match_winner: Option<u8>, final_winner: Option<u8>) -> Self {
-        GameResult {
+        Self {
             match_winner,
             final_winner,
+        }
+    }
+
+    pub fn new_game() -> Self {
+        Self {
+            match_winner: None,
+            final_winner: None,
         }
     }
 }
