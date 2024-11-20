@@ -38,7 +38,7 @@ impl RelicNodeMemory {
             || self.explored_nodes_map.iter().all(|explored| *explored)
     }
 
-    pub fn update_memory(&mut self, obs: &Observation) {
+    pub fn update(&mut self, obs: &Observation) {
         self.update_explored_nodes(obs);
         self.update_points_map(obs);
     }

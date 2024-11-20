@@ -1,6 +1,6 @@
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-use crate::rules_engine::params::{FixedParams, KnownVariableParams};
+use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -11,24 +11,17 @@ use strum::IntoEnumIterator;
 /// Writes into action_mask of shape (teams, n_units, n_actions) and
 /// sap_mask of shape (teams, n_units, map_width, map_height)
 pub fn write_basic_action_space(
-    action_mask: &mut ArrayViewMut3<bool>,
-    sap_mask: &mut ArrayViewMut4<bool>,
+    mut action_mask: ArrayViewMut3<bool>,
+    mut sap_mask: ArrayViewMut4<bool>,
     observations: &[Observation; 2],
     params: &KnownVariableParams,
-    fixed_params: &FixedParams,
 ) {
     for ((obs, team_action_mask), team_sap_mask) in observations
         .iter()
         .zip_eq(action_mask.outer_iter_mut())
         .zip_eq(sap_mask.outer_iter_mut())
     {
-        write_team_actions(
-            team_action_mask,
-            team_sap_mask,
-            obs,
-            params,
-            fixed_params,
-        );
+        write_team_actions(team_action_mask, team_sap_mask, obs, params);
     }
 }
 
@@ -37,16 +30,16 @@ fn write_team_actions(
     mut sap_mask: ArrayViewMut3<bool>,
     obs: &Observation,
     params: &KnownVariableParams,
-    fixed_params: &FixedParams,
 ) {
-    let sap_targets_map = get_sap_targets_map(obs, fixed_params.map_size);
+    let (_, width, height) = sap_mask.dim();
+    let map_size = [width, height];
+    let sap_targets_map = get_sap_targets_map(obs, map_size);
     for unit in obs.get_my_units() {
         let can_sap = write_sap_mask(
             sap_mask.index_axis_mut(Axis(0), unit.id),
             &sap_targets_map,
             *unit,
             params,
-            fixed_params,
         );
         for (action, is_legal) in Action::iter()
             .zip_eq(action_mask.index_axis_mut(Axis(0), unit.id).iter_mut())
@@ -59,10 +52,10 @@ fn write_team_actions(
                     if unit.energy < params.unit_move_cost {
                         continue;
                     };
-                    let Some(new_pos) = unit.pos.maybe_translate(
-                        action.as_move_delta(),
-                        fixed_params.map_size,
-                    ) else {
+                    let Some(new_pos) = unit
+                        .pos
+                        .maybe_translate(action.as_move_delta(), map_size)
+                    else {
                         continue;
                     };
                     if obs.asteroids.contains(&new_pos) {
@@ -84,18 +77,18 @@ fn write_sap_mask(
     sap_targets_map: &Array2<bool>,
     unit: Unit,
     params: &KnownVariableParams,
-    fixed_params: &FixedParams,
 ) -> bool {
     if unit.energy < params.unit_sap_cost {
         return false;
     }
 
+    let (width, height) = sap_mask.dim();
     let mut unit_can_sap = false;
     let [x, y]: [usize; 2] = unit.pos.into();
     let range = params.unit_sap_range as usize;
     let slice = s![
-        x.saturating_sub(range)..=(x + range).min(fixed_params.map_width - 1),
-        y.saturating_sub(range)..=(y + range).min(fixed_params.map_height - 1),
+        x.saturating_sub(range)..=(x + range).min(width - 1),
+        y.saturating_sub(range)..=(y + range).min(height - 1),
     ];
     Zip::from(sap_mask.slice_mut(slice))
         .and(sap_targets_map.slice(slice))
@@ -126,7 +119,6 @@ fn get_sap_targets_map(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules_engine::params::FIXED_PARAMS;
     use crate::rules_engine::state::Pos;
     use numpy::ndarray::{arr2, arr3, Array3};
     use pretty_assertions::assert_eq;
@@ -140,18 +132,10 @@ mod tests {
             unit_sap_range: 1,
             ..Default::default()
         };
-        let mut fixed_params = FixedParams {
-            max_units: 8,
-            ..FIXED_PARAMS
-        };
-        fixed_params.set_map_size([5, 5]);
-        let mut action_mask =
-            Array2::default((fixed_params.max_units, Action::COUNT));
-        let mut sap_mask = Array3::default((
-            fixed_params.max_units,
-            fixed_params.map_width,
-            fixed_params.map_height,
-        ));
+        let max_units = 8;
+        let [map_width, map_height] = [5, 5];
+        let mut action_mask = Array2::default((max_units, Action::COUNT));
+        let mut sap_mask = Array3::default((max_units, map_width, map_height));
         let obs = Observation {
             units: [
                 vec![
@@ -186,7 +170,6 @@ mod tests {
             sap_mask.view_mut(),
             &obs,
             &variable_params,
-            &fixed_params,
         );
         let expected_action_mask = arr2(&[
             [true, false, true, true, false, false],

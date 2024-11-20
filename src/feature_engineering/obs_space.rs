@@ -1,1 +1,1 @@
-mod basic_obs_space;
+pub mod basic_obs_space;

@@ -1,7 +1,5 @@
 use crate::feature_engineering::memory::probabilities::Probabilities;
 use serde::Deserialize;
-use std::fs;
-use std::path::Path;
 use std::sync::LazyLock;
 
 pub static ENERGY_FIELD_FREQUENCIES: LazyLock<EnergyFieldFrequencies> =
@@ -15,15 +13,8 @@ pub static ENERGY_FIELD_PROBABILITIES: LazyLock<Probabilities<i32>> =
     });
 
 fn load_energy_field_frequencies() -> EnergyFieldFrequencies {
-    let path = Path::new(file!())
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("data")
-        .join("../data/energy_field_frequencies.json");
-    let json_data = fs::read_to_string(path).unwrap();
-    serde_json::from_str(&json_data).unwrap()
+    let json_data = include_str!("../data/energy_field_frequencies.json");
+    serde_json::from_str(json_data).unwrap()
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -23,7 +23,7 @@ enum SpatialFeature {
     EnergyField,
 }
 
-#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
+#[derive(Debug, Clone, Copy, EnumIter)]
 enum GlobalFeature {
     MyTeamPoints = 0,
     OppTeamPoints = 1,
@@ -42,9 +42,9 @@ const ENERGY_FIELD_NORM: f32 = 7.0;
 
 /// Writes into spatial_out of shape (teams, s_channels, map_width, map_height) and
 /// global_out of shape (teams, g_channels)
-pub fn write_basic_obs_space(
-    spatial_out: &mut ArrayViewMut4<f32>,
-    global_out: &mut ArrayViewMut2<f32>,
+pub fn write_obs_arrays(
+    mut spatial_out: ArrayViewMut4<f32>,
+    mut global_out: ArrayViewMut2<f32>,
     observations: &[Observation; 2],
     memories: &[Memory; 2],
 ) {
@@ -56,6 +56,14 @@ pub fn write_basic_obs_space(
     {
         write_team_obs(team_spatial_out, team_global_out, obs, mem);
     }
+}
+
+pub fn get_spatial_feature_count() -> usize {
+    SpatialFeature::COUNT
+}
+
+pub fn get_global_feature_count() -> usize {
+    GlobalFeature::End as usize
 }
 
 fn write_team_obs(
@@ -123,7 +131,7 @@ fn write_team_obs(
         }
     }
 
-    let mut global_result: Vec<f32> = Vec::with_capacity(End as usize);
+    let mut global_result: Vec<f32> = vec![0.0; End as usize];
     for (gf, next_gf) in GlobalFeature::iter().tuple_windows() {
         match gf {
             MyTeamPoints => {

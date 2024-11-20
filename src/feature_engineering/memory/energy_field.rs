@@ -17,7 +17,7 @@ impl EnergyFieldMemory {
         }
     }
 
-    pub fn update_memory(&mut self, obs: &Observation) {
+    pub fn update(&mut self, obs: &Observation) {
         let mut new_energy_field = self.energy_field.clone();
         update_energy_field(
             new_energy_field.view_mut(),
@@ -121,7 +121,7 @@ mod tests {
             [None, None, Some(2), None],
         ])
     )]
-    fn test_update_memory(
+    fn test_update(
         #[case] known_energy_field: Array2<Option<i32>>,
         #[case] obs_energy_field: Array2<Option<i32>>,
         #[case] expected_result: Array2<Option<i32>>,
@@ -133,7 +133,7 @@ mod tests {
             ..Default::default()
         };
 
-        memory.update_memory(&obs);
+        memory.update(&obs);
         assert_eq!(memory.energy_field, expected_result);
     }
 

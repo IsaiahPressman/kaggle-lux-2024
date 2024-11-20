@@ -67,7 +67,7 @@ impl HiddenParametersMemory {
         }
     }
 
-    pub fn update_memory(
+    pub fn update(
         &mut self,
         obs: &Observation,
         last_actions: &[Action],
@@ -92,12 +92,12 @@ impl HiddenParametersMemory {
                 variable_params,
             );
         }
-        let sap_count_maps = compute_sap_count_maps(
-            &self.last_obs_data.my_units_last_turn,
-            last_actions,
-            fixed_params.map_size,
-        );
         if self.unit_sap_dropoff_factor.still_unsolved() {
+            let sap_count_maps = compute_sap_count_maps(
+                &self.last_obs_data.my_units_last_turn,
+                last_actions,
+                fixed_params.map_size,
+            );
             determine_unit_sap_dropoff_factor(
                 &mut self.unit_sap_dropoff_factor,
                 obs,
@@ -118,10 +118,8 @@ struct LastObservationData {
 
 impl LastObservationData {
     fn copy_from_obs(obs: &Observation) -> Self {
-        let my_units_last_turn =
-            obs.get_my_units().iter().copied().collect_vec();
-        let opp_units_last_turn =
-            obs.get_opp_units().iter().copied().collect_vec();
+        let my_units_last_turn = obs.get_my_units().to_vec();
+        let opp_units_last_turn = obs.get_opp_units().to_vec();
         Self {
             my_units_last_turn,
             opp_units_last_turn,

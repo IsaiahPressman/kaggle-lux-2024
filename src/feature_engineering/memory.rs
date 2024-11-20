@@ -5,9 +5,10 @@ pub mod probabilities;
 mod relic_nodes;
 mod utils;
 
+use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
-use crate::rules_engine::params::FixedParams;
-use crate::rules_engine::state::Pos;
+use crate::rules_engine::params::{FixedParams, KnownVariableParams};
+use crate::rules_engine::state::{Observation, Pos};
 use energy_field::EnergyFieldMemory;
 use hidden_parameters::HiddenParametersMemory;
 use numpy::ndarray::Array2;
@@ -20,15 +21,28 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(fixed_params: &FixedParams, param_ranges: &ParamRanges) -> Self {
-        let energy_field = EnergyFieldMemory::new(fixed_params.map_size);
+    pub fn new(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
+        let energy_field = EnergyFieldMemory::new(map_size);
         let hidden_parameters = HiddenParametersMemory::new(param_ranges);
-        let relic_nodes = RelicNodeMemory::new(fixed_params.map_size);
+        let relic_nodes = RelicNodeMemory::new(map_size);
         Self {
             energy_field,
             hidden_parameters,
             relic_nodes,
         }
+    }
+
+    pub fn update(
+        &mut self,
+        obs: &Observation,
+        last_actions: &[Action],
+        fixed_params: &FixedParams,
+        params: &KnownVariableParams,
+    ) {
+        self.energy_field.update(obs);
+        self.hidden_parameters
+            .update(obs, last_actions, fixed_params, params);
+        self.relic_nodes.update(obs);
     }
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
