@@ -29,7 +29,7 @@ build-release:
 
 test: rs-test-full py-test-full
 check: rs-lint py-lint py-static
-prepare: build rs-format py-format test check
+prepare: build-release rs-format py-format test check
 
 clean:
 	rm -rf .mypy_cache .pytest_cache .ruff_cache

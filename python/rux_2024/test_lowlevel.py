@@ -47,7 +47,7 @@ def test_step() -> None:
     actions = np.zeros((_N_ENVS, 2, 16, 3), dtype=int)
     for i in range(303):
         assert not np.any(env_out.done)
-        env_out = ParallelEnvOut.from_raw_validated(env.par_step(actions))
+        env_out = ParallelEnvOut.from_raw_validated(env.seq_step(actions))
 
     assert np.all(env_out.done)
     expected_reward = np.ones((_N_ENVS, 2), dtype=float)
