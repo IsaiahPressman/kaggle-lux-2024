@@ -1758,6 +1758,7 @@ mod tests {
     #[ignore = "slow"]
     #[case("replay_2202956.json")]
     fn test_full_game(#[case] file_name: &str) {
+        // TODO: Also test player observations end-to-end
         let path = Path::new(file!())
             .parent()
             .unwrap()

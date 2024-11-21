@@ -267,7 +267,7 @@ impl State {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct GameResult {
     pub match_winner: Option<u8>,
     pub final_winner: Option<u8>,
