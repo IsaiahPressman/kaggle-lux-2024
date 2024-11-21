@@ -1,9 +1,15 @@
-# mypy: disable-error-code="import-not-found"
-from typing import Any
+import copy
+import json
+from pathlib import Path
+from typing import Any, Final
 
 import numpy as np
 import numpy.typing as npt
+from lux.kit import from_json
 from lux.utils import direction_to
+
+PYTHON_SOURCE_ROOT: Final[Path] = Path(__file__).parents[1].absolute()
+assert PYTHON_SOURCE_ROOT.name == "python", PYTHON_SOURCE_ROOT
 
 
 class Agent:
@@ -18,6 +24,7 @@ class Agent:
         self.relic_node_positions: list[npt.NDArray[np.int_]] = []
         self.discovered_relic_nodes_ids: set[int] = set()
         self.unit_explore_locations: dict[int, tuple[int, int]] = {}
+        self.all_raw_observations: list[dict[str, Any]] = []
 
     @property
     def opp_id(self) -> int:
@@ -27,6 +34,12 @@ class Agent:
     def unit_sap_range(self) -> int:
         return self.env_cfg["unit_sap_range"]
 
+    @property
+    def final_observation_step(self) -> int:
+        return (self.env_cfg["max_steps_in_match"] + 1) * self.env_cfg[
+            "match_count_per_episode"
+        ]
+
     def act(
         self, step: int, obs: dict[str, Any], _remaining_overage_time: int = 60
     ) -> npt.NDArray[np.int_]:
@@ -34,6 +47,11 @@ class Agent:
 
         step is the current timestep number of the game starting from 0 going up to max_steps_in_match * match_count_per_episode - 1.
         """
+        self.all_raw_observations.append(copy.deepcopy(obs))
+        obs = from_json(obs)
+        if len(self.all_raw_observations) == self.final_observation_step:
+            self.dump_raw_observations()
+
         unit_mask = np.array(obs["units_mask"][self.team_id])  # shape (max_units, )
         opp_unit_mask = np.array(obs["units_mask"][self.opp_id])  # shape (max_units, )
         unit_positions = np.array(
@@ -140,3 +158,8 @@ class Agent:
         # Otherwise move to the middle of the board
         target = [23, 23] if self.team_id == 0 else [0, 0]
         return [direction_to(unit_pos, target), 0, 0]
+
+    def dump_raw_observations(self) -> None:
+        path = PYTHON_SOURCE_ROOT.parent / f"observations_{self.team_id}.json"
+        with open(path, "w") as f:
+            json.dump(self.all_raw_observations, f)

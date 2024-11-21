@@ -24,7 +24,6 @@ use numpy::{
 };
 use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
-use rand::thread_rng;
 use rayon::prelude::*;
 use strum::EnumCount;
 
@@ -85,7 +84,7 @@ impl ParallelEnv {
         relic_node_configs: PyReadonlyArray4<'py, bool>,
         relic_nodes_mask: PyReadonlyArray2<'py, bool>,
     ) {
-        let mut rng = thread_rng();
+        let mut rng = rand::thread_rng();
         let (spatial_obs, global_obs, action_mask, sap_mask, reward, done) =
             obs_arrays;
         for (
@@ -193,7 +192,7 @@ impl ParallelEnv {
         let actions = actions.as_array();
         assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
         let mut out = ParallelEnvOutputs::new(self.n_envs);
-        let mut rng = thread_rng();
+        let mut rng = rand::thread_rng();
         for ((env_data, slice), actions) in self
             .env_data
             .iter_mut()
@@ -234,7 +233,7 @@ impl ParallelEnv {
             .zip_eq(out.iter_env_slices_mut())
             .zip_eq(actions.outer_iter())
             .par_bridge()
-            .map_init(thread_rng, |rng, ((env_data, slice), actions)| {
+            .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
                 let actions: [Vec<Action>; 2] = actions
                     .outer_iter()
                     .map(|player_actions| {

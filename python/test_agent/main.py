@@ -3,7 +3,6 @@ import json
 from argparse import Namespace
 
 from agent import Agent
-from lux.kit import from_json
 
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 agent_dict = (
@@ -25,8 +24,9 @@ def agent_fn(observation, configurations):
     remaining_overage_time = observation.remainingOverageTime
     if step == 0:
         agent_dict[player] = Agent(player, configurations["env_cfg"])
+
     agent = agent_dict[player]
-    actions = agent.act(step, from_json(obs), remaining_overage_time)
+    actions = agent.act(step, obs, remaining_overage_time)
     return dict(action=actions.tolist())
 
 

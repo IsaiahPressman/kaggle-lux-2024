@@ -736,10 +736,10 @@ mod tests {
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3, stack};
     use pretty_assertions::assert_eq;
-    use rand::thread_rng;
     use rstest::rstest;
     use serde::Deserialize;
     use std::fs;
+    use std::iter::once;
     use std::path::Path;
 
     #[test]
@@ -1139,7 +1139,6 @@ mod tests {
         )
         .unwrap();
         let result = get_energy_field(&energy_nodes, &FIXED_PARAMS);
-        println!("{}", result.clone() - expected_result.clone());
         assert_eq!(result, expected_result);
     }
 
@@ -1408,7 +1407,7 @@ mod tests {
         ];
         move_space_objects(
             &mut state,
-            &mut thread_rng(),
+            &mut rand::thread_rng(),
             Some(energy_node_deltas),
             FIXED_PARAMS.map_size,
             &params,
@@ -1439,7 +1438,7 @@ mod tests {
         let orig_state = state.clone();
         move_space_objects(
             &mut state,
-            &mut thread_rng(),
+            &mut rand::thread_rng(),
             Some(vec![[-1, 2]]),
             FIXED_PARAMS.map_size,
             &params,
@@ -1761,14 +1760,22 @@ mod tests {
     }
 
     #[rstest]
+    // Two energy nodes
     #[ignore = "slow"]
-    #[case("replay_2202956.json")]
+    #[case("processed_replay_6155879.json")]
+    // Four energy nodes
+    #[ignore = "slow"]
+    #[case("processed_replay_4086850.json")]
+    // Six energy nodes
+    // TODO: This test case won't work until bug is fixed in main engine
+    //  #[ignore = "slow"]
+    //  #[case("processed_replay_2462211601.json")]
     fn test_full_game(#[case] file_name: &str) {
-        // TODO: Also test player observations end-to-end
         let path = Path::new(file!())
             .parent()
             .unwrap()
             .join("test_data")
+            .join("processed_replays")
             .join(file_name);
         let json_data = fs::read_to_string(path).unwrap();
         let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
@@ -1781,13 +1788,25 @@ mod tests {
         // Assert fixed params are correct
         assert_eq!(full_replay.params.fixed, FIXED_PARAMS);
 
+        let player_observations = full_replay.get_player_observations();
+        let (player_reset_obs, _) =
+            get_reset_observation(&all_states[0], &full_replay.params.variable);
+        assert_eq!(player_reset_obs, player_observations[0]);
         // Run the whole game checking the simulation matches on each step
-        for (((s_next_s, actions), vision_power_map), energy_field) in
-            all_states
-                .windows(2)
-                .zip_eq(full_replay.get_actions().iter())
-                .zip_eq(all_vision_power_maps[1..].iter())
-                .zip_eq(all_energy_fields[1..].iter())
+        for (
+            (((s_next_s, actions), vision_power_map), energy_field),
+            expected_player_observations,
+        ) in all_states
+            .windows(2)
+            .zip_eq(full_replay.get_actions().iter())
+            .zip_eq(all_vision_power_maps[1..].iter())
+            .zip_eq(all_energy_fields[1..].iter())
+            .zip_eq(
+                player_observations[1..]
+                    .iter()
+                    .map(|obs| Some(obs.clone()))
+                    .chain(once(None)),
+            )
         {
             let [state, next_state] = s_next_s else {
                 panic!()
@@ -1801,23 +1820,35 @@ mod tests {
             );
 
             let mut state = state.clone();
-            let energy_node_deltas = state.get_energy_node_deltas(next_state);
-            let ([p1_obs, p2_obs], game_result) = step(
+            let mut next_state = next_state.clone();
+            let energy_node_deltas = state.get_energy_node_deltas(&next_state);
+            let ([mut p1_obs, mut p2_obs], game_result) = step(
                 &mut state,
                 &mut rng,
                 actions,
                 &full_replay.params.variable,
                 Some(
-                    energy_node_deltas[0..energy_node_deltas.len() / 2].into(),
+                    energy_node_deltas[0..energy_node_deltas.len() / 2]
+                        .to_vec(),
                 ),
             );
             assert_eq!(
                 stack![Axis(0), p1_obs.sensor_mask, p2_obs.sensor_mask],
                 vision_power_map.map(|&v| v > 0)
             );
+            if let Some([mut p1_expected, mut p2_expected]) =
+                expected_player_observations
+            {
+                p1_obs.sort();
+                p2_obs.sort();
+                p1_expected.sort();
+                p2_expected.sort();
+                assert_eq!([p1_obs, p2_obs], [p1_expected, p2_expected]);
+            }
 
             state.sort();
-            assert_eq!(state, *next_state);
+            next_state.sort();
+            assert_eq!(state, next_state);
 
             assert!(!game_over);
             game_over = state.done;

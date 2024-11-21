@@ -3,6 +3,7 @@ use crate::rules_engine::state::EnergyNode;
 use itertools::Itertools;
 use numpy::ndarray::{ArrayView1, ArrayView2};
 
+const NOT_VISIBLE: i32 = -1;
 const EMPTY_TILE: i32 = 0;
 const NEBULA_TILE: i32 = 1;
 const ASTEROID_TILE: i32 = 2;
@@ -31,7 +32,8 @@ fn filter_map_tile(
 ) -> Option<Pos> {
     if tile_type == target {
         Some(Pos::new(x, y))
-    } else if tile_type == EMPTY_TILE
+    } else if tile_type == NOT_VISIBLE
+        || tile_type == EMPTY_TILE
         || tile_type == ASTEROID_TILE
         || tile_type == NEBULA_TILE
     {

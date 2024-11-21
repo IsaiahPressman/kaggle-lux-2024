@@ -2,6 +2,7 @@ use crate::rules_engine::params::FIXED_PARAMS;
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView3};
 use std::cmp::{max, min};
+use std::num::TryFromIntError;
 
 fn sin_energy_fn(d: f32, x: f32, y: f32, z: f32) -> f32 {
     (d * x + y).sin() * z
@@ -104,6 +105,18 @@ impl From<[usize; 2]> for Pos {
 impl From<Pos> for [usize; 2] {
     fn from(value: Pos) -> Self {
         [value.x, value.y]
+    }
+}
+
+impl TryFrom<[isize; 2]> for Pos {
+    type Error = TryFromIntError;
+
+    fn try_from(value: [isize; 2]) -> Result<Self, Self::Error> {
+        let [x, y] = value;
+        Ok(Pos {
+            x: x.try_into()?,
+            y: y.try_into()?,
+        })
     }
 }
 
@@ -231,7 +244,6 @@ impl State {
         }
         self.asteroids.sort();
         self.nebulae.sort();
-        self.energy_nodes.sort_by(|en1, en2| en1.pos.cmp(&en2.pos));
         self.relic_node_locations.sort();
     }
 
@@ -332,6 +344,17 @@ impl Observation {
             total_steps,
             match_steps,
         }
+    }
+
+    /// Sorts the various elements of the State. Unnecessary during simulation, but useful when
+    /// testing to ensure the various Vecs of state components match up.
+    pub fn sort(&mut self) {
+        for team in [0, 1] {
+            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
+        }
+        self.asteroids.sort();
+        self.nebulae.sort();
+        self.relic_node_locations.sort();
     }
 
     #[inline(always)]

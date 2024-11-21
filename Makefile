@@ -9,7 +9,7 @@ py-lint:
 	rye run ruff check python/
 py-static:
 	rye run mypy python/
-py-prepare: py-format py-test py-lint py-static
+py-prepare: py-format py-lint py-static py-test
 
 rs-format:
 	cargo +nightly fmt
@@ -19,7 +19,7 @@ rs-test-full:
 	cargo test -- --include-ignored
 rs-lint:
 	cargo clippy --all-targets -- -D warnings
-rs-prepare: rs-format rs-test rs-lint
+rs-prepare: rs-format rs-lint rs-test
 
 build:
 	maturin develop --skip-install
@@ -29,7 +29,7 @@ build-release:
 
 test: rs-test-full py-test-full
 check: rs-lint py-lint py-static
-prepare: build-release rs-format py-format test check
+prepare: build-release rs-format py-format check test
 
 clean:
 	rm -rf .mypy_cache .pytest_cache .ruff_cache
