@@ -84,9 +84,8 @@ pub fn step(
     );
     move_space_objects(
         state,
-        &energy_node_deltas.unwrap_or_else(|| {
-            get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
-        }),
+        rng,
+        energy_node_deltas,
         FIXED_PARAMS.map_size,
         params,
     );
@@ -514,7 +513,8 @@ fn compute_vision_power_map(
 
 fn move_space_objects(
     state: &mut State,
-    energy_node_deltas: &[[isize; 2]],
+    rng: &mut ThreadRng,
+    energy_node_deltas: Option<Vec<[isize; 2]>>,
     map_size: [usize; 2],
     params: &VariableParams,
 ) {
@@ -531,6 +531,9 @@ fn move_space_objects(
     }
 
     if state.total_steps as f32 * params.energy_node_drift_speed % 1.0 == 0.0 {
+        let energy_node_deltas = energy_node_deltas.unwrap_or_else(|| {
+            get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
+        });
         // Chain with symmetric energy_node_deltas
         for (deltas, node) in energy_node_deltas
             .iter()
@@ -733,6 +736,7 @@ mod tests {
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::{arr2, arr3, stack};
     use pretty_assertions::assert_eq;
+    use rand::thread_rng;
     use rstest::rstest;
     use serde::Deserialize;
     use std::fs;
@@ -1404,7 +1408,8 @@ mod tests {
         ];
         move_space_objects(
             &mut state,
-            &energy_node_deltas,
+            &mut thread_rng(),
+            Some(energy_node_deltas),
             FIXED_PARAMS.map_size,
             &params,
         );
@@ -1434,7 +1439,8 @@ mod tests {
         let orig_state = state.clone();
         move_space_objects(
             &mut state,
-            &[[-1, 2]],
+            &mut thread_rng(),
+            Some(vec![[-1, 2]]),
             FIXED_PARAMS.map_size,
             &params,
         );

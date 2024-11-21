@@ -25,6 +25,7 @@ use numpy::{
 use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
+use rayon::prelude::*;
 use strum::EnumCount;
 
 type PyEnvOutputs<'py> = (
@@ -220,8 +221,42 @@ impl ParallelEnv {
         out.into_pyarray_bound(py)
     }
 
-    // TODO
-    // fn par_step(&mut self) -> Bound<'_, StepResult> {}
+    fn par_step<'py>(
+        &mut self,
+        py: Python<'py>,
+        actions: PyReadonlyArray4<'py, isize>,
+    ) -> PyEnvOutputs<'py> {
+        let actions = actions.as_array();
+        assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
+        let mut out = ParallelEnvOutputs::new(self.n_envs);
+        self.env_data
+            .iter_mut()
+            .zip_eq(out.iter_env_slices_mut())
+            .zip_eq(actions.outer_iter())
+            .par_bridge()
+            .map_init(thread_rng, |rng, ((env_data, slice), actions)| {
+                let actions: [Vec<Action>; 2] = actions
+                    .outer_iter()
+                    .map(|player_actions| {
+                        player_actions
+                            .outer_iter()
+                            .map(|a| {
+                                let a: [isize; 3] =
+                                    a.as_slice().unwrap().try_into().unwrap();
+                                Action::from(a)
+                            })
+                            .collect_vec()
+                    })
+                    .collect_vec()
+                    .try_into()
+                    .unwrap();
+
+                Self::step_env(env_data, slice, &actions, rng);
+            })
+            .for_each(|_| {});
+
+        out.into_pyarray_bound(py)
+    }
 }
 
 impl ParallelEnv {
