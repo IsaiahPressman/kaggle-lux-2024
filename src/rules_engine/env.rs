@@ -1767,7 +1767,8 @@ mod tests {
     #[ignore = "slow"]
     #[case("processed_replay_4086850.json")]
     // Six energy nodes
-    // TODO: This test case won't work until bug is fixed in main engine
+    // TODO: This test case won't work until the energy node clipping bug is fixed in the
+    //  main engine
     //  #[ignore = "slow"]
     //  #[case("processed_replay_2462211601.json")]
     fn test_full_game(#[case] file_name: &str) {

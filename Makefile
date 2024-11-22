@@ -32,4 +32,5 @@ check: rs-lint py-lint py-static
 prepare: build-release rs-format py-format check test
 
 clean:
+	cargo clean
 	rm -rf .mypy_cache .pytest_cache .ruff_cache
