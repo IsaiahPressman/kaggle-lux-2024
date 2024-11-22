@@ -6,6 +6,7 @@ use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
 #[derive(Debug)]
 pub struct EnergyFieldMemory {
     pub energy_field: Array2<Option<i32>>,
+    // TODO: Track energy_node_drift_speed parameter
 }
 
 impl EnergyFieldMemory {
