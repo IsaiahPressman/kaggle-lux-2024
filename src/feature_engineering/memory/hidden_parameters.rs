@@ -9,8 +9,6 @@ use itertools::Itertools;
 use numpy::ndarray::Zip;
 use std::collections::BTreeMap;
 
-const MIN_LIKELIHOOD_WEIGHT: f64 = 1e-4;
-
 #[derive(Debug, Default)]
 pub struct HiddenParametersMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
@@ -405,6 +403,7 @@ fn determine_unit_sap_dropoff_factor(
 //     {}
 // }
 
+#[allow(dead_code)]
 fn get_unit_counts_map(units: &[Unit]) -> BTreeMap<Pos, u8> {
     let mut result = BTreeMap::new();
     for u in units {

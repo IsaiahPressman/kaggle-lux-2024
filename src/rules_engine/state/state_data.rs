@@ -142,7 +142,10 @@ impl Unit {
     pub fn new(pos: Pos, energy: i32, id: usize) -> Self {
         Unit { pos, energy, id }
     }
+}
 
+#[cfg(test)]
+impl Unit {
     pub fn with_pos(pos: Pos) -> Self {
         Unit {
             pos,
@@ -156,14 +159,6 @@ impl Unit {
             pos: Pos::default(),
             energy,
             id: 0,
-        }
-    }
-
-    pub fn with_id(id: usize) -> Self {
-        Unit {
-            pos: Pos::default(),
-            energy: 0,
-            id,
         }
     }
 
@@ -193,6 +188,15 @@ impl EnergyNode {
         }
     }
 
+    pub fn apply_energy_fn(&self, d: f32) -> f32 {
+        match self.func_id {
+            0 => sin_energy_fn(d, self.x, self.y, self.z),
+            1 => div_energy_fn(d, self.x, self.y, self.z),
+            _ => panic!("Invalid energy_fn id {}", self.func_id),
+        }
+    }
+
+    #[cfg(test)]
     pub fn new_at(pos: Pos) -> Self {
         EnergyNode {
             pos,
@@ -200,14 +204,6 @@ impl EnergyNode {
             x: 0.,
             y: 0.,
             z: 0.,
-        }
-    }
-
-    pub fn apply_energy_fn(&self, d: f32) -> f32 {
-        match self.func_id {
-            0 => sin_energy_fn(d, self.x, self.y, self.z),
-            1 => div_energy_fn(d, self.x, self.y, self.z),
-            _ => panic!("Invalid energy_fn id {}", self.func_id),
         }
     }
 }
@@ -228,25 +224,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn get_energy_node_deltas(&self, next_state: &Self) -> Vec<[isize; 2]> {
-        self.energy_nodes
-            .iter()
-            .zip_eq(&next_state.energy_nodes)
-            .map(|(node, next_node)| next_node.pos.subtract(node.pos))
-            .collect()
-    }
-
-    /// Sorts the various elements of the State. Unnecessary during simulation, but useful when
-    /// testing to ensure the various Vecs of state components match up.
-    pub fn sort(&mut self) {
-        for team in [0, 1] {
-            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
-        }
-        self.asteroids.sort();
-        self.nebulae.sort();
-        self.relic_node_locations.sort();
-    }
-
     pub fn set_relic_nodes(
         &mut self,
         locations: Vec<Pos>,
@@ -279,23 +256,45 @@ impl State {
     }
 }
 
+#[cfg(test)]
+impl State {
+    pub fn get_energy_node_deltas(&self, next_state: &Self) -> Vec<[isize; 2]> {
+        self.energy_nodes
+            .iter()
+            .zip_eq(&next_state.energy_nodes)
+            .map(|(node, next_node)| next_node.pos.subtract(node.pos))
+            .collect()
+    }
+
+    /// Sorts the various elements of the State. Unnecessary during simulation, but useful when
+    /// testing to ensure the various Vecs of state components match up.
+    pub fn sort(&mut self) {
+        for team in [0, 1] {
+            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
+        }
+        self.asteroids.sort();
+        self.nebulae.sort();
+        self.relic_node_locations.sort();
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct GameResult {
-    pub match_winner: Option<u8>,
+    pub _match_winner: Option<u8>,
     pub final_winner: Option<u8>,
 }
 
 impl GameResult {
     pub fn new(match_winner: Option<u8>, final_winner: Option<u8>) -> Self {
         Self {
-            match_winner,
+            _match_winner: match_winner,
             final_winner,
         }
     }
 
     pub fn new_game() -> Self {
         Self {
-            match_winner: None,
+            _match_winner: None,
             final_winner: None,
         }
     }
@@ -346,8 +345,9 @@ impl Observation {
         }
     }
 
-    /// Sorts the various elements of the State. Unnecessary during simulation, but useful when
-    /// testing to ensure the various Vecs of state components match up.
+    /// Sorts the various elements of the Observation. Unnecessary during simulation,
+    /// but useful when testing to ensure the various Vecs of components match up.
+    #[cfg(test)]
     pub fn sort(&mut self) {
         for team in [0, 1] {
             self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))

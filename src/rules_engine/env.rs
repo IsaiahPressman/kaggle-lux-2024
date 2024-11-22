@@ -1105,6 +1105,7 @@ mod tests {
 
     #[derive(Deserialize)]
     struct EnergyFieldTestCase {
+        #[allow(dead_code)]
         seed: u32,
         energy_nodes: Vec<[usize; 2]>,
         energy_node_fns: Vec<[f32; 4]>,
@@ -1851,6 +1852,9 @@ mod tests {
             next_state.sort();
             assert_eq!(state, next_state);
 
+            if state.match_steps == 0 {
+                assert_eq!(game_result._match_winner.is_some(), true);
+            }
             assert!(!game_over);
             game_over = state.done;
             assert_eq!(game_over, game_result.final_winner.is_some());

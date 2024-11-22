@@ -12,17 +12,6 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn as_index(self) -> usize {
-        match self {
-            NoOp => 0,
-            Up => 1,
-            Right => 2,
-            Down => 3,
-            Left => 4,
-            Sap(_) => 5,
-        }
-    }
-
     /// Get the action's move deltas [dx, dy], panicking on NoOp or Sap
     pub fn as_move_delta(self) -> [isize; 2] {
         match self {

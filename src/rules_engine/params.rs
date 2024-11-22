@@ -17,7 +17,6 @@ pub const FIXED_PARAMS: FixedParams = FixedParams {
     max_relic_nodes: 6,
     relic_config_size: 5,
 };
-pub const TEAMS: usize = 2;
 
 const DEFAULT_MAP_WIDTH: usize = 24;
 const DEFAULT_MAP_HEIGHT: usize = 24;
@@ -51,6 +50,7 @@ pub struct FixedParams {
     pub relic_config_size: usize,
 }
 
+#[cfg(test)]
 impl FixedParams {
     /// Sets map_width and map_height along with map_size
     pub fn set_map_size(&mut self, map_size: [usize; 2]) {

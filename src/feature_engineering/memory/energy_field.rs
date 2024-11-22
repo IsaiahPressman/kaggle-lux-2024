@@ -6,14 +6,12 @@ use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
 #[derive(Debug)]
 pub struct EnergyFieldMemory {
     pub energy_field: Array2<Option<i32>>,
-    map_size: [usize; 2],
 }
 
 impl EnergyFieldMemory {
     pub fn new(map_size: [usize; 2]) -> Self {
         EnergyFieldMemory {
             energy_field: Array2::default(map_size),
-            map_size,
         }
     }
 

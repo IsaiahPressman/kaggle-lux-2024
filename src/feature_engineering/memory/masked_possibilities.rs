@@ -6,6 +6,7 @@ pub struct MaskedPossibilities<T> {
     mask: Vec<bool>,
 }
 
+#[allow(dead_code)]
 impl<T> MaskedPossibilities<T> {
     pub fn new(options: Vec<T>, mask: Vec<bool>) -> Self {
         assert_eq!(options.len(), mask.len());
