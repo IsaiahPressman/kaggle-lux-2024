@@ -62,7 +62,7 @@ impl ParallelEnv {
     }
 
     /// Resets all environments that are done, leaving active environments as-is. \
-    /// values below -10_000 indicate masked value \
+    /// Does not update reward or done arrays.
     /// de = envs that are done
     /// - obs_arrays: (spatial_obs, global_obs, action_mask, sap_mask) output arrays
     /// - tile_type: (de, width, height)
@@ -109,13 +109,18 @@ impl ParallelEnv {
                         reward,
                     ),
                     done,
-                )| SingleEnvSlice {
-                    spatial_obs,
-                    global_obs,
-                    action_mask,
-                    sap_mask,
-                    reward,
-                    done,
+                )| {
+                    let obs_arrays = ObsArraysSlice {
+                        spatial_obs,
+                        global_obs,
+                        action_mask,
+                        sap_mask,
+                    };
+                    let reward_done = RewardDoneSlice { reward, done };
+                    SingleEnvSlice {
+                        obs_arrays,
+                        reward_done,
+                    }
                 },
             )
             .zip_eq(self.env_data.iter_mut())
@@ -165,19 +170,15 @@ impl ParallelEnv {
             let params = PARAM_RANGES.random_params(&mut rng);
             *env_data = EnvData::from_state_params(state, params);
 
-            let (obs, result) =
-                get_reset_observation(&env_data.state, &env_data.params);
-            slice.spatial_obs.fill(0.0);
-            slice.global_obs.fill(0.0);
-            slice.action_mask.fill(false);
-            slice.sap_mask.fill(false);
-            slice.reward.fill(0.0);
-            *slice.done = false;
+            let obs = get_reset_observation(&env_data.state, &env_data.params);
+            slice.obs_arrays.spatial_obs.fill(0.0);
+            slice.obs_arrays.global_obs.fill(0.0);
+            slice.obs_arrays.action_mask.fill(false);
+            slice.obs_arrays.sap_mask.fill(false);
             Self::update_memories_and_write_output_arrays(
-                slice,
+                slice.obs_arrays,
                 &mut env_data.memories,
                 &obs,
-                result,
                 &[Vec::new(), Vec::new()],
                 &env_data.known_params,
             );
@@ -268,22 +269,21 @@ impl ParallelEnv {
         let (obs, result) =
             step(&mut env_data.state, rng, actions, &env_data.params, None);
         Self::update_memories_and_write_output_arrays(
-            env_slice,
+            env_slice.obs_arrays,
             &mut env_data.memories,
             &obs,
-            result,
             actions,
             &env_data.known_params,
         );
+        Self::write_reward_and_done(env_slice.reward_done, result);
     }
 
     /// Writes the observations into the respective arrays and updates memories
     /// Must be called *after* updating state and getting latest observation
     fn update_memories_and_write_output_arrays(
-        mut slice: SingleEnvSlice,
+        mut slice: ObsArraysSlice,
         memories: &mut [Memory; 2],
         observations: &[Observation; 2],
-        game_result: GameResult,
         last_actions: &[Vec<Action>; 2],
         params: &KnownVariableParams,
     ) {
@@ -306,6 +306,12 @@ impl ParallelEnv {
             observations,
             params,
         );
+    }
+
+    fn write_reward_and_done(
+        mut slice: RewardDoneSlice,
+        game_result: GameResult,
+    ) {
         if let Some(p) = game_result.final_winner {
             match p {
                 0 => {
@@ -319,6 +325,9 @@ impl ParallelEnv {
                 p => panic!("Unexpected game winner {}", p),
             }
             *slice.done = true;
+        } else {
+            slice.reward.fill(0.0);
+            *slice.done = false;
         }
     }
 }
@@ -359,13 +368,21 @@ impl EnvData {
     }
 }
 
-struct SingleEnvSlice<'a> {
+struct ObsArraysSlice<'a> {
     spatial_obs: ArrayViewMut4<'a, f32>,
     global_obs: ArrayViewMut2<'a, f32>,
     action_mask: ArrayViewMut3<'a, bool>,
     sap_mask: ArrayViewMut4<'a, bool>,
+}
+
+struct RewardDoneSlice<'a> {
     reward: ArrayViewMut1<'a, f32>,
     done: &'a mut bool,
+}
+
+struct SingleEnvSlice<'a> {
+    obs_arrays: ObsArraysSlice<'a>,
+    reward_done: RewardDoneSlice<'a>,
 }
 
 struct ParallelEnvOutputs {
@@ -434,13 +451,18 @@ impl ParallelEnvOutputs {
                         reward,
                     ),
                     done,
-                )| SingleEnvSlice {
-                    spatial_obs,
-                    global_obs,
-                    action_mask,
-                    sap_mask,
-                    reward,
-                    done,
+                )| {
+                    let obs_arrays = ObsArraysSlice {
+                        spatial_obs,
+                        global_obs,
+                        action_mask,
+                        sap_mask,
+                    };
+                    let reward_done = RewardDoneSlice { reward, done };
+                    SingleEnvSlice {
+                        obs_arrays,
+                        reward_done,
+                    }
                 },
             )
     }

@@ -13,7 +13,7 @@ pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
 pub fn get_reset_observation(
     state: &State,
     params: &VariableParams,
-) -> ([Observation; 2], GameResult) {
+) -> [Observation; 2] {
     assert_eq!(state.total_steps, 0);
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
@@ -22,10 +22,7 @@ pub fn get_reset_observation(
         params,
     );
     let energy_field = get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
-    (
-        get_observation(state, &vision_power_map, &energy_field),
-        GameResult::new_game(),
-    )
+    get_observation(state, &vision_power_map, &energy_field)
 }
 
 pub fn step(
@@ -1791,7 +1788,7 @@ mod tests {
         assert_eq!(full_replay.params.fixed, FIXED_PARAMS);
 
         let player_observations = full_replay.get_player_observations();
-        let (player_reset_obs, _) =
+        let player_reset_obs =
             get_reset_observation(&all_states[0], &full_replay.params.variable);
         assert_eq!(player_reset_obs, player_observations[0]);
         // Run the whole game checking the simulation matches on each step

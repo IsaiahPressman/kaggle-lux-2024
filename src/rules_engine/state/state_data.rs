@@ -291,13 +291,6 @@ impl GameResult {
             final_winner,
         }
     }
-
-    pub fn new_game() -> Self {
-        Self {
-            _match_winner: None,
-            final_winner: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

@@ -50,8 +50,8 @@ def test_step() -> None:
         env_out = ParallelEnvOut.from_raw_validated(env.seq_step(actions))
 
     assert np.all(env_out.done)
-    expected_reward = np.ones((_N_ENVS, 2), dtype=float)
-    expected_reward[:, 1] = -1
+    expected_reward = np.zeros((_N_ENVS, 2), dtype=float)
+    expected_reward[:] = [1, -1]
     assert np.all(env_out.reward == expected_reward)
 
 
@@ -95,8 +95,9 @@ def test_soft_reset() -> None:
     assert np.all(env_out.global_obs != _FLOAT_FLAG)
     assert np.all(np.logical_not(env_out.action_mask))
     assert np.all(np.logical_not(env_out.sap_mask))
-    assert np.all(env_out.reward != _FLOAT_FLAG)
-    assert np.all(np.logical_not(env_out.done))
+    # Reward and done are left as-is after a soft reset
+    assert np.all(env_out.reward == _FLOAT_FLAG)
+    assert np.all(env_out.done)
 
     # Now try only resetting some envs
     reset_env_ids = [0, 1, 5]
@@ -108,8 +109,10 @@ def test_soft_reset() -> None:
     env_out.global_obs[:] = _FLOAT_FLAG
     env_out.action_mask[:] = True
     env_out.sap_mask[:] = True
-    env_out.reward[:] = _FLOAT_FLAG
-    env_out.done[:] = True
+    env_out.reward[not_reset_env_ids] = _FLOAT_FLAG - 1
+    env_out.reward[reset_env_ids] = _FLOAT_FLAG
+    env_out.done[not_reset_env_ids] = False
+    env_out.done[reset_env_ids] = True
 
     new_map_dict = gen_map_vmapped(jax.random.split(jax.random.key(42), _N_ENVS))
     env.soft_reset(
@@ -140,7 +143,8 @@ def test_soft_reset() -> None:
     assert np.all(env_out.action_mask[not_reset_env_ids])
     assert np.all(np.logical_not(env_out.sap_mask[reset_env_ids]))
     assert np.all(env_out.action_mask[not_reset_env_ids])
-    assert np.all(env_out.reward[reset_env_ids] != _FLOAT_FLAG)
-    assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG)
-    assert np.all(np.logical_not(env_out.done[reset_env_ids]))
-    assert np.all(env_out.done[not_reset_env_ids])
+    # Reward and done are left as-is after a soft reset
+    assert np.all(env_out.reward[reset_env_ids] == _FLOAT_FLAG)
+    assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG - 1)
+    assert np.all(env_out.done[reset_env_ids])
+    assert np.all(np.logical_not(env_out.done[not_reset_env_ids]))
