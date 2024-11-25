@@ -64,7 +64,7 @@ impl ParallelEnv {
     /// Resets all environments that are done, leaving active environments as-is. \
     /// Does not update reward or done arrays.
     /// de = envs that are done
-    /// - obs_arrays: (spatial_obs, global_obs, action_mask, sap_mask) output arrays
+    /// - obs_arrays: output arrays from self.step()
     /// - tile_type: (de, width, height)
     /// - energy_nodes: (de, max_energy_nodes, 2)
     /// - energy_node_fns: (de, max_energy_nodes, 4)

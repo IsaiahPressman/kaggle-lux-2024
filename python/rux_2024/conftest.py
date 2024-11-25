@@ -5,6 +5,6 @@ import pytest
 
 
 @pytest.fixture(scope="session", autouse=True)
-def jax_use_cpu() -> Generator[None, None, None]:
+def _jax_use_cpu() -> Generator[None, None, None]:
     with jax.default_device(jax.devices("cpu")[0]):
         yield

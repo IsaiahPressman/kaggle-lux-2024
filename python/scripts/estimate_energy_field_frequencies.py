@@ -38,11 +38,7 @@ class Frequency:
 
 def main() -> None:
     args = UserArgs.from_argparse()
-    if args.seed is not None:
-        seed = args.seed
-    else:
-        seed = get_random_seed()
-
+    seed = get_random_seed() if args.seed is None else args.seed
     energy_field_frequencies = estimate_energy_field_frequencies(seed, args.batch_size)
     print(
         f"Estimated the following energy field frequencies with seed {seed}:\n"

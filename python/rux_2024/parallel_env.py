@@ -21,9 +21,7 @@ class ParallelEnv:
     ) -> None:
         self.n_envs = n_envs
         self.auto_reset = auto_reset
-        params = EnvParams()
-        self._map_width = params.map_width
-        self._map_height = params.map_height
+        fixed_params = EnvParams()
 
         self._random_state = jax.random.key(seed)
         self._env = LowLevelEnv(n_envs)
@@ -31,12 +29,12 @@ class ParallelEnv:
             functools.partial(
                 gen_map,
                 params=None,
-                map_type=1,
-                map_height=self._map_height,
-                map_width=self._map_width,
-                max_energy_nodes=6,
-                max_relic_nodes=6,
-                relic_config_size=5,
+                map_type=fixed_params.map_type,
+                map_height=fixed_params.map_height,
+                map_width=fixed_params.map_width,
+                max_energy_nodes=fixed_params.max_energy_nodes,
+                max_relic_nodes=fixed_params.max_relic_nodes,
+                relic_config_size=fixed_params.relic_config_size,
             )
         )
         self._last_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
@@ -51,7 +49,7 @@ class ParallelEnv:
         return self._raw_gen_map_vmapped(subkeys)
 
     def hard_reset(self) -> None:
-        self._env.terminate_envs([i for i in range(self.n_envs)])
+        self._env.terminate_envs(list(range(self.n_envs)))
         self._last_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
         self.soft_reset()
 

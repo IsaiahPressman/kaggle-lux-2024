@@ -20,7 +20,8 @@ class UserArgs:
     @classmethod
     def from_argparse(cls) -> "UserArgs":
         parser = argparse.ArgumentParser(
-            description="Create merged replay file with energy node config and observation information"
+            description="Create merged replay file with energy node config "
+            "and observation information"
         )
         parser.add_argument("path", type=Path)
         args = parser.parse_args()

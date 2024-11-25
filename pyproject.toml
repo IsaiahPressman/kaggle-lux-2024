@@ -33,6 +33,27 @@ python-source = "python"
 module-name = "rux_2024._lowlevel"
 features = ["pyo3/extension-module"]
 
+[tool.ruff.lint]
+select = [
+    "A",
+    "B",
+    "C",
+    "E",
+    "F",
+    "G",
+    "I",
+    "PT",
+    "UP",
+    "DTZ",
+    "ERA",
+    "PIE",
+    "RET",
+    "RSE",
+    "RUF",
+    "SIM",
+]
+pylint.max-statements = 30
+
 [tool.mypy]
 strict_optional = true
 warn_redundant_casts = true

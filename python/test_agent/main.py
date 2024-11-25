@@ -1,3 +1,4 @@
+# ruff: noqa
 # mypy: ignore-errors
 import json
 from argparse import Namespace

@@ -43,9 +43,11 @@ class Agent:
     def act(
         self, step: int, obs: dict[str, Any], _remaining_overage_time: int = 60
     ) -> npt.NDArray[np.int_]:
-        """implement this function to decide what actions to send to each available unit.
+        """implement this function to decide what actions to send to each
+        available unit.
 
-        step is the current timestep number of the game starting from 0 going up to max_steps_in_match * match_count_per_episode - 1.
+        step is the current timestep number of the game starting from 0
+        going up to max_steps_in_match * match_count_per_episode - 1.
         """
         self.all_raw_observations.append(copy.deepcopy(obs))
         obs = from_json(obs)
@@ -71,7 +73,7 @@ class Agent:
         )  # shape (max_relic_nodes, )
         _team_points = np.array(
             obs["team_points"]
-        )  # points of each team, team_points[self.team_id] is the points of the your team
+        )  # points of each team, team_points[self.team_id] is your team's points
         team_wins = np.array(obs["team_wins"])
 
         # ids of units you can control at this timestep
@@ -82,15 +84,19 @@ class Agent:
 
         actions = np.zeros((self.env_cfg["max_units"], 3), dtype=int)
 
-        # basic strategy here is simply to have some units randomly explore and some units collecting as much energy as possible
-        # and once a relic node is found, we send all units to move randomly around the first relic node to gain points
-        # and information about where relic nodes are found are saved for the next match
+        # basic strategy here is simply to have some units randomly explore and
+        # some units collecting as much energy as possible and once a relic node
+        # is found, we send all units to move randomly around the first relic
+        # node to gain points and information about where relic nodes are found
+        # are saved for the next match
 
         # save any new relic nodes that we discover for the rest of the game.
-        for id in visible_relic_node_ids:
-            if id not in self.discovered_relic_nodes_ids:
-                self.discovered_relic_nodes_ids.add(id)
-                self.relic_node_positions.append(observed_relic_node_positions[id])
+        for relic_id in visible_relic_node_ids:
+            if relic_id not in self.discovered_relic_nodes_ids:
+                self.discovered_relic_nodes_ids.add(relic_id)
+                self.relic_node_positions.append(
+                    observed_relic_node_positions[relic_id]
+                )
 
         # Stop playing if ahead
         if team_wins[self.team_id] > team_wins[self.opp_id]:
@@ -118,7 +124,8 @@ class Agent:
                 unit_pos[0] - nearest_relic_node_position[0]
             ) + abs(unit_pos[1] - nearest_relic_node_position[1])
 
-            # if close to the relic node we want to hover around it and hope to gain points
+            # if close to the relic node we want to hover around it and hope to
+            # gain points
             if manhattan_distance <= 4:
                 random_direction = np.random.randint(0, 5)
                 return [random_direction, 0, 0]
@@ -130,7 +137,8 @@ class Agent:
                 0,
             ]
 
-        # randomly explore by picking a random location on the map and moving there for about 20 steps
+        # randomly explore by picking a random location on the map and moving
+        # there for about 20 steps
         if step % 20 == 0 or unit_id not in self.unit_explore_locations:
             rand_loc = (
                 np.random.randint(0, self.env_cfg["map_width"]),

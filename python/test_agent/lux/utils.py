@@ -1,4 +1,5 @@
-from typing_extensions import Sequence
+# ruff: noqa: RET505
+from typing import Sequence
 
 
 # direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
