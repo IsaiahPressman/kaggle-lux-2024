@@ -6,14 +6,23 @@ use numpy::ndarray::{s, Array2, Array3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
 use std::cmp::Ordering;
+use TerminationMode::{FinalStep, ThirdMatchWin};
 
 pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
     [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+#[derive(Debug, Clone, Copy)]
+pub enum TerminationMode {
+    #[allow(dead_code)] // TODO: Remove this lint silencer
+    FinalStep,
+    ThirdMatchWin,
+}
 
 pub fn get_reset_observation(
     state: &State,
     params: &VariableParams,
 ) -> [Observation; 2] {
+    let _t = TerminationMode::FinalStep;
     assert_eq!(state.total_steps, 0);
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
@@ -30,6 +39,7 @@ pub fn step(
     rng: &mut ThreadRng,
     actions: &[Vec<Action>; 2],
     params: &VariableParams,
+    termination: TerminationMode,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
 ) -> ([Observation; 2], GameResult) {
     if state.done {
@@ -96,8 +106,9 @@ pub fn step(
     let game_winner = step_game(
         &mut state.total_steps,
         &mut state.done,
-        &state.team_wins,
+        state.team_wins,
         &FIXED_PARAMS,
+        termination,
     );
     (
         get_observation(state, &vision_power_map, &energy_field),
@@ -619,19 +630,24 @@ fn step_match(state: &mut State, match_winner: Option<u8>) {
 fn step_game(
     total_steps: &mut u32,
     game_over: &mut bool,
-    team_wins: &[u32; 2],
+    team_wins: [u32; 2],
     fixed_params: &FixedParams,
+    termination: TerminationMode,
 ) -> Option<u8> {
-    // NB: Early termination is not used in the original implementation
     *total_steps += 1;
-    let early_result = match team_wins {
-        [3, _] => Some(0),
-        [_, 3] => Some(1),
-        _ => None,
-    };
-    if early_result.is_some() {
-        *game_over = true;
-        return early_result;
+    match termination {
+        FinalStep => {},
+        ThirdMatchWin => {
+            let early_result = match team_wins {
+                [3, _] => Some(0),
+                [_, 3] => Some(1),
+                _ => None,
+            };
+            if early_result.is_some() {
+                *game_over = true;
+                return early_result;
+            }
+        },
     }
 
     if *total_steps
@@ -752,6 +768,7 @@ mod tests {
             &mut rand::thread_rng(),
             &[Vec::new(), Vec::new()],
             &params,
+            TerminationMode::FinalStep,
             None,
         );
     }
@@ -1552,48 +1569,61 @@ mod tests {
             - 2;
         let mut total_steps = start_step;
         let mut game_over = false;
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 2], &fixed_params);
+        let result = step_game(
+            &mut total_steps,
+            &mut game_over,
+            [2, 2],
+            &fixed_params,
+            FinalStep,
+        );
         assert_eq!(total_steps, start_step + 1);
         assert!(result.is_none());
         assert!(!game_over);
 
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[3, 2], &fixed_params);
+        let result = step_game(
+            &mut total_steps,
+            &mut game_over,
+            [3, 2],
+            &fixed_params,
+            FinalStep,
+        );
         assert_eq!(result, Some(0));
         assert!(game_over);
 
         total_steps -= 1;
         game_over = false;
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 3], &fixed_params);
+        let result = step_game(
+            &mut total_steps,
+            &mut game_over,
+            [2, 3],
+            &fixed_params,
+            FinalStep,
+        );
         assert_eq!(result, Some(1));
         assert!(game_over);
     }
 
-    #[test]
-    fn test_step_game_finishes_early() {
-        let fixed_params = FIXED_PARAMS;
-        let mut total_steps = 0;
+    #[rstest]
+    #[case([2, 1], ThirdMatchWin, None)]
+    #[case([3, 0], FinalStep, None)]
+    #[case([3, 0], ThirdMatchWin, Some(0))]
+    #[case([1, 3], FinalStep, None)]
+    #[case([1, 3], ThirdMatchWin, Some(1))]
+    fn test_step_game_finishes_early(
+        #[case] team_wins: [u32; 2],
+        #[case] termination: TerminationMode,
+        #[case] expected_result: Option<u8>,
+    ) {
         let mut game_over = false;
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[2, 1], &fixed_params);
-        assert!(result.is_none());
-        assert!(!game_over);
-
-        let mut total_steps = 0;
-        let mut game_over = false;
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[3, 0], &fixed_params);
-        assert_eq!(result, Some(0));
-        assert!(game_over);
-
-        let mut total_steps = 0;
-        let mut game_over = false;
-        let result =
-            step_game(&mut total_steps, &mut game_over, &[1, 3], &fixed_params);
-        assert_eq!(result, Some(1));
-        assert!(game_over);
+        let result = step_game(
+            &mut 0,
+            &mut game_over,
+            team_wins,
+            &FIXED_PARAMS,
+            termination,
+        );
+        assert_eq!(result, expected_result);
+        assert_eq!(game_over, expected_result.is_some());
     }
 
     #[test]
@@ -1603,7 +1633,13 @@ mod tests {
         let mut total_steps = (fixed_params.max_steps_in_match + 1)
             * fixed_params.match_count_per_episode
             - 1;
-        step_game(&mut total_steps, &mut false, &[2, 2], &fixed_params);
+        step_game(
+            &mut total_steps,
+            &mut false,
+            [2, 2],
+            &fixed_params,
+            FinalStep,
+        );
     }
 
     #[test]
@@ -1826,6 +1862,7 @@ mod tests {
                 &mut rng,
                 actions,
                 &full_replay.params.variable,
+                FinalStep,
                 Some(
                     energy_node_deltas[0..energy_node_deltas.len() / 2]
                         .to_vec(),

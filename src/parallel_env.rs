@@ -4,7 +4,7 @@ use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count, write_obs_arrays,
 };
 use crate::rules_engine::action::Action;
-use crate::rules_engine::env::{get_reset_observation, step};
+use crate::rules_engine::env::{get_reset_observation, step, TerminationMode};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
     KnownVariableParams, VariableParams, FIXED_PARAMS,
@@ -266,8 +266,15 @@ impl ParallelEnv {
         actions: &[Vec<Action>; 2],
         rng: &mut ThreadRng,
     ) {
-        let (obs, result) =
-            step(&mut env_data.state, rng, actions, &env_data.params, None);
+        // TODO: Variable termination based on reward space
+        let (obs, result) = step(
+            &mut env_data.state,
+            rng,
+            actions,
+            &env_data.params,
+            TerminationMode::ThirdMatchWin,
+            None,
+        );
         Self::update_memories_and_write_output_arrays(
             env_slice.obs_arrays,
             &mut env_data.memories,
@@ -312,6 +319,7 @@ impl ParallelEnv {
         mut slice: RewardDoneSlice,
         game_result: GameResult,
     ) {
+        // TODO: Variable reward space
         if let Some(p) = game_result.final_winner {
             match p {
                 0 => {

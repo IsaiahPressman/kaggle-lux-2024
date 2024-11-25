@@ -12,6 +12,7 @@ enum SpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
+    // TODO: UnitEnergyMin and UnitEnergyMax features?
     MyUnitEnergy,
     OppUnitEnergy,
     Asteroid,

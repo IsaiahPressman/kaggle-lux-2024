@@ -1,7 +1,21 @@
+from typing import NamedTuple
+
+import torch
 from torch import nn
 
+from .actor_heads import BasicActorHead
 from .conv_blocks import ResidualBlock
+from .critic_heads import ZeroSumCriticHead
 from .types import ActivationFactory
+
+
+class ActorCriticOut(NamedTuple):
+    main_action_logits: torch.Tensor
+    """shape (batch, units, actions)"""
+    sap_action_logits: torch.Tensor
+    """shape (batch, units, w, h)"""
+    value: torch.Tensor
+    """shape (batch * 2 [n_players],)"""
 
 
 class ActorCritic(nn.Module):
@@ -12,9 +26,9 @@ class ActorCritic(nn.Module):
         d_model: int,
         n_layers: int,
         kernel_size: int = 3,
+        activation: ActivationFactory = nn.GELU,
     ) -> None:
         super().__init__()
-        activation: ActivationFactory = nn.GELU
         self.spatial_in = self._build_spatial_in(
             spatial_in_channels,
             d_model,
@@ -32,8 +46,40 @@ class ActorCritic(nn.Module):
             activation=activation,
             kernel_size=kernel_size,
         )
-        self.actor_head = self._build_actor_head()
-        self.critic_head = self._build_critic_head()
+        self.actor_head = BasicActorHead(
+            d_model,
+            activation=activation,
+        )
+        # TODO: Adjust critic head based on reward space
+        self.critic_head = ZeroSumCriticHead(
+            d_model,
+            activation=activation,
+        )
+
+    def forward(
+        self,
+        spatial_obs: torch.Tensor,
+        global_obs: torch.Tensor,
+        unit_indices: torch.Tensor,
+        unit_energies: torch.Tensor,
+    ) -> ActorCriticOut:
+        """
+        spatial_obs: shape (batch, s_features, w, h) \
+        global_obs: shape (batch, g_features) \
+        unit_indices: shape (batch, units, 2) \
+        unit_energies: shape (batch, units)
+        """
+        x = self.spatial_in(spatial_obs) + self.global_in(global_obs)[..., None, None]
+        x = self.base(x)
+        main_action_logits, sap_action_logits = self.actor_head(
+            x, unit_indices=unit_indices, unit_energies=unit_energies
+        )
+        value = self.critic_head(x)
+        return ActorCriticOut(
+            main_action_logits=main_action_logits,
+            sap_action_logits=sap_action_logits,
+            value=value,
+        )
 
     @classmethod
     def _build_spatial_in(
@@ -95,8 +141,3 @@ class ActorCritic(nn.Module):
                 for _ in range(n_blocks)
             )
         )
-
-    @classmethod
-    def _build_actor_head(cls) -> nn.Module:
-        # TODO
-        raise NotImplementedError
