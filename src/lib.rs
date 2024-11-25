@@ -5,6 +5,7 @@ mod rules_engine;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count,
 };
+use crate::feature_engineering::reward_space::RewardSpace;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use parallel_env::ParallelEnv;
@@ -41,6 +42,7 @@ fn _lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(hello_numpy_world, m)?)?;
 
+    m.add_class::<RewardSpace>()?;
     m.add_class::<ParallelEnv>()?;
     m.add_function(wrap_pyfunction!(get_spatial_feature_count_py, m)?)?;
     m.add_function(wrap_pyfunction!(get_global_feature_count_py, m)?)?;

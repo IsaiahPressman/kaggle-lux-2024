@@ -7,6 +7,7 @@ from luxai_s3.state import gen_map
 
 from rux_2024._lowlevel import (
     ParallelEnv,
+    RewardSpace,
 )
 from rux_2024.types import ParallelEnvOut
 
@@ -17,7 +18,7 @@ _FLOAT_FLAG = -1_000
 @pytest.mark.slow
 def test_step() -> None:
     map_width, map_height = (24, 24)
-    env = ParallelEnv(_N_ENVS)
+    env = ParallelEnv(_N_ENVS, RewardSpace.FINAL_WINNER)
     # Reset env
     gen_map_vmapped = jax.vmap(
         functools.partial(
@@ -58,7 +59,7 @@ def test_step() -> None:
 @pytest.mark.slow
 def test_soft_reset() -> None:
     map_width, map_height = (24, 24)
-    env = ParallelEnv(_N_ENVS)
+    env = ParallelEnv(_N_ENVS, RewardSpace.FINAL_WINNER)
     gen_map_vmapped = jax.vmap(
         functools.partial(
             gen_map,
@@ -148,3 +149,12 @@ def test_soft_reset() -> None:
     assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG - 1)
     assert np.all(env_out.done[reset_env_ids])
     assert np.all(np.logical_not(env_out.done[not_reset_env_ids]))
+
+
+def test_reward_space() -> None:
+    for rs in RewardSpace.list():
+        _, name = str(rs).split(".", maxsplit=1)
+        assert RewardSpace.from_str(name) == rs
+
+    with pytest.raises(ValueError, match="Invalid RewardSpace"):
+        RewardSpace.from_str("INVALID_REWARD_SPACE")

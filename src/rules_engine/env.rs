@@ -13,7 +13,6 @@ pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
 
 #[derive(Debug, Clone, Copy)]
 pub enum TerminationMode {
-    #[allow(dead_code)] // TODO: Remove this lint silencer
     FinalStep,
     ThirdMatchWin,
 }
@@ -22,7 +21,6 @@ pub fn get_reset_observation(
     state: &State,
     params: &VariableParams,
 ) -> [Observation; 2] {
-    let _t = TerminationMode::FinalStep;
     assert_eq!(state.total_steps, 0);
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
@@ -96,11 +94,13 @@ pub fn step(
         FIXED_PARAMS.map_size,
         params,
     );
-    update_relic_scores(
-        &mut state.team_points,
-        &state.units,
-        &state.relic_node_points_map,
-    );
+    let points_scored =
+        get_relic_points_scored(&state.units, &state.relic_node_points_map);
+    state
+        .team_points
+        .iter_mut()
+        .zip_eq(points_scored)
+        .for_each(|(total, scored)| *total += scored);
     let match_winner = get_match_result(state, FIXED_PARAMS.max_steps_in_match);
     step_match(state, match_winner);
     let game_winner = step_game(
@@ -112,7 +112,7 @@ pub fn step(
     );
     (
         get_observation(state, &vision_power_map, &energy_field),
-        GameResult::new(match_winner, game_winner),
+        GameResult::new(points_scored, match_winner, game_winner, state.done),
     )
 }
 
@@ -568,14 +568,14 @@ fn get_random_energy_node_deltas(
         .collect()
 }
 
-fn update_relic_scores(
-    team_points: &mut [u32; 2],
+fn get_relic_points_scored(
     units: &[Vec<Unit>; 2],
     relic_node_points_map: &Array2<bool>,
-) {
-    for team in [0, 1] {
-        let mut scored_positions = Vec::with_capacity(units[team].len());
-        team_points[team] += units[team]
+) -> [u32; 2] {
+    let mut points_scored = [0; 2];
+    for (points, units) in points_scored.iter_mut().zip_eq(units) {
+        let mut scored_positions = Vec::with_capacity(units.len());
+        *points += units
             .iter()
             .map(|u| {
                 if relic_node_points_map[u.pos.as_index()]
@@ -589,6 +589,7 @@ fn update_relic_scores(
             })
             .sum::<u32>();
     }
+    points_scored
 }
 
 fn get_match_result(state: &State, max_steps_in_match: u32) -> Option<u8> {
@@ -1462,7 +1463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_relic_scores() {
+    fn test_get_relic_points_scored() {
         let units = [
             vec![
                 // Earns points
@@ -1480,10 +1481,9 @@ mod tests {
                 Unit::with_pos(Pos::new(1, 0)),
             ],
         ];
-        let mut team_points = [2, 2];
         let points_map = arr2(&[[true, false], [true, true]]);
-        update_relic_scores(&mut team_points, &units, &points_map);
-        assert_eq!(team_points, [2 + 2, 2 + 1]);
+        let result = get_relic_points_scored(&units, &points_map);
+        assert_eq!(result, [2, 1]);
     }
 
     #[test]
@@ -1818,6 +1818,7 @@ mod tests {
         let all_vision_power_maps = full_replay.get_vision_power_maps();
         let all_energy_fields = full_replay.get_energy_fields();
         let mut rng = rand::thread_rng();
+        let mut last_points = [0; 2];
         let mut game_over = false;
 
         // Assert fixed params are correct
@@ -1887,10 +1888,17 @@ mod tests {
             assert_eq!(state, next_state);
 
             if state.match_steps == 0 {
-                assert_eq!(game_result._match_winner.is_some(), true);
+                last_points.fill(0);
+                assert_eq!(game_result.match_winner.is_some(), true);
+            } else {
+                last_points
+                    .iter_mut()
+                    .zip_eq(game_result.points_scored.into_iter())
+                    .for_each(|(total, scored)| *total += scored);
             }
+            assert_eq!(state.team_points, last_points);
             assert!(!game_over);
-            game_over = state.done;
+            game_over = game_result.done;
             assert_eq!(game_over, game_result.final_winner.is_some());
         }
         assert!(game_over);

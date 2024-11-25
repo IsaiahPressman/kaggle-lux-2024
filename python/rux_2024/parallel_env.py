@@ -8,6 +8,7 @@ from luxai_s3.params import EnvParams
 from luxai_s3.state import gen_map
 
 from rux_2024._lowlevel import ParallelEnv as LowLevelEnv
+from rux_2024._lowlevel import RewardSpace
 
 from .types import ParallelEnvOut
 
@@ -16,6 +17,7 @@ class ParallelEnv:
     def __init__(
         self,
         n_envs: int,
+        reward_space: RewardSpace,
         auto_reset: bool = True,
         seed: int = 42,
     ) -> None:
@@ -24,7 +26,7 @@ class ParallelEnv:
         fixed_params = EnvParams()
 
         self._random_state = jax.random.key(seed)
-        self._env = LowLevelEnv(n_envs)
+        self._env = LowLevelEnv(n_envs, reward_space)
         self._raw_gen_map_vmapped = jax.vmap(
             functools.partial(
                 gen_map,

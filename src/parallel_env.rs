@@ -3,8 +3,9 @@ use crate::feature_engineering::memory::Memory;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count, write_obs_arrays,
 };
+use crate::feature_engineering::reward_space::RewardSpace;
 use crate::rules_engine::action::Action;
-use crate::rules_engine::env::{get_reset_observation, step, TerminationMode};
+use crate::rules_engine::env::{get_reset_observation, step};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
     KnownVariableParams, VariableParams, FIXED_PARAMS,
@@ -39,15 +40,20 @@ type PyEnvOutputs<'py> = (
 #[pyclass]
 pub struct ParallelEnv {
     n_envs: usize,
+    reward_space: RewardSpace,
     env_data: Vec<EnvData>,
 }
 
 #[pymethods]
 impl ParallelEnv {
     #[new]
-    fn new(n_envs: usize) -> Self {
+    fn new(n_envs: usize, reward_space: RewardSpace) -> Self {
         let env_data = (0..n_envs).map(|_| EnvData::new()).collect();
-        Self { n_envs, env_data }
+        Self {
+            n_envs,
+            reward_space,
+            env_data,
+        }
     }
 
     /// Manually terminates the specified env IDs
@@ -216,7 +222,13 @@ impl ParallelEnv {
                 .try_into()
                 .unwrap();
 
-            Self::step_env(env_data, slice, &actions, &mut rng);
+            Self::step_env(
+                env_data,
+                &mut rng,
+                slice,
+                &actions,
+                self.reward_space,
+            );
         }
         out.into_pyarray_bound(py)
     }
@@ -251,7 +263,13 @@ impl ParallelEnv {
                     .try_into()
                     .unwrap();
 
-                Self::step_env(env_data, slice, &actions, rng);
+                Self::step_env(
+                    env_data,
+                    rng,
+                    slice,
+                    &actions,
+                    self.reward_space,
+                );
             })
             .for_each(|_| {});
 
@@ -262,17 +280,17 @@ impl ParallelEnv {
 impl ParallelEnv {
     fn step_env(
         env_data: &mut EnvData,
+        rng: &mut ThreadRng,
         env_slice: SingleEnvSlice,
         actions: &[Vec<Action>; 2],
-        rng: &mut ThreadRng,
+        reward_space: RewardSpace,
     ) {
-        // TODO: Variable termination based on reward space
         let (obs, result) = step(
             &mut env_data.state,
             rng,
             actions,
             &env_data.params,
-            TerminationMode::ThirdMatchWin,
+            reward_space.termination_mode(),
             None,
         );
         Self::update_memories_and_write_output_arrays(
@@ -282,7 +300,11 @@ impl ParallelEnv {
             actions,
             &env_data.known_params,
         );
-        Self::write_reward_and_done(env_slice.reward_done, result);
+        Self::write_reward_and_done(
+            env_slice.reward_done,
+            result,
+            reward_space,
+        );
     }
 
     /// Writes the observations into the respective arrays and updates memories
@@ -318,25 +340,14 @@ impl ParallelEnv {
     fn write_reward_and_done(
         mut slice: RewardDoneSlice,
         game_result: GameResult,
+        reward_space: RewardSpace,
     ) {
-        // TODO: Variable reward space
-        if let Some(p) = game_result.final_winner {
-            match p {
-                0 => {
-                    slice.reward[0] = 1.0;
-                    slice.reward[1] = -1.0;
-                },
-                1 => {
-                    slice.reward[0] = -1.0;
-                    slice.reward[1] = 1.0;
-                },
-                p => panic!("Unexpected game winner {}", p),
-            }
-            *slice.done = true;
-        } else {
-            slice.reward.fill(0.0);
-            *slice.done = false;
-        }
+        slice
+            .reward
+            .iter_mut()
+            .zip_eq(reward_space.get_reward(game_result))
+            .for_each(|(slice_reward, r)| *slice_reward = r);
+        *slice.done = game_result.done;
     }
 }
 

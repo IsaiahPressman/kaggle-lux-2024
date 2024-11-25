@@ -280,15 +280,24 @@ impl State {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameResult {
-    pub _match_winner: Option<u8>,
+    pub points_scored: [u32; 2],
+    pub match_winner: Option<u8>,
     pub final_winner: Option<u8>,
+    pub done: bool,
 }
 
 impl GameResult {
-    pub fn new(match_winner: Option<u8>, final_winner: Option<u8>) -> Self {
+    pub fn new(
+        points_scored: [u32; 2],
+        match_winner: Option<u8>,
+        final_winner: Option<u8>,
+        done: bool,
+    ) -> Self {
         Self {
-            _match_winner: match_winner,
+            points_scored,
+            match_winner,
             final_winner,
+            done,
         }
     }
 }
