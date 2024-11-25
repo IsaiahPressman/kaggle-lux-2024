@@ -3,10 +3,12 @@ from typing import NamedTuple
 import torch
 from torch import nn
 
+from rux_2024._lowlevel import RewardSpace
+
 from .actor_heads import BasicActorHead
 from .conv_blocks import ResidualBlock
-from .critic_heads import ZeroSumCriticHead
 from .types import ActivationFactory
+from .utils import build_critic_head
 
 
 class ActorCriticOut(NamedTuple):
@@ -25,6 +27,7 @@ class ActorCritic(nn.Module):
         global_in_channels: int,
         d_model: int,
         n_layers: int,
+        reward_space: RewardSpace,
         kernel_size: int = 3,
         activation: ActivationFactory = nn.GELU,
     ) -> None:
@@ -50,8 +53,8 @@ class ActorCritic(nn.Module):
             d_model,
             activation=activation,
         )
-        # TODO: Adjust critic head based on reward space
-        self.critic_head = ZeroSumCriticHead(
+        self.critic_head = build_critic_head(
+            reward_space,
             d_model,
             activation=activation,
         )

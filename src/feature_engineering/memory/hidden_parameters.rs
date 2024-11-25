@@ -156,6 +156,7 @@ fn determine_nebula_tile_vision_reduction(
         });
 
     if nebula_tile_vision_reduction_options.all_masked() {
+        // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!("nebula_tile_vision_reduction_mask is all false")
     }
 }

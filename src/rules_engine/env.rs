@@ -254,8 +254,6 @@ fn resolve_collisions_and_energy_void_fields(
 ) {
     let unit_aggregate_energy_void_map =
         get_unit_aggregate_energy_void_map(units, unit_energies, map_size);
-    // TODO: unit_counts_map and aggregate_energy_map are sparse - maybe could use a better
-    //  datastructure? BTreeMap? Vec?
     let unit_counts_map = get_unit_counts_map(units, map_size);
     let unit_aggregate_energy_map =
         get_unit_aggregate_energy_map(units, unit_energies, map_size);

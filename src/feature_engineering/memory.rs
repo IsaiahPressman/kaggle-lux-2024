@@ -83,5 +83,3 @@ impl Memory {
         &self.relic_nodes.known_points_map
     }
 }
-
-// TODO: Track asteroid/nebula movement?
