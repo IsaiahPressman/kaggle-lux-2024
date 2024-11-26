@@ -74,6 +74,7 @@ impl Pos {
         Pos { x, y }
     }
 
+    #[inline(always)]
     pub fn subtract(self, target: Self) -> [isize; 2] {
         [
             self.x as isize - target.x as isize,
@@ -81,6 +82,7 @@ impl Pos {
         ]
     }
 
+    #[inline(always)]
     pub fn reflect(self, map_size: [usize; 2]) -> Self {
         let [width, height] = map_size;
         Pos {
@@ -143,6 +145,7 @@ impl Unit {
         Unit { pos, energy, id }
     }
 
+    #[inline(always)]
     pub fn alive(&self) -> bool {
         self.energy >= 0
     }
@@ -351,16 +354,9 @@ impl Observation {
         }
     }
 
-    /// Sorts the various elements of the Observation. Unnecessary during simulation,
-    /// but useful when testing to ensure the various Vecs of components match up.
-    #[cfg(test)]
-    pub fn sort(&mut self) {
-        for team in [0, 1] {
-            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
-        }
-        self.asteroids.sort();
-        self.nebulae.sort();
-        self.relic_node_locations.sort();
+    #[inline(always)]
+    pub fn new_match(&self) -> bool {
+        self.match_steps == 0
     }
 
     #[inline(always)]
@@ -376,6 +372,18 @@ impl Observation {
     #[inline(always)]
     pub fn get_my_points(&self) -> u32 {
         self.team_points[self.team_id]
+    }
+
+    /// Sorts the various elements of the Observation. Unnecessary during simulation,
+    /// but useful when testing to ensure the various Vecs of components match up.
+    #[cfg(test)]
+    pub fn sort(&mut self) {
+        for team in [0, 1] {
+            self.units[team].sort_by(|u1, u2| u1.id.cmp(&u2.id))
+        }
+        self.asteroids.sort();
+        self.nebulae.sort();
+        self.relic_node_locations.sort();
     }
 }
 

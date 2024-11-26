@@ -26,6 +26,10 @@ fn write_team_unit_features(
     mut units_mask: ArrayViewMut1<bool>,
     obs: &Observation,
 ) {
+    if obs.new_match() {
+        return;
+    }
+
     for unit in obs.get_my_units().iter().filter(|u| u.alive()) {
         unit_indices[[unit.id, 0]] = unit.pos.x as isize;
         unit_indices[[unit.id, 1]] = unit.pos.y as isize;
@@ -69,11 +73,13 @@ mod tests {
             Observation {
                 units: units.clone(),
                 team_id: 0,
+                match_steps: 1,
                 ..Default::default()
             },
             Observation {
                 units,
                 team_id: 1,
+                match_steps: 1,
                 ..Default::default()
             },
         ];

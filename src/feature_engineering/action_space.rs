@@ -31,6 +31,10 @@ fn write_team_actions(
     obs: &Observation,
     params: &KnownVariableParams,
 ) {
+    if obs.new_match() {
+        return;
+    }
+
     let (_, width, height) = sap_mask.dim();
     let map_size = [width, height];
     let sap_targets_map = get_sap_targets_map(obs, map_size);
@@ -156,7 +160,7 @@ mod tests {
                     Unit::new(Pos::new(2, 2), 100, 5),
                     // Can sap, not blocked
                     Unit::new(Pos::new(3, 3), 100, 6),
-                    // Skip dead units
+                    // Ignore dead units
                     Unit::new(Pos::new(0, 0), -1, 7),
                 ],
                 vec![
@@ -165,6 +169,7 @@ mod tests {
                 ],
             ],
             asteroids: vec![Pos::new(1, 2)],
+            match_steps: 1,
             ..Default::default()
         };
         write_team_actions(
