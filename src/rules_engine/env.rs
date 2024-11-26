@@ -117,8 +117,8 @@ pub fn step(
 }
 
 fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
-    units[0].retain(|u| u.energy >= 0);
-    units[1].retain(|u| u.energy >= 0);
+    units[0].retain(|u| u.alive());
+    units[1].retain(|u| u.alive());
 }
 
 fn get_relevant_actions(

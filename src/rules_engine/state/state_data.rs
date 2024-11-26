@@ -142,6 +142,10 @@ impl Unit {
     pub fn new(pos: Pos, energy: i32, id: usize) -> Self {
         Unit { pos, energy, id }
     }
+
+    pub fn alive(&self) -> bool {
+        self.energy >= 0
+    }
 }
 
 #[cfg(test)]

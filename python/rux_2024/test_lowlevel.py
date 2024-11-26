@@ -13,6 +13,7 @@ from rux_2024.types import ParallelEnvOut
 
 _N_ENVS = 8
 _FLOAT_FLAG = -1_000
+_INT_FLAG = 1_000
 
 
 @pytest.mark.slow
@@ -35,7 +36,7 @@ def test_step() -> None:
     new_map_dict = gen_map_vmapped(jax.random.split(jax.random.key(42), _N_ENVS))
     env_out = ParallelEnvOut.from_raw_validated(env.get_empty_outputs())
     env.soft_reset(
-        obs_arrays=env_out,
+        output_arrays=env_out,
         tile_type=np.asarray(new_map_dict["map_features"].tile_type),
         energy_nodes=np.asarray(new_map_dict["energy_nodes"]),
         energy_node_fns=np.asarray(new_map_dict["energy_node_fns"]),
@@ -74,16 +75,10 @@ def test_soft_reset() -> None:
     )
 
     env_out = ParallelEnvOut.from_raw_validated(env.get_empty_outputs())
-    env_out.spatial_obs[:] = _FLOAT_FLAG
-    env_out.global_obs[:] = _FLOAT_FLAG
-    env_out.action_mask[:] = True
-    env_out.sap_mask[:] = True
-    env_out.reward[:] = _FLOAT_FLAG
-    env_out.done[:] = True
-
+    fill_env_out(env_out)
     new_map_dict = gen_map_vmapped(jax.random.split(jax.random.key(42), _N_ENVS))
     env.soft_reset(
-        obs_arrays=env_out,
+        output_arrays=env_out,
         tile_type=np.asarray(new_map_dict["map_features"].tile_type),
         energy_nodes=np.asarray(new_map_dict["energy_nodes"]),
         energy_node_fns=np.asarray(new_map_dict["energy_node_fns"]),
@@ -92,10 +87,13 @@ def test_soft_reset() -> None:
         relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
         relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
     )
-    assert np.all(env_out.spatial_obs != _FLOAT_FLAG)
-    assert np.all(env_out.global_obs != _FLOAT_FLAG)
-    assert np.all(np.logical_not(env_out.action_mask))
-    assert np.all(np.logical_not(env_out.sap_mask))
+    assert np.all(env_out.obs.spatial_obs != _FLOAT_FLAG)
+    assert np.all(env_out.obs.global_obs != _FLOAT_FLAG)
+    assert np.all(np.logical_not(env_out.obs.action_mask))
+    assert np.all(np.logical_not(env_out.obs.sap_mask))
+    assert np.all(env_out.obs.unit_indices != _INT_FLAG)
+    assert np.all(env_out.obs.unit_energies != _FLOAT_FLAG)
+    assert np.all(np.logical_not(env_out.obs.units_mask))
     # Reward and done are left as-is after a soft reset
     assert np.all(env_out.reward == _FLOAT_FLAG)
     assert np.all(env_out.done)
@@ -106,10 +104,7 @@ def test_soft_reset() -> None:
     env.terminate_envs(reset_env_ids)
 
     env_out = ParallelEnvOut.from_raw_validated(env.get_empty_outputs())
-    env_out.spatial_obs[:] = _FLOAT_FLAG
-    env_out.global_obs[:] = _FLOAT_FLAG
-    env_out.action_mask[:] = True
-    env_out.sap_mask[:] = True
+    fill_env_out(env_out)
     env_out.reward[not_reset_env_ids] = _FLOAT_FLAG - 1
     env_out.reward[reset_env_ids] = _FLOAT_FLAG
     env_out.done[not_reset_env_ids] = False
@@ -117,7 +112,7 @@ def test_soft_reset() -> None:
 
     new_map_dict = gen_map_vmapped(jax.random.split(jax.random.key(42), _N_ENVS))
     env.soft_reset(
-        obs_arrays=env_out,
+        output_arrays=env_out,
         tile_type=np.asarray(new_map_dict["map_features"].tile_type)[
             : len(reset_env_ids)
         ],
@@ -136,19 +131,37 @@ def test_soft_reset() -> None:
             : len(reset_env_ids)
         ],
     )
-    assert np.all(env_out.spatial_obs[reset_env_ids] != _FLOAT_FLAG)
-    assert np.all(env_out.spatial_obs[not_reset_env_ids] == _FLOAT_FLAG)
-    assert np.all(env_out.global_obs[reset_env_ids] != _FLOAT_FLAG)
-    assert np.all(env_out.global_obs[not_reset_env_ids] == _FLOAT_FLAG)
-    assert np.all(np.logical_not(env_out.action_mask[reset_env_ids]))
-    assert np.all(env_out.action_mask[not_reset_env_ids])
-    assert np.all(np.logical_not(env_out.sap_mask[reset_env_ids]))
-    assert np.all(env_out.action_mask[not_reset_env_ids])
+    assert np.all(env_out.obs.spatial_obs[reset_env_ids] != _FLOAT_FLAG)
+    assert np.all(env_out.obs.spatial_obs[not_reset_env_ids] == _FLOAT_FLAG)
+    assert np.all(env_out.obs.global_obs[reset_env_ids] != _FLOAT_FLAG)
+    assert np.all(env_out.obs.global_obs[not_reset_env_ids] == _FLOAT_FLAG)
+    assert np.all(np.logical_not(env_out.obs.action_mask[reset_env_ids]))
+    assert np.all(env_out.obs.action_mask[not_reset_env_ids])
+    assert np.all(np.logical_not(env_out.obs.sap_mask[reset_env_ids]))
+    assert np.all(env_out.obs.action_mask[not_reset_env_ids])
+    assert np.all(env_out.obs.unit_indices[reset_env_ids] != _INT_FLAG)
+    assert np.all(env_out.obs.unit_indices[not_reset_env_ids] == _INT_FLAG)
+    assert np.all(env_out.obs.unit_energies[reset_env_ids] != _FLOAT_FLAG)
+    assert np.all(env_out.obs.unit_energies[not_reset_env_ids] == _FLOAT_FLAG)
+    assert np.all(np.logical_not(env_out.obs.units_mask[reset_env_ids]))
+    assert np.all(env_out.obs.units_mask[not_reset_env_ids])
     # Reward and done are left as-is after a soft reset
     assert np.all(env_out.reward[reset_env_ids] == _FLOAT_FLAG)
     assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG - 1)
     assert np.all(env_out.done[reset_env_ids])
     assert np.all(np.logical_not(env_out.done[not_reset_env_ids]))
+
+
+def fill_env_out(env_out: ParallelEnvOut) -> None:
+    env_out.obs.spatial_obs[:] = _FLOAT_FLAG
+    env_out.obs.global_obs[:] = _FLOAT_FLAG
+    env_out.obs.action_mask[:] = True
+    env_out.obs.sap_mask[:] = True
+    env_out.obs.unit_indices[:] = _INT_FLAG
+    env_out.obs.unit_energies[:] = _FLOAT_FLAG
+    env_out.obs.units_mask[:] = True
+    env_out.reward[:] = _FLOAT_FLAG
+    env_out.done[:] = True
 
 
 def test_reward_space() -> None:

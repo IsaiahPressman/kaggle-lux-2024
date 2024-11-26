@@ -4,3 +4,4 @@ pub mod energy_field_frequencies;
 pub mod memory;
 pub mod obs_space;
 pub mod reward_space;
+pub mod unit_features;

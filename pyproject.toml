@@ -16,6 +16,8 @@ dependencies = [
     "types-tqdm>=4.66.0.20240417",
     "jax[cuda12]>=0.4.35",
     "torch==2.4.0",
+    "pydantic>=2.10.1",
+    "types-pyyaml>=6.0.12.20240917",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
@@ -55,6 +57,7 @@ select = [
 pylint.max-statements = 30
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true

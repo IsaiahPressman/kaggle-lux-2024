@@ -26,7 +26,7 @@ class ParallelEnv:
     def get_empty_outputs(self) -> EnvFullOut: ...
     def soft_reset(
         self,
-        obs_arrays: EnvFullOut,
+        output_arrays: EnvFullOut,
         tile_type: npt.NDArray[np.int32],
         energy_nodes: npt.NDArray[np.int16],
         energy_node_fns: npt.NDArray[np.float32],

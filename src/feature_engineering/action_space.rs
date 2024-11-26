@@ -34,7 +34,7 @@ fn write_team_actions(
     let (_, width, height) = sap_mask.dim();
     let map_size = [width, height];
     let sap_targets_map = get_sap_targets_map(obs, map_size);
-    for unit in obs.get_my_units() {
+    for unit in obs.get_my_units().iter().filter(|u| u.alive()) {
         let can_sap = write_sap_mask(
             sap_mask.index_axis_mut(Axis(0), unit.id),
             &sap_targets_map,
@@ -156,6 +156,8 @@ mod tests {
                     Unit::new(Pos::new(2, 2), 100, 5),
                     // Can sap, not blocked
                     Unit::new(Pos::new(3, 3), 100, 6),
+                    // Skip dead units
+                    Unit::new(Pos::new(0, 0), -1, 7),
                 ],
                 vec![
                     // One visible sap target

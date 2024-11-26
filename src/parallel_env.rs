@@ -4,6 +4,7 @@ use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count, write_obs_arrays,
 };
 use crate::feature_engineering::reward_space::RewardSpace;
+use crate::feature_engineering::unit_features::write_unit_features;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::{get_reset_observation, step};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
@@ -13,8 +14,8 @@ use crate::rules_engine::params::{
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
-use crate::rules_engine::state::{GameResult, Observation, Pos, State};
-use itertools::Itertools;
+use crate::rules_engine::state::{Observation, Pos, State};
+use itertools::{izip, Itertools};
 use numpy::ndarray::{
     stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayViewMut1,
     ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
@@ -29,10 +30,15 @@ use rayon::prelude::*;
 use strum::EnumCount;
 
 type PyEnvOutputs<'py> = (
-    Bound<'py, PyArray5<f32>>,
-    Bound<'py, PyArray3<f32>>,
-    Bound<'py, PyArray4<bool>>,
-    Bound<'py, PyArray5<bool>>,
+    (
+        Bound<'py, PyArray5<f32>>,
+        Bound<'py, PyArray3<f32>>,
+        Bound<'py, PyArray4<bool>>,
+        Bound<'py, PyArray5<bool>>,
+        Bound<'py, PyArray4<isize>>,
+        Bound<'py, PyArray3<f32>>,
+        Bound<'py, PyArray3<bool>>,
+    ),
     Bound<'py, PyArray2<f32>>,
     Bound<'py, PyArray1<bool>>,
 );
@@ -81,7 +87,7 @@ impl ParallelEnv {
     #[allow(clippy::too_many_arguments)]
     fn soft_reset<'py>(
         &mut self,
-        obs_arrays: PyEnvOutputs<'py>,
+        output_arrays: PyEnvOutputs<'py>,
         tile_type: PyReadonlyArray3<'py, i32>,
         energy_nodes: PyReadonlyArray3<'py, i16>,
         energy_node_fns: PyReadonlyArray3<'py, f32>,
@@ -91,29 +97,50 @@ impl ParallelEnv {
         relic_nodes_mask: PyReadonlyArray2<'py, bool>,
     ) {
         let mut rng = rand::thread_rng();
-        let (spatial_obs, global_obs, action_mask, sap_mask, reward, done) =
-            obs_arrays;
-        for (
+        let (
             (
-                ((mut slice, env_data), tile_type),
-                ((energy_nodes, energy_node_fns), energy_nodes_mask),
+                spatial_obs,
+                global_obs,
+                action_mask,
+                sap_mask,
+                unit_indices,
+                unit_energies,
+                units_mask,
             ),
-            ((relic_nodes, relic_node_configs), relic_nodes_mask),
-        ) in spatial_obs
-            .readwrite()
-            .as_array_mut()
-            .outer_iter_mut()
-            .zip_eq(global_obs.readwrite().as_array_mut().outer_iter_mut())
-            .zip_eq(action_mask.readwrite().as_array_mut().outer_iter_mut())
-            .zip_eq(sap_mask.readwrite().as_array_mut().outer_iter_mut())
-            .zip_eq(reward.readwrite().as_array_mut().outer_iter_mut())
-            .zip_eq(done.readwrite().as_array_mut().iter_mut())
+            reward,
+            done,
+        ) = output_arrays;
+        for (
+            (mut slice, env_data),
+            tile_type,
+            energy_nodes,
+            energy_node_fns,
+            energy_nodes_mask,
+            relic_nodes,
+            relic_node_configs,
+            relic_nodes_mask,
+        ) in izip!(
+            izip!(
+                spatial_obs.readwrite().as_array_mut().outer_iter_mut(),
+                global_obs.readwrite().as_array_mut().outer_iter_mut(),
+                action_mask.readwrite().as_array_mut().outer_iter_mut(),
+                sap_mask.readwrite().as_array_mut().outer_iter_mut(),
+                unit_indices.readwrite().as_array_mut().outer_iter_mut(),
+                unit_energies.readwrite().as_array_mut().outer_iter_mut(),
+                units_mask.readwrite().as_array_mut().outer_iter_mut(),
+                reward.readwrite().as_array_mut().outer_iter_mut(),
+                done.readwrite().as_array_mut().iter_mut()
+            )
             .map(
                 |(
-                    (
-                        (((spatial_obs, global_obs), action_mask), sap_mask),
-                        reward,
-                    ),
+                    spatial_obs,
+                    global_obs,
+                    action_mask,
+                    sap_mask,
+                    unit_indices,
+                    unit_energies,
+                    units_mask,
+                    reward,
                     done,
                 )| {
                     let obs_arrays = ObsArraysSlice {
@@ -121,32 +148,27 @@ impl ParallelEnv {
                         global_obs,
                         action_mask,
                         sap_mask,
+                        unit_indices,
+                        unit_energies,
+                        units_mask,
                     };
-                    let reward_done = RewardDoneSlice { reward, done };
                     SingleEnvSlice {
                         obs_arrays,
-                        reward_done,
+                        reward,
+                        done,
                     }
                 },
             )
             .zip_eq(self.env_data.iter_mut())
-            .filter(|(_, ed)| ed.state.done)
-            .zip_eq(tile_type.as_array().outer_iter())
-            .zip_eq(
-                energy_nodes
-                    .as_array()
-                    .outer_iter()
-                    .zip_eq(energy_node_fns.as_array().outer_iter())
-                    .zip_eq(energy_nodes_mask.as_array().outer_iter()),
-            )
-            .zip_eq(
-                relic_nodes
-                    .as_array()
-                    .outer_iter()
-                    .zip_eq(relic_node_configs.as_array().outer_iter())
-                    .zip_eq(relic_nodes_mask.as_array().outer_iter()),
-            )
-        {
+            .filter(|(_, ed)| ed.state.done),
+            tile_type.as_array().outer_iter(),
+            energy_nodes.as_array().outer_iter(),
+            energy_node_fns.as_array().outer_iter(),
+            energy_nodes_mask.as_array().outer_iter(),
+            relic_nodes.as_array().outer_iter(),
+            relic_node_configs.as_array().outer_iter(),
+            relic_nodes_mask.as_array().outer_iter(),
+        ) {
             let mut state = State {
                 asteroids: get_asteroids(tile_type),
                 nebulae: get_nebulae(tile_type),
@@ -177,10 +199,7 @@ impl ParallelEnv {
             *env_data = EnvData::from_state_params(state, params);
 
             let obs = get_reset_observation(&env_data.state, &env_data.params);
-            slice.obs_arrays.spatial_obs.fill(0.0);
-            slice.obs_arrays.global_obs.fill(0.0);
-            slice.obs_arrays.action_mask.fill(false);
-            slice.obs_arrays.sap_mask.fill(false);
+            slice.obs_arrays.reset();
             Self::update_memories_and_write_output_arrays(
                 slice.obs_arrays,
                 &mut env_data.memories,
@@ -281,7 +300,7 @@ impl ParallelEnv {
     fn step_env(
         env_data: &mut EnvData,
         rng: &mut ThreadRng,
-        env_slice: SingleEnvSlice,
+        mut env_slice: SingleEnvSlice,
         actions: &[Vec<Action>; 2],
         reward_space: RewardSpace,
     ) {
@@ -300,11 +319,12 @@ impl ParallelEnv {
             actions,
             &env_data.known_params,
         );
-        Self::write_reward_and_done(
-            env_slice.reward_done,
-            result,
-            reward_space,
-        );
+        env_slice
+            .reward
+            .iter_mut()
+            .zip_eq(reward_space.get_reward(result))
+            .for_each(|(slice_reward, r)| *slice_reward = r);
+        *env_slice.done = result.done;
     }
 
     /// Writes the observations into the respective arrays and updates memories
@@ -335,19 +355,12 @@ impl ParallelEnv {
             observations,
             params,
         );
-    }
-
-    fn write_reward_and_done(
-        mut slice: RewardDoneSlice,
-        game_result: GameResult,
-        reward_space: RewardSpace,
-    ) {
-        slice
-            .reward
-            .iter_mut()
-            .zip_eq(reward_space.get_reward(game_result))
-            .for_each(|(slice_reward, r)| *slice_reward = r);
-        *slice.done = game_result.done;
+        write_unit_features(
+            slice.unit_indices.view_mut(),
+            slice.unit_energies.view_mut(),
+            slice.units_mask.view_mut(),
+            observations,
+        );
     }
 }
 
@@ -392,16 +405,27 @@ struct ObsArraysSlice<'a> {
     global_obs: ArrayViewMut2<'a, f32>,
     action_mask: ArrayViewMut3<'a, bool>,
     sap_mask: ArrayViewMut4<'a, bool>,
+    unit_indices: ArrayViewMut3<'a, isize>,
+    unit_energies: ArrayViewMut2<'a, f32>,
+    units_mask: ArrayViewMut2<'a, bool>,
 }
 
-struct RewardDoneSlice<'a> {
-    reward: ArrayViewMut1<'a, f32>,
-    done: &'a mut bool,
+impl ObsArraysSlice<'_> {
+    fn reset(&mut self) {
+        self.spatial_obs.fill(0.0);
+        self.global_obs.fill(0.0);
+        self.action_mask.fill(false);
+        self.sap_mask.fill(false);
+        self.unit_indices.fill(0);
+        self.unit_energies.fill(0.0);
+        self.units_mask.fill(false);
+    }
 }
 
 struct SingleEnvSlice<'a> {
     obs_arrays: ObsArraysSlice<'a>,
-    reward_done: RewardDoneSlice<'a>,
+    reward: ArrayViewMut1<'a, f32>,
+    done: &'a mut bool,
 }
 
 struct ParallelEnvOutputs {
@@ -409,6 +433,9 @@ struct ParallelEnvOutputs {
     global_obs: Array3<f32>,
     action_mask: Array4<bool>,
     sap_mask: Array5<bool>,
+    unit_indices: Array4<isize>,
+    unit_energies: Array3<f32>,
+    units_mask: Array3<bool>,
     reward: Array2<f32>,
     done: Array1<bool>,
 }
@@ -432,6 +459,10 @@ impl ParallelEnvOutputs {
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
+        let unit_indices =
+            Array4::zeros((n_envs, 2, FIXED_PARAMS.max_units, 2));
+        let unit_energies = Array3::zeros((n_envs, 2, FIXED_PARAMS.max_units));
+        let units_mask = Array3::default((n_envs, 2, FIXED_PARAMS.max_units));
         let reward = Array2::zeros((n_envs, 2));
         let done = Array1::default(n_envs);
         Self {
@@ -439,50 +470,70 @@ impl ParallelEnvOutputs {
             global_obs,
             action_mask,
             sap_mask,
+            unit_indices,
+            unit_energies,
+            units_mask,
             reward,
             done,
         }
     }
 
     fn into_pyarray_bound(self, py: Python) -> PyEnvOutputs {
-        (
+        let obs = (
             self.spatial_obs.into_pyarray_bound(py),
             self.global_obs.into_pyarray_bound(py),
             self.action_mask.into_pyarray_bound(py),
             self.sap_mask.into_pyarray_bound(py),
+            self.unit_indices.into_pyarray_bound(py),
+            self.unit_energies.into_pyarray_bound(py),
+            self.units_mask.into_pyarray_bound(py),
+        );
+        (
+            obs,
             self.reward.into_pyarray_bound(py),
             self.done.into_pyarray_bound(py),
         )
     }
 
     fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvSlice> {
-        self.spatial_obs
-            .outer_iter_mut()
-            .zip_eq(self.global_obs.outer_iter_mut())
-            .zip_eq(self.action_mask.outer_iter_mut())
-            .zip_eq(self.sap_mask.outer_iter_mut())
-            .zip_eq(self.reward.outer_iter_mut())
-            .zip_eq(self.done.iter_mut())
-            .map(
-                |(
-                    (
-                        (((spatial_obs, global_obs), action_mask), sap_mask),
-                        reward,
-                    ),
+        izip!(
+            self.spatial_obs.outer_iter_mut(),
+            self.global_obs.outer_iter_mut(),
+            self.action_mask.outer_iter_mut(),
+            self.sap_mask.outer_iter_mut(),
+            self.unit_indices.outer_iter_mut(),
+            self.unit_energies.outer_iter_mut(),
+            self.units_mask.outer_iter_mut(),
+            self.reward.outer_iter_mut(),
+            self.done.iter_mut(),
+        )
+        .map(
+            |(
+                spatial_obs,
+                global_obs,
+                action_mask,
+                sap_mask,
+                unit_indices,
+                unit_energies,
+                units_mask,
+                reward,
+                done,
+            )| {
+                let obs_arrays = ObsArraysSlice {
+                    spatial_obs,
+                    global_obs,
+                    action_mask,
+                    sap_mask,
+                    unit_indices,
+                    unit_energies,
+                    units_mask,
+                };
+                SingleEnvSlice {
+                    obs_arrays,
+                    reward,
                     done,
-                )| {
-                    let obs_arrays = ObsArraysSlice {
-                        spatial_obs,
-                        global_obs,
-                        action_mask,
-                        sap_mask,
-                    };
-                    let reward_done = RewardDoneSlice { reward, done };
-                    SingleEnvSlice {
-                        obs_arrays,
-                        reward_done,
-                    }
-                },
-            )
+                }
+            },
+        )
     }
 }

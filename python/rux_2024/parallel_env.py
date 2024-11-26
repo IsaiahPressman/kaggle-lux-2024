@@ -12,6 +12,11 @@ from rux_2024._lowlevel import RewardSpace
 
 from .types import ParallelEnvOut
 
+__all__ = [
+    "ParallelEnv",
+    "RewardSpace",
+]
+
 
 class ParallelEnv:
     def __init__(
@@ -62,7 +67,7 @@ class ParallelEnv:
 
         new_map_dict = self._gen_maps(needs_reset)
         self._env.soft_reset(
-            obs_arrays=self._last_out,
+            output_arrays=self._last_out,
             tile_type=np.asarray(new_map_dict["map_features"].tile_type),
             energy_nodes=np.asarray(new_map_dict["energy_nodes"]),
             energy_node_fns=np.asarray(new_map_dict["energy_node_fns"]),
