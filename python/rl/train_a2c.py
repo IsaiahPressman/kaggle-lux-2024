@@ -1,3 +1,5 @@
+import itertools
+from collections.abc import Generator
 from pathlib import Path
 from typing import Final
 
@@ -11,8 +13,9 @@ CONFIG_FILE: Final[Path] = FILE.parent / "config" / "a2c.yaml"
 
 class A2CConfig(BaseModel):
     # Training config
-    max_steps: int | None
+    max_batches: int | None
     lr: float
+    steps_per_batch: int
     n_envs: int
     reward_space: RewardSpace
 
@@ -24,6 +27,12 @@ class A2CConfig(BaseModel):
         extra="forbid",
         frozen=True,
     )
+
+    def iter_batches(self) -> Generator[int, None, None]:
+        if self.max_batches is None:
+            return (i for i in itertools.count(1))
+
+        return (i for i in range(1, self.max_batches + 1))
 
     @field_validator("reward_space", mode="before")
     @classmethod
@@ -43,10 +52,12 @@ class A2CConfig(BaseModel):
 
 def main() -> None:
     cfg = A2CConfig.from_file(CONFIG_FILE)
-    _env = ParallelEnv(
+    env = ParallelEnv(
         n_envs=cfg.n_envs,
         reward_space=cfg.reward_space,
     )
+    for batch_count in cfg.iter_batches():
+
     # TODO: Left off here
     raise NotImplementedError
 

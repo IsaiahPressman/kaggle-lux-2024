@@ -49,6 +49,7 @@ class ParallelEnv:
 
     @property
     def last_out(self) -> ParallelEnvOut:
+        # TODO: Left off here - stack of output frames
         return self._last_out
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
