@@ -34,7 +34,7 @@ impl RewardSpace {
             match p {
                 0 => [1.0, -1.0],
                 1 => [-1.0, 1.0],
-                p => panic!("Unexpected winner {}", p),
+                p => panic!("Unexpected winner {p}"),
             }
         } else {
             [0.0, 0.0]

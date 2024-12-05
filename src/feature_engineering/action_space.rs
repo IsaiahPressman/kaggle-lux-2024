@@ -31,7 +31,7 @@ fn write_team_actions(
     obs: &Observation,
     params: &KnownVariableParams,
 ) {
-    if obs.new_match() {
+    if obs.is_new_match() {
         return;
     }
 

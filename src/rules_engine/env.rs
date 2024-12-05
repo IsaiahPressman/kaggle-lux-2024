@@ -443,7 +443,7 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], fixed_params: &FixedParams) {
                 fixed_params.map_width - 1,
                 fixed_params.map_height - 1,
             ),
-            n => panic!("this town ain't big enough for the {} of us", n),
+            n => panic!("this town ain't big enough for the {n} of us"),
         };
 
         let new_unit = Unit::new(pos, fixed_params.init_unit_energy, u_id);
@@ -1799,10 +1799,8 @@ mod tests {
     #[ignore = "slow"]
     #[case("processed_replay_4086850.json")]
     // Six energy nodes
-    // TODO: This test case won't work until the energy node clipping bug is fixed in the
-    //  main engine
-    //  #[ignore = "slow"]
-    //  #[case("processed_replay_2462211601.json")]
+    #[ignore = "slow"]
+    #[case("processed_replay_2462211601.json")]
     fn test_full_game(#[case] file_name: &str) {
         let path = Path::new(file!())
             .parent()

@@ -26,7 +26,7 @@ fn write_team_unit_features(
     mut units_mask: ArrayViewMut1<bool>,
     obs: &Observation,
 ) {
-    if obs.new_match() {
+    if obs.is_new_match() {
         return;
     }
 

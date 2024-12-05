@@ -127,7 +127,7 @@ impl From<&[usize]> for Pos {
         match value {
             &[x, y] => Self { x, y },
             invalid => {
-                panic!("Invalid pos: {:?}", invalid)
+                panic!("Invalid pos: {invalid:?}")
             },
         }
     }
@@ -355,7 +355,7 @@ impl Observation {
     }
 
     #[inline(always)]
-    pub fn new_match(&self) -> bool {
+    pub fn is_new_match(&self) -> bool {
         self.match_steps == 0
     }
 

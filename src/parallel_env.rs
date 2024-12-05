@@ -5,6 +5,7 @@ use crate::feature_engineering::obs_space::basic_obs_space::{
 };
 use crate::feature_engineering::reward_space::RewardSpace;
 use crate::feature_engineering::unit_features::write_unit_features;
+use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::{get_reset_observation, step};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
@@ -15,7 +16,7 @@ use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
 use crate::rules_engine::state::{Observation, Pos, State};
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use numpy::ndarray::{
     stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayViewMut1,
     ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
@@ -73,12 +74,21 @@ impl ParallelEnv {
         ParallelEnvOutputs::new(self.n_envs).into_pyarray_bound(py)
     }
 
-    /// The environments that are starting a new match (each game consists of five matches)
+    /// The environments that are starting a new match (there are up to 5 matches in a game)
     fn get_new_match_envs(&self) -> Vec<usize> {
         self.env_data
             .iter()
             .enumerate()
-            .filter_map(|(i, ed)| ed.new_match().then_some(i))
+            .filter_map(|(i, ed)| ed.is_new_match().then_some(i))
+            .collect()
+    }
+
+    /// The environments that are starting a new game (each game consists of five matches)
+    fn get_new_game_envs(&self) -> Vec<usize> {
+        self.env_data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, ed)| ed.is_new_game().then_some(i))
             .collect()
     }
 
@@ -128,8 +138,8 @@ impl ParallelEnv {
             relic_nodes,
             relic_node_configs,
             relic_nodes_mask,
-        ) in izip!(
-            izip!(
+        ) in izip_eq!(
+            izip_eq!(
                 spatial_obs.readwrite().as_array_mut().outer_iter_mut(),
                 global_obs.readwrite().as_array_mut().outer_iter_mut(),
                 action_mask.readwrite().as_array_mut().outer_iter_mut(),
@@ -410,8 +420,13 @@ impl EnvData {
     }
 
     #[inline(always)]
-    fn new_match(&self) -> bool {
+    fn is_new_match(&self) -> bool {
         self.state.match_steps == 0
+    }
+
+    #[inline(always)]
+    fn is_new_game(&self) -> bool {
+        self.state.total_steps == 0
     }
 }
 
@@ -511,7 +526,7 @@ impl ParallelEnvOutputs {
     }
 
     fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvSlice> {
-        izip!(
+        izip_eq!(
             self.spatial_obs.outer_iter_mut(),
             self.global_obs.outer_iter_mut(),
             self.action_mask.outer_iter_mut(),

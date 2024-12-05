@@ -1,4 +1,5 @@
 mod feature_engineering;
+pub mod izip_eq;
 mod parallel_env;
 mod rules_engine;
 
