@@ -1,4 +1,6 @@
 import functools
+import itertools
+from collections import deque
 from typing import Any
 
 import jax
@@ -10,7 +12,7 @@ from luxai_s3.state import gen_map
 from rux_2024._lowlevel import ParallelEnv as LowLevelEnv
 from rux_2024._lowlevel import RewardSpace
 
-from .types import ParallelEnvOut
+from .types import Obs, ParallelEnvOut
 
 __all__ = [
     "ParallelEnv",
@@ -23,11 +25,11 @@ class ParallelEnv:
         self,
         n_envs: int,
         reward_space: RewardSpace,
-        auto_reset: bool = True,
+        frame_stack_len: int,
         seed: int = 42,
     ) -> None:
         self.n_envs = n_envs
-        self.auto_reset = auto_reset
+        self.frame_stack_len = frame_stack_len
         fixed_params = EnvParams()
 
         self._random_state = jax.random.key(seed)
@@ -44,29 +46,38 @@ class ParallelEnv:
                 relic_config_size=fixed_params.relic_config_size,
             )
         )
-        self._last_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
+        self._last_out: ParallelEnvOut = self._make_empty_out()
+        self._frame_history: deque[Obs] = self._make_empty_frame_history()
         self.hard_reset()
 
     @property
     def last_out(self) -> ParallelEnvOut:
-        # TODO: Left off here - stack of output frames
         return self._last_out
+
+    @property
+    def frame_history(self) -> list[Obs]:
+        """Get a shallow copy of the frame history"""
+        return list(self._frame_history)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
         self._random_state, *subkeys = jax.random.split(self._random_state, n_maps + 1)
         return self._raw_gen_map_vmapped(subkeys)
 
-    def hard_reset(self) -> None:
-        self._env.terminate_envs(list(range(self.n_envs)))
-        self._last_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
-        self.soft_reset()
+    def _make_empty_out(self) -> ParallelEnvOut:
+        return ParallelEnvOut.from_raw(self._env.get_empty_outputs())
 
-    def soft_reset(self) -> None:
-        needs_reset: int = self.last_out.done.sum().item()
-        if needs_reset == 0:
+    def _make_empty_frame_history(self) -> deque[Obs]:
+        return deque(
+            [self._make_empty_out().obs for _ in range(self.frame_stack_len)],
+            maxlen=self.frame_stack_len,
+        )
+
+    def _soft_reset(self) -> None:
+        reset_count: int = self._last_out.done.sum().item()
+        if reset_count == 0:
             return
 
-        new_map_dict = self._gen_maps(needs_reset)
+        new_map_dict = self._gen_maps(reset_count)
         self._env.soft_reset(
             output_arrays=self._last_out,
             tile_type=np.asarray(new_map_dict["map_features"].tile_type),
@@ -78,7 +89,25 @@ class ParallelEnv:
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
         )
 
+    def _update_frame_history(self) -> None:
+        self._frame_history.append(self._last_out.obs)
+        new_match_envs = self._env.get_new_match_envs()
+        if not new_match_envs:
+            return
+
+        # Zero out all but the latest observation
+        for obs in itertools.islice(self._frame_history, len(self._frame_history) - 1):
+            for array in obs:
+                array[new_match_envs] = 0
+
+    def hard_reset(self) -> None:
+        self._env.terminate_envs(list(range(self.n_envs)))
+        self._last_out = self._make_empty_out()
+        self._frame_history = self._make_empty_frame_history()
+        self._soft_reset()
+        self._update_frame_history()
+
     def step(self, actions: npt.NDArray[np.int_]) -> None:
         self._last_out = ParallelEnvOut.from_raw(self._env.par_step(actions))
-        if self.auto_reset:
-            self.soft_reset()
+        self._soft_reset()
+        self._update_frame_history()

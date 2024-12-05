@@ -47,7 +47,12 @@ def test_step() -> None:
     )
 
     actions = np.zeros((_N_ENVS, 2, 16, 3), dtype=int)
-    for _ in range(303):
+    for i in range(303):
+        if i % 101 == 0:
+            assert env.get_new_match_envs() == list(range(_N_ENVS))
+        else:
+            assert not env.get_new_match_envs()
+
         assert not np.any(env_out.done)
         env_out = ParallelEnvOut.from_raw_validated(env.seq_step(actions))
 

@@ -73,6 +73,15 @@ impl ParallelEnv {
         ParallelEnvOutputs::new(self.n_envs).into_pyarray_bound(py)
     }
 
+    /// The environments that are starting a new match (each game consists of five matches)
+    fn get_new_match_envs(&self) -> Vec<usize> {
+        self.env_data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, ed)| ed.new_match().then_some(i))
+            .collect()
+    }
+
     /// Resets all environments that are done, leaving active environments as-is. \
     /// Does not update reward or done arrays.
     /// de = envs that are done
@@ -395,8 +404,14 @@ impl EnvData {
         }
     }
 
+    #[inline(always)]
     fn terminate(&mut self) {
         self.state.done = true;
+    }
+
+    #[inline(always)]
+    fn new_match(&self) -> bool {
+        self.state.match_steps == 0
     }
 }
 

@@ -17,6 +17,7 @@ class A2CConfig(BaseModel):
     lr: float
     steps_per_batch: int
     n_envs: int
+    frame_stack_len: int
     reward_space: RewardSpace
 
     # Model config
@@ -55,10 +56,12 @@ def main() -> None:
     env = ParallelEnv(
         n_envs=cfg.n_envs,
         reward_space=cfg.reward_space,
+        frame_stack_len=cfg.frame_stack_len,
     )
     for batch_count in cfg.iter_batches():
+        # TODO: Left off here
+        pass
 
-    # TODO: Left off here
     raise NotImplementedError
 
 
