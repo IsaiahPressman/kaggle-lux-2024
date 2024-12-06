@@ -84,9 +84,9 @@ class ParallelEnvOut(NamedTuple):
         n_envs, n_players = self.reward.shape
         self.obs.validate(n_envs, n_players)
         self.action_info.validate(n_envs, n_players)
-        assert self.reward.ndim == 2
+        assert self.reward.shape == (n_envs, n_players)
         assert self.reward.dtype == np.float32
-        assert self.done.ndim == 1
+        assert self.done.shape == (n_envs,)
         assert self.done.dtype == np.bool_
 
     @classmethod

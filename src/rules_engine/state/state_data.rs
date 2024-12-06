@@ -221,6 +221,7 @@ pub struct State {
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub energy_nodes: Vec<EnergyNode>,
+    pub energy_field: Array2<i32>,
     pub relic_node_locations: Vec<Pos>,
     pub relic_node_points_map: Array2<bool>,
     pub team_points: [u32; 2],

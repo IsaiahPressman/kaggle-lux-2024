@@ -1,6 +1,7 @@
 # ruff: noqa
 # TODO: Re-enable linting
 import itertools
+import argparse
 from collections.abc import Generator
 from pathlib import Path
 from typing import Final
@@ -17,6 +18,21 @@ FILE: Final[Path] = Path(__file__)
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / "a2c.yaml"
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+
+class UserArgs(BaseModel):
+    debug: bool
+
+    @property
+    def release(self) -> bool:
+        return not self.debug
+
+    @classmethod
+    def from_argparse(cls) -> "UserArgs":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--debug", action="store_true")
+        args = parser.parse_args()
+        return UserArgs(**vars(args))
 
 
 class A2CConfig(BaseModel):
@@ -71,6 +87,7 @@ class A2CConfig(BaseModel):
 
 
 def main() -> None:
+    args = UserArgs.from_argparse()
     cfg = A2CConfig.from_file(CONFIG_FILE)
     env = ParallelEnv(
         n_envs=cfg.n_envs,
@@ -78,7 +95,9 @@ def main() -> None:
         frame_stack_len=cfg.frame_stack_len,
     )
     model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
-    model = torch.compile(model)  # type: ignore
+    if args.release:
+        model = torch.compile(model)  # type: ignore
+
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer_kwargs)  # type: ignore
     scaler = GradScaler()
     for b in cfg.iter_batches():

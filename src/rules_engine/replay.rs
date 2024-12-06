@@ -36,6 +36,11 @@ impl FullReplay {
                 asteroids: obs.get_asteroids(self.get_map_size()),
                 nebulae: obs.get_nebulae(self.get_map_size()),
                 energy_nodes: self.get_energy_nodes(&obs.energy_nodes),
+                energy_field: Array2::from_shape_vec(
+                    self.get_map_size(),
+                    obs.map_features.energy.iter().flatten().copied().collect(),
+                )
+                .unwrap(),
                 team_points: obs.team_points,
                 team_wins: obs.team_wins,
                 total_steps: obs.steps,
@@ -95,19 +100,6 @@ impl FullReplay {
                         .flatten()
                         .copied()
                         .collect(),
-                )
-                .unwrap()
-            })
-            .collect()
-    }
-
-    pub fn get_energy_fields(&self) -> Vec<Array2<i32>> {
-        self.observations
-            .iter()
-            .map(|obs| {
-                Array2::from_shape_vec(
-                    self.get_map_size(),
-                    obs.map_features.energy.iter().flatten().copied().collect(),
                 )
                 .unwrap()
             })

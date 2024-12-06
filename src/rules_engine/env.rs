@@ -1,11 +1,13 @@
 use super::action::Action;
 use super::params::{FixedParams, VariableParams, FIXED_PARAMS};
 use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
+use super::step_stats::StepStats;
 use itertools::Itertools;
-use numpy::ndarray::{s, Array2, Array3, Axis, Zip};
+use numpy::ndarray::{s, Array2, Array3, ArrayView2, ArrayView3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
 use std::cmp::Ordering;
+use std::mem;
 use TerminationMode::{FinalStep, ThirdMatchWin};
 
 pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
@@ -28,8 +30,7 @@ pub fn get_reset_observation(
         FIXED_PARAMS.map_size,
         params,
     );
-    let energy_field = get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
-    get_observation(state, &vision_power_map, &energy_field)
+    get_observation(state, vision_power_map.view(), state.energy_field.view())
 }
 
 pub fn step(
@@ -39,7 +40,7 @@ pub fn step(
     params: &VariableParams,
     termination: TerminationMode,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
-) -> ([Observation; 2], GameResult) {
+) -> ([Observation; 2], GameResult, StepStats) {
     if state.done {
         panic!("Game over, need to reset State")
     }
@@ -49,35 +50,41 @@ pub fn step(
     }
     remove_dead_units(&mut state.units);
     let actions = get_relevant_actions(actions, &state.units);
-    move_units(
+    let (noop_count, move_count, sap_count) = move_units(
         &mut state.units,
-        &get_map_mask(&state.asteroids, FIXED_PARAMS.map_size),
+        get_map_mask(&state.asteroids, FIXED_PARAMS.map_size).view(),
         &actions,
         FIXED_PARAMS.map_size,
         params,
     );
     let energy_before_sapping = get_unit_energies(&state.units);
-    sap_units(
+    let (sap_direct_hits, sap_adjacent_hits) = sap_units(
         &mut state.units,
         &energy_before_sapping,
         &actions,
         FIXED_PARAMS.map_size,
         params,
     );
-    resolve_collisions_and_energy_void_fields(
+    let (energy_void_field_deltas, units_lost_to_collision) =
+        resolve_collisions_and_energy_void_fields(
+            &mut state.units,
+            &energy_before_sapping,
+            FIXED_PARAMS.map_size,
+            params,
+        );
+    let (energy_field_deltas, nebula_energy_deltas) = apply_energy_field(
         &mut state.units,
-        &energy_before_sapping,
-        FIXED_PARAMS.map_size,
-        params,
-    );
-    let energy_field = get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
-    apply_energy_field(
-        &mut state.units,
-        &energy_field,
-        &get_map_mask(&state.nebulae, FIXED_PARAMS.map_size),
+        state.energy_field.view(),
+        get_map_mask(&state.nebulae, FIXED_PARAMS.map_size).view(),
         &FIXED_PARAMS,
         params,
     );
+    let units_lost_to_energy = state
+        .units
+        .iter()
+        .flatten()
+        .filter(|unit| !unit.alive())
+        .count() as u16;
     if state.match_steps % FIXED_PARAMS.spawn_rate == 0 {
         spawn_units(&mut state.units, &FIXED_PARAMS)
     }
@@ -87,21 +94,25 @@ pub fn step(
         FIXED_PARAMS.map_size,
         params,
     );
-    move_space_objects(
+    let prev_energy_field = move_space_objects(
         state,
         rng,
         energy_node_deltas,
-        FIXED_PARAMS.map_size,
         params,
+        &FIXED_PARAMS,
     );
-    let points_scored =
-        get_relic_points_scored(&state.units, &state.relic_node_points_map);
+    let points_scored = get_relic_points_scored(
+        &state.units,
+        state.relic_node_points_map.view(),
+    );
     state
         .team_points
         .iter_mut()
         .zip_eq(points_scored)
         .for_each(|(total, scored)| *total += scored);
     let match_winner = get_match_result(state, FIXED_PARAMS.max_steps_in_match);
+    let terminal_points_scored =
+        match_winner.is_some().then_some(state.team_points);
     step_match(state, match_winner);
     let game_winner = step_game(
         &mut state.total_steps,
@@ -110,9 +121,31 @@ pub fn step(
         &FIXED_PARAMS,
         termination,
     );
+    let observation = if let Some(energy_field) = prev_energy_field {
+        get_observation(state, vision_power_map.view(), energy_field.view())
+    } else {
+        get_observation(
+            state,
+            vision_power_map.view(),
+            state.energy_field.view(),
+        )
+    };
     (
-        get_observation(state, &vision_power_map, &energy_field),
+        observation,
         GameResult::new(points_scored, match_winner, game_winner, state.done),
+        StepStats {
+            terminal_points_scored,
+            energy_field_deltas,
+            nebula_energy_deltas,
+            energy_void_field_deltas,
+            units_lost_to_energy,
+            units_lost_to_collision,
+            noop_count,
+            move_count,
+            sap_count,
+            sap_direct_hits,
+            sap_adjacent_hits,
+        },
     )
 }
 
@@ -137,26 +170,37 @@ fn get_relevant_actions(
     result
 }
 
+/// Returns (noop_count, move_count, sap_count). Counts all actions, even invalid ones, but
+/// only executes valid move actions in the environment
 fn move_units(
     units: &mut [Vec<Unit>; 2],
-    asteroid_mask: &Array2<bool>,
+    asteroid_mask: ArrayView2<bool>,
     actions: &[Vec<Action>; 2],
     map_size: [usize; 2],
     params: &VariableParams,
-) {
-    for (unit, action) in units
-        .iter_mut()
-        .zip_eq(actions.iter())
-        .flat_map(|(team_units, team_actions)| {
-            team_units.iter_mut().zip_eq(team_actions)
-        })
-        .filter(|(u, _)| u.energy >= params.unit_move_cost)
-    {
+) -> (u16, u16, u16) {
+    let mut noop_count = 0;
+    let mut move_count = 0;
+    let mut sap_count = 0;
+    for (unit, action) in units.iter_mut().zip_eq(actions.iter()).flat_map(
+        |(team_units, team_actions)| team_units.iter_mut().zip_eq(team_actions),
+    ) {
         let deltas = match action {
             Action::Up | Action::Right | Action::Down | Action::Left => {
+                move_count += 1;
                 action.as_move_delta()
             },
-            Action::NoOp | Action::Sap(_) => continue,
+            Action::NoOp => {
+                noop_count += 1;
+                continue;
+            },
+            Action::Sap(_) => {
+                sap_count += 1;
+                continue;
+            },
+        };
+        if unit.energy < params.unit_move_cost {
+            continue;
         };
         // This behavior is almost certainly a bug in the main simulator
         if deltas[0] < 0 || deltas[1] < 0 {
@@ -172,6 +216,7 @@ fn move_units(
         unit.pos = new_pos;
         unit.energy -= params.unit_move_cost;
     }
+    (noop_count, move_count, sap_count)
 }
 
 fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
@@ -195,7 +240,9 @@ fn sap_units(
     actions: &[Vec<Action>; 2],
     map_size: [usize; 2],
     params: &VariableParams,
-) {
+) -> (u16, u16) {
+    let mut sap_direct_hits = 0;
+    let mut sap_adjacent_hits = 0;
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut sap_count = vec![0; units[opp].len()];
         let mut adjacent_sap_count = vec![0; units[opp].len()];
@@ -233,17 +280,21 @@ fn sap_units(
             }
         }
 
+        sap_direct_hits += sap_count.iter().sum::<u16>();
+        sap_adjacent_hits += adjacent_sap_count.iter().sum::<u16>();
         for ((saps, adj_saps), opp_u) in sap_count
             .into_iter()
             .zip_eq(adjacent_sap_count)
             .zip_eq(units[opp].iter_mut())
         {
-            opp_u.energy -= saps * params.unit_sap_cost;
-            let adj_sap_loss = (adj_saps * params.unit_sap_cost) as f32
+            opp_u.energy -= i32::from(saps) * params.unit_sap_cost;
+            let adj_sap_loss = (i32::from(adj_saps) * params.unit_sap_cost)
+                as f32
                 * params.unit_sap_dropoff_factor;
             opp_u.energy -= adj_sap_loss as i32;
         }
     }
+    (sap_direct_hits, sap_adjacent_hits)
 }
 
 fn resolve_collisions_and_energy_void_fields(
@@ -251,12 +302,16 @@ fn resolve_collisions_and_energy_void_fields(
     unit_energies: &[Vec<i32>; 2],
     map_size: [usize; 2],
     params: &VariableParams,
-) {
+) -> (Vec<i32>, u16) {
     let unit_aggregate_energy_void_map =
         get_unit_aggregate_energy_void_map(units, unit_energies, map_size);
     let unit_counts_map = get_unit_counts_map(units, map_size);
     let unit_aggregate_energy_map =
         get_unit_aggregate_energy_map(units, unit_energies, map_size);
+
+    let mut energy_void_field_deltas =
+        Vec::with_capacity(units[0].len() + units[1].len());
+    let mut units_lost_to_collision = 0;
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut to_remove = Vec::new();
         for (i, unit) in units[team].iter_mut().enumerate() {
@@ -269,15 +324,20 @@ fn resolve_collisions_and_energy_void_fields(
                 to_remove.push(i);
             }
             // Apply energy void fields
-            unit.energy -= (params.unit_energy_void_factor
+            let void_field_loss = (params.unit_energy_void_factor
                 * unit_aggregate_energy_void_map[[opp, x, y]]
                 / unit_counts_map[[team, x, y]] as f32)
                 as i32;
+            unit.energy -= void_field_loss;
+            energy_void_field_deltas.push(-void_field_loss);
         }
+
         let mut keep_iter =
             (0..units[team].len()).map(|i| !to_remove.contains(&i));
         units[team].retain(|_| keep_iter.next().unwrap());
+        units_lost_to_collision += to_remove.len();
     }
+    (energy_void_field_deltas, units_lost_to_collision as u16)
 }
 
 fn get_unit_aggregate_energy_void_map(
@@ -345,32 +405,38 @@ fn get_unit_aggregate_energy_map(
 
 fn apply_energy_field(
     units: &mut [Vec<Unit>; 2],
-    energy_field: &Array2<i32>,
-    nebula_mask: &Array2<bool>,
+    energy_field: ArrayView2<i32>,
+    nebula_mask: ArrayView2<bool>,
     fixed_params: &FixedParams,
     params: &VariableParams,
-) {
-    for (unit, energy_gain) in units
+) -> (Vec<i32>, Vec<i32>) {
+    let capacity = units[0].len() + units[1].len();
+    let mut energy_field_deltas = Vec::with_capacity(capacity);
+    let mut nebula_energy_deltas = Vec::with_capacity(capacity);
+    for (unit, field_delta, nebula_delta) in units
         .iter_mut()
         .flat_map(|team_units| team_units.iter_mut())
         .map(|u| {
             let u_pos_idx = u.pos.as_index();
-            let energy_gain = if nebula_mask[u_pos_idx] {
-                energy_field[u_pos_idx] - params.nebula_tile_energy_reduction
+            let nebula_delta = if nebula_mask[u_pos_idx] {
+                -params.nebula_tile_energy_reduction
             } else {
-                energy_field[u_pos_idx]
+                0
             };
-            (u, energy_gain)
+            (u, energy_field[u_pos_idx], nebula_delta)
         })
-        .filter(|(u, energy_gain)| u.energy >= 0 || u.energy + energy_gain >= 0)
+        .filter(|(u, df, dn)| u.energy >= 0 || u.energy + df + dn >= 0)
     {
-        unit.energy = (unit.energy + energy_gain)
+        energy_field_deltas.push(field_delta);
+        nebula_energy_deltas.push(nebula_delta);
+        unit.energy = (unit.energy + field_delta + nebula_delta)
             .min(fixed_params.max_unit_energy)
             .max(fixed_params.min_unit_energy)
     }
+    (energy_field_deltas, nebula_energy_deltas)
 }
 
-fn get_energy_field(
+pub fn get_energy_field(
     energy_nodes: &[EnergyNode],
     fixed_params: &FixedParams,
 ) -> Array2<i32> {
@@ -517,13 +583,14 @@ fn compute_vision_power_map(
     vision_power_map
 }
 
+/// Returns the energy field from before moving energy nodes, if it has changed
 fn move_space_objects(
     state: &mut State,
     rng: &mut ThreadRng,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
-    map_size: [usize; 2],
     params: &VariableParams,
-) {
+    fixed_params: &FixedParams,
+) -> Option<Array2<i32>> {
     if state.total_steps as f32 * params.nebula_tile_drift_speed % 1.0 == 0.0
         && params.nebula_tile_drift_speed != 0.0
     {
@@ -532,7 +599,7 @@ fn move_space_objects(
             -params.nebula_tile_drift_speed.signum() as isize,
         ];
         for pos in state.asteroids.iter_mut().chain(state.nebulae.iter_mut()) {
-            *pos = pos.wrapped_translate(deltas, map_size)
+            *pos = pos.wrapped_translate(deltas, fixed_params.map_size)
         }
     }
 
@@ -547,8 +614,15 @@ fn move_space_objects(
             .chain(energy_node_deltas.iter().map(|[dx, dy]| [-dy, -dx]))
             .zip_eq(state.energy_nodes.iter_mut())
         {
-            node.pos = node.pos.bounded_translate(deltas, map_size)
+            node.pos = node.pos.bounded_translate(deltas, fixed_params.map_size)
         }
+        let energy_field = mem::replace(
+            &mut state.energy_field,
+            get_energy_field(&state.energy_nodes, fixed_params),
+        );
+        Some(energy_field)
+    } else {
+        None
     }
 }
 
@@ -568,7 +642,7 @@ fn get_random_energy_node_deltas(
 
 fn get_relic_points_scored(
     units: &[Vec<Unit>; 2],
-    relic_node_points_map: &Array2<bool>,
+    relic_node_points_map: ArrayView2<bool>,
 ) -> [u32; 2] {
     let mut points_scored = [0; 2];
     for (points, units) in points_scored.iter_mut().zip_eq(units) {
@@ -669,12 +743,12 @@ fn step_game(
 
 fn get_observation(
     state: &State,
-    vision_power_map: &Array3<i32>,
-    energy_field: &Array2<i32>,
+    vision_power_map: ArrayView3<i32>,
+    energy_field: ArrayView2<i32>,
 ) -> [Observation; 2] {
     let [p1_mask, p2_mask] = get_sensor_masks(vision_power_map);
-    let p1_energy_field = get_masked_energy_field(&p1_mask, energy_field);
-    let p2_energy_field = get_masked_energy_field(&p2_mask, energy_field);
+    let p1_energy_field = get_masked_energy_field(p1_mask.view(), energy_field);
+    let p2_energy_field = get_masked_energy_field(p2_mask.view(), energy_field);
     let mut observations = [
         Observation::new(
             0,
@@ -726,7 +800,7 @@ fn get_observation(
     observations
 }
 
-fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
+fn get_sensor_masks(vision_power_map: ArrayView3<i32>) -> [Array2<bool>; 2] {
     [
         vision_power_map.slice(s![0, .., ..]).map(|&v| v > 0),
         vision_power_map.slice(s![1, .., ..]).map(|&v| v > 0),
@@ -734,8 +808,8 @@ fn get_sensor_masks(vision_power_map: &Array3<i32>) -> [Array2<bool>; 2] {
 }
 
 fn get_masked_energy_field(
-    vision_mask: &Array2<bool>,
-    energy_field: &Array2<i32>,
+    vision_mask: ArrayView2<bool>,
+    energy_field: ArrayView2<i32>,
 ) -> Array2<Option<i32>> {
     Zip::from(vision_mask)
         .and(energy_field)
@@ -768,7 +842,7 @@ mod tests {
             &mut rand::thread_rng(),
             &[Vec::new(), Vec::new()],
             &params,
-            TerminationMode::FinalStep,
+            FinalStep,
             None,
         );
     }
@@ -787,6 +861,8 @@ mod tests {
                 Unit::with_pos_and_energy(Pos::new(0, 0), 100),
                 // Unit moves normally
                 Unit::with_pos_and_energy(Pos::new(0, 0), 100),
+                // Unit takes NoOp action
+                Unit::with_pos(Pos::new(0, 0)),
             ],
             vec![
                 // Unit can't move off the top of the map, but still costs energy
@@ -796,13 +872,15 @@ mod tests {
                 ),
                 // Unit can't move into an asteroid, costs no energy
                 Unit::with_pos_and_energy(Pos::new(23, 23), 100),
+                // Unit takes Sap action
+                Unit::with_pos(Pos::new(23, 23)),
             ],
         ];
         let asteroid_mask =
             get_map_mask(&[Pos::new(23, 22)], FIXED_PARAMS.map_size);
         let actions = [
-            vec![Action::Left, Action::Left, Action::Right],
-            vec![Action::Down, Action::Up],
+            vec![Action::Left, Action::Left, Action::Right, Action::NoOp],
+            vec![Action::Down, Action::Up, Action::Sap([0, 0])],
         ];
         let expected_moved_units = [
             vec![
@@ -818,20 +896,24 @@ mod tests {
                     Pos::new(1, 0),
                     100 - params.unit_move_cost,
                 ),
+                Unit::with_pos(Pos::new(0, 0)),
             ],
             vec![
                 Unit::with_pos_and_energy(Pos::new(23, 23), 0),
                 Unit::with_pos_and_energy(Pos::new(23, 23), 100),
+                Unit::with_pos(Pos::new(23, 23)),
             ],
         ];
-        move_units(
+        let expected_noop_move_sap_counts = (1, 5, 1);
+        let noop_move_sap_counts = move_units(
             &mut units,
-            &asteroid_mask,
+            asteroid_mask.view(),
             &actions,
             FIXED_PARAMS.map_size,
             &params,
         );
         assert_eq!(units, expected_moved_units);
+        assert_eq!(noop_move_sap_counts, expected_noop_move_sap_counts);
     }
 
     #[test]
@@ -965,14 +1047,21 @@ mod tests {
                 Unit::with_pos_and_energy(Pos::new(2, 3), 100 - 12),
             ],
         ];
+        let expected_energy_void_field_deltas =
+            vec![0, 0, 0, 0, 0, -50, 0, 0, 0, -12, -12];
+        let expected_units_lost_to_collision = 6;
+
         let unit_energies = get_unit_energies(&units);
-        resolve_collisions_and_energy_void_fields(
-            &mut units,
-            &unit_energies,
-            FIXED_PARAMS.map_size,
-            &params,
-        );
+        let (energy_void_field_deltas, units_lost_to_collision) =
+            resolve_collisions_and_energy_void_fields(
+                &mut units,
+                &unit_energies,
+                FIXED_PARAMS.map_size,
+                &params,
+            );
         assert_eq!(units, expected_result);
+        assert_eq!(energy_void_field_deltas, expected_energy_void_field_deltas);
+        assert_eq!(units_lost_to_collision, expected_units_lost_to_collision);
     }
 
     #[test]
@@ -1107,14 +1196,25 @@ mod tests {
                 ),
             ],
         ];
-        apply_energy_field(
+        let expected_energy_field_deltas = vec![2, 5, -10, 5, 10, 10];
+        let expected_nebula_energy_deltas = vec![
+            0,
+            -params.nebula_tile_energy_reduction,
+            0,
+            -params.nebula_tile_energy_reduction,
+            0,
+            0,
+        ];
+        let (energy_field_deltas, nebula_energy_deltas) = apply_energy_field(
             &mut units,
-            &energy_field,
-            &nebula_mask,
+            energy_field.view(),
+            nebula_mask.view(),
             &fixed_params,
             &params,
         );
         assert_eq!(units, expected_result);
+        assert_eq!(energy_field_deltas, expected_energy_field_deltas);
+        assert_eq!(nebula_energy_deltas, expected_nebula_energy_deltas);
     }
 
     #[derive(Deserialize)]
@@ -1424,8 +1524,8 @@ mod tests {
             &mut state,
             &mut rand::thread_rng(),
             Some(energy_node_deltas),
-            FIXED_PARAMS.map_size,
             &params,
+            &FIXED_PARAMS,
         );
         assert_eq!(state.asteroids, expected_asteroids);
         assert_eq!(state.nebulae, expected_nebulae);
@@ -1455,8 +1555,8 @@ mod tests {
             &mut state,
             &mut rand::thread_rng(),
             Some(vec![[-1, 2]]),
-            FIXED_PARAMS.map_size,
             &params,
+            &FIXED_PARAMS,
         );
         assert_eq!(state, orig_state);
     }
@@ -1483,7 +1583,7 @@ mod tests {
             ],
         ];
         let points_map = arr2(&[[true, false], [true, true]]);
-        let result = get_relic_points_scored(&units, &points_map);
+        let result = get_relic_points_scored(&units, points_map.view());
         assert_eq!(result, [2, 1]);
     }
 
@@ -1790,7 +1890,11 @@ mod tests {
         expected_result[0].relic_node_locations = vec![Pos::new(0, 0)];
         expected_result[1].relic_node_locations = vec![Pos::new(4, 4)];
 
-        let result = get_observation(&state, &vision_power_map, &energy_field);
+        let result = get_observation(
+            &state,
+            vision_power_map.view(),
+            energy_field.view(),
+        );
         assert_eq!(result, expected_result);
     }
 
@@ -1815,7 +1919,6 @@ mod tests {
         let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
         let all_states = full_replay.get_states();
         let all_vision_power_maps = full_replay.get_vision_power_maps();
-        let all_energy_fields = full_replay.get_energy_fields();
         let mut rng = rand::thread_rng();
         let mut last_points = [0; 2];
         let mut game_over = false;
@@ -1829,13 +1932,12 @@ mod tests {
         assert_eq!(player_reset_obs, player_observations[0]);
         // Run the whole game checking the simulation matches on each step
         for (
-            (((s_next_s, actions), vision_power_map), energy_field),
+            ((s_next_s, actions), vision_power_map),
             expected_player_observations,
         ) in all_states
             .windows(2)
             .zip_eq(full_replay.get_actions().iter())
             .zip_eq(all_vision_power_maps[1..].iter())
-            .zip_eq(all_energy_fields[1..].iter())
             .zip_eq(
                 player_observations[1..]
                     .iter()
@@ -1846,18 +1948,18 @@ mod tests {
             let [state, next_state] = s_next_s else {
                 panic!()
             };
-            assert_eq!(
-                get_energy_field(
-                    &state.energy_nodes,
-                    &full_replay.params.fixed
-                ),
-                energy_field
-            );
-
             let mut state = state.clone();
             let mut next_state = next_state.clone();
+            // Currently in the replay file, each observed energy field is from the previous
+            // step's computed energy field
+            state.energy_field = get_energy_field(
+                &state.energy_nodes,
+                &full_replay.params.fixed,
+            );
+            assert_eq!(state.energy_field, next_state.energy_field,);
+
             let energy_node_deltas = state.get_energy_node_deltas(&next_state);
-            let ([mut p1_obs, mut p2_obs], game_result) = step(
+            let ([mut p1_obs, mut p2_obs], game_result, _) = step(
                 &mut state,
                 &mut rng,
                 actions,
@@ -1882,7 +1984,10 @@ mod tests {
                 assert_eq!([p1_obs, p2_obs], [p1_expected, p2_expected]);
             }
 
+            state.energy_field = Array2::zeros(state.energy_field.dim());
             state.sort();
+            next_state.energy_field =
+                Array2::zeros(next_state.energy_field.dim());
             next_state.sort();
             assert_eq!(state, next_state);
 
