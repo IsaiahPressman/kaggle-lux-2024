@@ -576,7 +576,8 @@ fn get_relic_points_scored(
         *points += units
             .iter()
             .map(|u| {
-                if relic_node_points_map[u.pos.as_index()]
+                if u.alive()
+                    && relic_node_points_map[u.pos.as_index()]
                     && !scored_positions.contains(&u.pos)
                 {
                     scored_positions.push(u.pos);
@@ -1473,6 +1474,8 @@ mod tests {
                 Unit::with_pos(Pos::new(1, 1)),
             ],
             vec![
+                // Not alive - does not earn points
+                Unit::with_pos_and_energy(Pos::new(0, 0), -1),
                 // Does not earn points
                 Unit::with_pos(Pos::new(0, 1)),
                 // Earns points
