@@ -29,6 +29,7 @@ class ParallelEnv:
         seed: int = 42,
     ) -> None:
         self.n_envs = n_envs
+        self.reward_space = reward_space
         self.frame_stack_len = frame_stack_len
         fixed_params = EnvParams()
 
@@ -54,10 +55,8 @@ class ParallelEnv:
     def last_out(self) -> ParallelEnvOut:
         return self._last_out
 
-    @property
-    def frame_history(self) -> list[Obs]:
-        """Get a shallow copy of the frame history"""
-        return list(self._frame_history)
+    def get_frame_stacked_obs(self) -> Obs:
+        return Obs.stack_frame_history(self._frame_history)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
         self._random_state, *subkeys = jax.random.split(self._random_state, n_maps + 1)

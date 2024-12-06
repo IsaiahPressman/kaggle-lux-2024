@@ -31,9 +31,8 @@ use rayon::prelude::*;
 use strum::EnumCount;
 
 type PyEnvOutputs<'py> = (
+    (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
     (
-        Bound<'py, PyArray5<f32>>,
-        Bound<'py, PyArray3<f32>>,
         Bound<'py, PyArray4<bool>>,
         Bound<'py, PyArray5<bool>>,
         Bound<'py, PyArray4<isize>>,
@@ -117,15 +116,8 @@ impl ParallelEnv {
     ) {
         let mut rng = rand::thread_rng();
         let (
-            (
-                spatial_obs,
-                global_obs,
-                action_mask,
-                sap_mask,
-                unit_indices,
-                unit_energies,
-                units_mask,
-            ),
+            (spatial_obs, global_obs),
+            (action_mask, sap_mask, unit_indices, unit_energies, units_mask),
             reward,
             done,
         ) = output_arrays;
@@ -512,6 +504,8 @@ impl ParallelEnvOutputs {
         let obs = (
             self.spatial_obs.into_pyarray_bound(py),
             self.global_obs.into_pyarray_bound(py),
+        );
+        let action_info = (
             self.action_mask.into_pyarray_bound(py),
             self.sap_mask.into_pyarray_bound(py),
             self.unit_indices.into_pyarray_bound(py),
@@ -520,6 +514,7 @@ impl ParallelEnvOutputs {
         );
         (
             obs,
+            action_info,
             self.reward.into_pyarray_bound(py),
             self.done.into_pyarray_bound(py),
         )

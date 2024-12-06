@@ -123,11 +123,11 @@ class TestParallelEnv:
         )
         assert np.all(env_out.obs.spatial_obs != _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs != _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.obs.action_mask))
-        assert np.all(np.logical_not(env_out.obs.sap_mask))
-        assert np.all(env_out.obs.unit_indices != _INT_FLAG)
-        assert np.all(env_out.obs.unit_energies != _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.obs.units_mask))
+        assert np.all(np.logical_not(env_out.action_info.action_mask))
+        assert np.all(np.logical_not(env_out.action_info.sap_mask))
+        assert np.all(env_out.action_info.unit_indices != _INT_FLAG)
+        assert np.all(env_out.action_info.unit_energies != _FLOAT_FLAG)
+        assert np.all(np.logical_not(env_out.action_info.units_mask))
         # Reward and done are left as-is after a soft reset
         assert np.all(env_out.reward == _FLOAT_FLAG)
         assert np.all(env_out.done)
@@ -169,16 +169,18 @@ class TestParallelEnv:
         assert np.all(env_out.obs.spatial_obs[not_reset_env_ids] == _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs[reset_env_ids] != _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs[not_reset_env_ids] == _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.obs.action_mask[reset_env_ids]))
-        assert np.all(env_out.obs.action_mask[not_reset_env_ids])
-        assert np.all(np.logical_not(env_out.obs.sap_mask[reset_env_ids]))
-        assert np.all(env_out.obs.action_mask[not_reset_env_ids])
-        assert np.all(env_out.obs.unit_indices[reset_env_ids] != _INT_FLAG)
-        assert np.all(env_out.obs.unit_indices[not_reset_env_ids] == _INT_FLAG)
-        assert np.all(env_out.obs.unit_energies[reset_env_ids] != _FLOAT_FLAG)
-        assert np.all(env_out.obs.unit_energies[not_reset_env_ids] == _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.obs.units_mask[reset_env_ids]))
-        assert np.all(env_out.obs.units_mask[not_reset_env_ids])
+        assert np.all(np.logical_not(env_out.action_info.action_mask[reset_env_ids]))
+        assert np.all(env_out.action_info.action_mask[not_reset_env_ids])
+        assert np.all(np.logical_not(env_out.action_info.sap_mask[reset_env_ids]))
+        assert np.all(env_out.action_info.action_mask[not_reset_env_ids])
+        assert np.all(env_out.action_info.unit_indices[reset_env_ids] != _INT_FLAG)
+        assert np.all(env_out.action_info.unit_indices[not_reset_env_ids] == _INT_FLAG)
+        assert np.all(env_out.action_info.unit_energies[reset_env_ids] != _FLOAT_FLAG)
+        assert np.all(
+            env_out.action_info.unit_energies[not_reset_env_ids] == _FLOAT_FLAG
+        )
+        assert np.all(np.logical_not(env_out.action_info.units_mask[reset_env_ids]))
+        assert np.all(env_out.action_info.units_mask[not_reset_env_ids])
         # Reward and done are left as-is after a soft reset
         assert np.all(env_out.reward[reset_env_ids] == _FLOAT_FLAG)
         assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG - 1)
@@ -206,11 +208,11 @@ class TestParallelEnv:
     def fill_env_out(env_out: ParallelEnvOut) -> None:
         env_out.obs.spatial_obs[:] = _FLOAT_FLAG
         env_out.obs.global_obs[:] = _FLOAT_FLAG
-        env_out.obs.action_mask[:] = True
-        env_out.obs.sap_mask[:] = True
-        env_out.obs.unit_indices[:] = _INT_FLAG
-        env_out.obs.unit_energies[:] = _FLOAT_FLAG
-        env_out.obs.units_mask[:] = True
+        env_out.action_info.action_mask[:] = True
+        env_out.action_info.sap_mask[:] = True
+        env_out.action_info.unit_indices[:] = _INT_FLAG
+        env_out.action_info.unit_energies[:] = _FLOAT_FLAG
+        env_out.action_info.units_mask[:] = True
         env_out.reward[:] = _FLOAT_FLAG
         env_out.done[:] = True
 
