@@ -1,4 +1,5 @@
 use crate::rules_engine::env::TerminationMode;
+use crate::rules_engine::params::P;
 use crate::rules_engine::state::GameResult;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -21,7 +22,7 @@ impl RewardSpace {
         }
     }
 
-    pub fn get_reward(&self, result: GameResult) -> [f32; 2] {
+    pub fn get_reward(&self, result: GameResult) -> [f32; P] {
         match self {
             FinalWinner => Self::from_winner(result.final_winner),
             MatchWinner => Self::from_winner(result.match_winner),
@@ -29,7 +30,7 @@ impl RewardSpace {
         }
     }
 
-    fn from_winner(winner: Option<u8>) -> [f32; 2] {
+    fn from_winner(winner: Option<u8>) -> [f32; P] {
         if let Some(p) = winner {
             match p {
                 0 => [1.0, -1.0],

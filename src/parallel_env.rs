@@ -8,9 +8,10 @@ use crate::feature_engineering::unit_features::write_unit_features;
 use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::{get_energy_field, get_reset_observation, step};
+use crate::rules_engine::game_stats::GameStats;
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
-    KnownVariableParams, VariableParams, FIXED_PARAMS,
+    KnownVariableParams, VariableParams, FIXED_PARAMS, P,
 };
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
@@ -94,12 +95,13 @@ impl ParallelEnv {
     /// Resets all environments that are done, leaving active environments as-is. \
     /// Does not update reward or done arrays.
     /// de = envs that are done
+    /// P = player count
     /// - obs_arrays: output arrays from self.step()
     /// - tile_type: (de, width, height)
-    /// - energy_nodes: (de, max_energy_nodes, 2)
+    /// - energy_nodes: (de, max_energy_nodes, P)
     /// - energy_node_fns: (de, max_energy_nodes, 4)
     /// - energy_nodes_mask: (de, max_energy_nodes)
-    /// - relic_nodes: (de, max_relic_nodes, 2)
+    /// - relic_nodes: (de, max_relic_nodes, P)
     /// - relic_node_configs: (de, max_relic_nodes, K, K) for a KxK relic configuration
     /// - relic_nodes_mask: (de, max_relic_nodes)
     #[allow(clippy::too_many_arguments)]
@@ -234,7 +236,7 @@ impl ParallelEnv {
         actions: PyReadonlyArray4<'py, isize>,
     ) -> PyEnvOutputs<'py> {
         let actions = actions.as_array();
-        assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
+        assert_eq!(actions.dim(), (self.n_envs, P, FIXED_PARAMS.max_units, 3));
         let mut out = ParallelEnvOutputs::new(self.n_envs);
         let mut rng = rand::thread_rng();
         for ((env_data, slice), actions) in self
@@ -243,7 +245,7 @@ impl ParallelEnv {
             .zip_eq(out.iter_env_slices_mut())
             .zip_eq(actions.outer_iter())
         {
-            let actions: [Vec<Action>; 2] = actions
+            let actions: [Vec<Action>; P] = actions
                 .outer_iter()
                 .map(|player_actions| {
                     player_actions
@@ -276,7 +278,7 @@ impl ParallelEnv {
         actions: PyReadonlyArray4<'py, isize>,
     ) -> PyEnvOutputs<'py> {
         let actions = actions.as_array();
-        assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
+        assert_eq!(actions.dim(), (self.n_envs, P, FIXED_PARAMS.max_units, 3));
         let mut out = ParallelEnvOutputs::new(self.n_envs);
         self.env_data
             .iter_mut()
@@ -284,7 +286,7 @@ impl ParallelEnv {
             .zip_eq(actions.outer_iter())
             .par_bridge()
             .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
-                let actions: [Vec<Action>; 2] = actions
+                let actions: [Vec<Action>; P] = actions
                     .outer_iter()
                     .map(|player_actions| {
                         player_actions
@@ -319,10 +321,10 @@ impl ParallelEnv {
         env_data: &mut EnvData,
         rng: &mut ThreadRng,
         mut env_slice: SingleEnvSlice,
-        actions: &[Vec<Action>; 2],
+        actions: &[Vec<Action>; P],
         reward_space: RewardSpace,
     ) {
-        let (obs, result, _) = step(
+        let (obs, result, stats) = step(
             &mut env_data.state,
             rng,
             actions,
@@ -330,6 +332,7 @@ impl ParallelEnv {
             reward_space.termination_mode(),
             None,
         );
+        env_data.stats.extend(stats);
         Self::update_memories_and_write_output_arrays(
             env_slice.obs_arrays,
             env_slice.action_info_arrays,
@@ -351,9 +354,9 @@ impl ParallelEnv {
     fn update_memories_and_write_output_arrays(
         mut obs_slice: ObsArraysSlice,
         mut action_info_slice: ActionInfoArraysSlice,
-        memories: &mut [Memory; 2],
-        observations: &[Observation; 2],
-        last_actions: &[Vec<Action>; 2],
+        memories: &mut [Memory; P],
+        observations: &[Observation; P],
+        last_actions: &[Vec<Action>; P],
         params: &KnownVariableParams,
     ) {
         memories
@@ -386,7 +389,8 @@ impl ParallelEnv {
 
 struct EnvData {
     state: State,
-    memories: [Memory; 2],
+    memories: [Memory; P],
+    stats: GameStats,
     params: VariableParams,
     known_params: KnownVariableParams,
 }
@@ -402,6 +406,7 @@ impl EnvData {
     }
 
     fn from_state_params(state: State, params: VariableParams) -> Self {
+        let stats = GameStats::new();
         let known_params = KnownVariableParams::from(params.clone());
         let memories = [
             Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
@@ -410,6 +415,7 @@ impl EnvData {
         Self {
             state,
             memories,
+            stats,
             params,
             known_params,
         }
@@ -484,26 +490,26 @@ impl ParallelEnvOutputs {
     fn new(n_envs: usize) -> Self {
         let spatial_obs = Array5::zeros((
             n_envs,
-            2,
+            P,
             get_spatial_feature_count(),
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
-        let global_obs = Array3::zeros((n_envs, 2, get_global_feature_count()));
+        let global_obs = Array3::zeros((n_envs, P, get_global_feature_count()));
         let action_mask =
-            Array4::default((n_envs, 2, FIXED_PARAMS.max_units, Action::COUNT));
+            Array4::default((n_envs, P, FIXED_PARAMS.max_units, Action::COUNT));
         let sap_mask = Array5::default((
             n_envs,
-            2,
+            P,
             FIXED_PARAMS.max_units,
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
         let unit_indices =
-            Array4::zeros((n_envs, 2, FIXED_PARAMS.max_units, 2));
-        let unit_energies = Array3::zeros((n_envs, 2, FIXED_PARAMS.max_units));
-        let units_mask = Array3::default((n_envs, 2, FIXED_PARAMS.max_units));
-        let reward = Array2::zeros((n_envs, 2));
+            Array4::zeros((n_envs, P, FIXED_PARAMS.max_units, 2));
+        let unit_energies = Array3::zeros((n_envs, P, FIXED_PARAMS.max_units));
+        let units_mask = Array3::default((n_envs, P, FIXED_PARAMS.max_units));
+        let reward = Array2::zeros((n_envs, P));
         let done = Array1::default(n_envs);
         Self {
             spatial_obs,

@@ -1,7 +1,7 @@
 use super::action::Action;
-use super::params::{FixedParams, VariableParams, FIXED_PARAMS};
+use super::game_stats::StepStats;
+use super::params::{FixedParams, VariableParams, FIXED_PARAMS, P};
 use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
-use super::step_stats::StepStats;
 use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, ArrayView2, ArrayView3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
@@ -22,7 +22,7 @@ pub enum TerminationMode {
 pub fn get_reset_observation(
     state: &State,
     params: &VariableParams,
-) -> [Observation; 2] {
+) -> [Observation; P] {
     assert_eq!(state.total_steps, 0);
     let vision_power_map = compute_vision_power_map_from_params(
         &state.units,
@@ -36,11 +36,11 @@ pub fn get_reset_observation(
 pub fn step(
     state: &mut State,
     rng: &mut ThreadRng,
-    actions: &[Vec<Action>; 2],
+    actions: &[Vec<Action>; P],
     params: &VariableParams,
     termination: TerminationMode,
     energy_node_deltas: Option<Vec<[isize; 2]>>,
-) -> ([Observation; 2], GameResult, StepStats) {
+) -> ([Observation; P], GameResult, StepStats) {
     if state.done {
         panic!("Game over, need to reset State")
     }
@@ -149,15 +149,15 @@ pub fn step(
     )
 }
 
-fn remove_dead_units(units: &mut [Vec<Unit>; 2]) {
+fn remove_dead_units(units: &mut [Vec<Unit>; P]) {
     units[0].retain(|u| u.alive());
     units[1].retain(|u| u.alive());
 }
 
 fn get_relevant_actions(
-    actions: &[Vec<Action>; 2],
-    units: &[Vec<Unit>; 2],
-) -> [Vec<Action>; 2] {
+    actions: &[Vec<Action>; P],
+    units: &[Vec<Unit>; P],
+) -> [Vec<Action>; P] {
     let mut result = [Vec::new(), Vec::new()];
     for (team, (team_actions, team_units)) in
         actions.iter().zip_eq(units.iter()).enumerate()
@@ -173,9 +173,9 @@ fn get_relevant_actions(
 /// Returns (noop_count, move_count, sap_count). Counts all actions, even invalid ones, but
 /// only executes valid move actions in the environment
 fn move_units(
-    units: &mut [Vec<Unit>; 2],
+    units: &mut [Vec<Unit>; P],
     asteroid_mask: ArrayView2<bool>,
-    actions: &[Vec<Action>; 2],
+    actions: &[Vec<Action>; P],
     map_size: [usize; 2],
     params: &VariableParams,
 ) -> (u16, u16, u16) {
@@ -227,7 +227,7 @@ fn get_map_mask(positions: &[Pos], map_size: [usize; 2]) -> Array2<bool> {
     result
 }
 
-fn get_unit_energies(units: &[Vec<Unit>; 2]) -> [Vec<i32>; 2] {
+fn get_unit_energies(units: &[Vec<Unit>; P]) -> [Vec<i32>; P] {
     [
         units[0].iter().map(|u| u.energy).collect(),
         units[1].iter().map(|u| u.energy).collect(),
@@ -235,9 +235,9 @@ fn get_unit_energies(units: &[Vec<Unit>; 2]) -> [Vec<i32>; 2] {
 }
 
 fn sap_units(
-    units: &mut [Vec<Unit>; 2],
-    unit_energies: &[Vec<i32>; 2],
-    actions: &[Vec<Action>; 2],
+    units: &mut [Vec<Unit>; P],
+    unit_energies: &[Vec<i32>; P],
+    actions: &[Vec<Action>; P],
     map_size: [usize; 2],
     params: &VariableParams,
 ) -> (u16, u16) {
@@ -298,8 +298,8 @@ fn sap_units(
 }
 
 fn resolve_collisions_and_energy_void_fields(
-    units: &mut [Vec<Unit>; 2],
-    unit_energies: &[Vec<i32>; 2],
+    units: &mut [Vec<Unit>; P],
+    unit_energies: &[Vec<i32>; P],
     map_size: [usize; 2],
     params: &VariableParams,
 ) -> (Vec<i32>, u16) {
@@ -341,11 +341,11 @@ fn resolve_collisions_and_energy_void_fields(
 }
 
 fn get_unit_aggregate_energy_void_map(
-    units: &[Vec<Unit>; 2],
-    unit_energies: &[Vec<i32>; 2],
+    units: &[Vec<Unit>; P],
+    unit_energies: &[Vec<i32>; P],
     map_size: [usize; 2],
 ) -> Array3<f32> {
-    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    let mut result = Array3::zeros((P, map_size[0], map_size[1]));
     for ((team, unit, energy), delta) in units
         .iter()
         .zip_eq(unit_energies)
@@ -368,10 +368,10 @@ fn get_unit_aggregate_energy_void_map(
 }
 
 fn get_unit_counts_map(
-    units: &[Vec<Unit>; 2],
+    units: &[Vec<Unit>; P],
     map_size: [usize; 2],
 ) -> Array3<u8> {
-    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    let mut result = Array3::zeros((P, map_size[0], map_size[1]));
     for (team, unit) in units
         .iter()
         .enumerate()
@@ -387,7 +387,7 @@ fn get_unit_aggregate_energy_map(
     unit_energies: &[Vec<i32>; 2],
     map_size: [usize; 2],
 ) -> Array3<i32> {
-    let mut result = Array3::zeros((2, map_size[0], map_size[1]));
+    let mut result = Array3::zeros((P, map_size[0], map_size[1]));
     for (team, unit, energy) in
         units.iter().zip_eq(unit_energies).enumerate().flat_map(
             |(t, (team_units, team_energies))| {

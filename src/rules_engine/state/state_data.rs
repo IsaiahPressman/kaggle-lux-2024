@@ -1,4 +1,4 @@
-use crate::rules_engine::params::FIXED_PARAMS;
+use crate::rules_engine::params::{FIXED_PARAMS, P};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView3};
 use std::cmp::{max, min};
@@ -217,15 +217,15 @@ impl EnergyNode {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct State {
-    pub units: [Vec<Unit>; 2],
+    pub units: [Vec<Unit>; P],
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub energy_nodes: Vec<EnergyNode>,
     pub energy_field: Array2<i32>,
     pub relic_node_locations: Vec<Pos>,
     pub relic_node_points_map: Array2<bool>,
-    pub team_points: [u32; 2],
-    pub team_wins: [u32; 2],
+    pub team_points: [u32; P],
+    pub team_wins: [u32; P],
     pub total_steps: u32,
     pub match_steps: u32,
     pub done: bool,
@@ -288,7 +288,7 @@ impl State {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameResult {
-    pub points_scored: [u32; 2],
+    pub points_scored: [u32; P],
     pub match_winner: Option<u8>,
     pub final_winner: Option<u8>,
     pub done: bool,
@@ -296,7 +296,7 @@ pub struct GameResult {
 
 impl GameResult {
     pub fn new(
-        points_scored: [u32; 2],
+        points_scored: [u32; P],
         match_winner: Option<u8>,
         final_winner: Option<u8>,
         done: bool,
@@ -313,14 +313,14 @@ impl GameResult {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Observation {
     pub team_id: usize,
-    pub units: [Vec<Unit>; 2],
+    pub units: [Vec<Unit>; P],
     pub sensor_mask: Array2<bool>,
     pub energy_field: Array2<Option<i32>>,
     pub asteroids: Vec<Pos>,
     pub nebulae: Vec<Pos>,
     pub relic_node_locations: Vec<Pos>,
-    pub team_points: [u32; 2],
-    pub team_wins: [u32; 2],
+    pub team_points: [u32; P],
+    pub team_wins: [u32; P],
     pub total_steps: u32,
     pub match_steps: u32,
 }
@@ -330,8 +330,8 @@ impl Observation {
         team_id: usize,
         sensor_mask: Array2<bool>,
         energy_field: Array2<Option<i32>>,
-        team_points: [u32; 2],
-        team_wins: [u32; 2],
+        team_points: [u32; P],
+        team_wins: [u32; P],
         total_steps: u32,
         match_steps: u32,
     ) -> Self {

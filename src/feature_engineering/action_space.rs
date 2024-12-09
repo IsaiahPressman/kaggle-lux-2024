@@ -1,6 +1,6 @@
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-use crate::rules_engine::params::KnownVariableParams;
+use crate::rules_engine::params::{KnownVariableParams, P};
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -13,7 +13,7 @@ use strum::IntoEnumIterator;
 pub fn write_basic_action_space(
     mut action_mask: ArrayViewMut3<bool>,
     mut sap_mask: ArrayViewMut4<bool>,
-    observations: &[Observation; 2],
+    observations: &[Observation; P],
     params: &KnownVariableParams,
 ) {
     for ((obs, team_action_mask), team_sap_mask) in observations
