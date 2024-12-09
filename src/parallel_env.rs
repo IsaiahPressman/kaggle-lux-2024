@@ -19,8 +19,8 @@ use crate::rules_engine::state::from_array::{
 use crate::rules_engine::state::{Observation, Pos, State};
 use itertools::Itertools;
 use numpy::ndarray::{
-    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayViewMut1,
-    ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
+    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayView3,
+    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
 };
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyArray3, PyArray4, PyArray5,
@@ -245,22 +245,7 @@ impl ParallelEnv {
             .zip_eq(out.iter_env_slices_mut())
             .zip_eq(actions.outer_iter())
         {
-            let actions: [Vec<Action>; P] = actions
-                .outer_iter()
-                .map(|player_actions| {
-                    player_actions
-                        .outer_iter()
-                        .map(|a| {
-                            let a: [isize; 3] =
-                                a.as_slice().unwrap().try_into().unwrap();
-                            Action::from(a)
-                        })
-                        .collect_vec()
-                })
-                .collect_vec()
-                .try_into()
-                .unwrap();
-
+            let actions = Self::action_array_to_vec(actions);
             Self::step_env(
                 env_data,
                 &mut rng,
@@ -286,22 +271,7 @@ impl ParallelEnv {
             .zip_eq(actions.outer_iter())
             .par_bridge()
             .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
-                let actions: [Vec<Action>; P] = actions
-                    .outer_iter()
-                    .map(|player_actions| {
-                        player_actions
-                            .outer_iter()
-                            .map(|a| {
-                                let a: [isize; 3] =
-                                    a.as_slice().unwrap().try_into().unwrap();
-                                Action::from(a)
-                            })
-                            .collect_vec()
-                    })
-                    .collect_vec()
-                    .try_into()
-                    .unwrap();
-
+                let actions = Self::action_array_to_vec(actions);
                 Self::step_env(
                     env_data,
                     rng,
@@ -311,12 +281,29 @@ impl ParallelEnv {
                 );
             })
             .for_each(|_| {});
-
         out.into_pyarray_bound(py)
     }
 }
 
 impl ParallelEnv {
+    fn action_array_to_vec(actions: ArrayView3<isize>) -> [Vec<Action>; P] {
+        actions
+            .outer_iter()
+            .map(|player_actions| {
+                player_actions
+                    .outer_iter()
+                    .map(|a| {
+                        let a: [isize; 3] =
+                            a.as_slice().unwrap().try_into().unwrap();
+                        Action::from(a)
+                    })
+                    .collect_vec()
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap()
+    }
+
     fn step_env(
         env_data: &mut EnvData,
         rng: &mut ThreadRng,
