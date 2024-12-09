@@ -79,6 +79,10 @@ pub fn step(
         &FIXED_PARAMS,
         params,
     );
+    let normalized_energy_field_deltas = normalize_energy_field_deltas(
+        &energy_field_deltas,
+        state.energy_field.view(),
+    );
     let units_lost_to_energy = state
         .units
         .iter()
@@ -111,8 +115,17 @@ pub fn step(
         .zip_eq(points_scored)
         .for_each(|(total, scored)| *total += scored);
     let match_winner = get_match_result(state, FIXED_PARAMS.max_steps_in_match);
-    let terminal_points_scored =
-        match_winner.is_some().then_some(state.team_points);
+    let (terminal_points_scored, normalized_terminal_points_scored) =
+        match_winner
+            .is_some()
+            .then(|| {
+                let (tps, ntps) = get_points_scored_stats(
+                    state.team_points,
+                    state.relic_node_points_map.view(),
+                );
+                (Some(tps), Some(ntps))
+            })
+            .unwrap_or((None, None));
     step_match(state, match_winner);
     let game_winner = step_game(
         &mut state.total_steps,
@@ -135,7 +148,9 @@ pub fn step(
         GameResult::new(points_scored, match_winner, game_winner, state.done),
         StepStats {
             terminal_points_scored,
+            normalized_terminal_points_scored,
             energy_field_deltas,
+            normalized_energy_field_deltas,
             nebula_energy_deltas,
             energy_void_field_deltas,
             units_lost_to_energy,
@@ -418,22 +433,42 @@ fn apply_energy_field(
         .flat_map(|team_units| team_units.iter_mut())
         .map(|u| {
             let u_pos_idx = u.pos.as_index();
-            let nebula_delta = if nebula_mask[u_pos_idx] {
-                -params.nebula_tile_energy_reduction
-            } else {
-                0
-            };
+            let nebula_delta = nebula_mask[u_pos_idx]
+                .then_some(-params.nebula_tile_energy_reduction);
             (u, energy_field[u_pos_idx], nebula_delta)
         })
-        .filter(|(u, df, dn)| u.energy >= 0 || u.energy + df + dn >= 0)
+        .filter(|(u, df, dn)| {
+            u.energy >= 0 || u.energy + df + dn.unwrap_or(0) >= 0
+        })
     {
         energy_field_deltas.push(field_delta);
-        nebula_energy_deltas.push(nebula_delta);
+        let nebula_delta = if let Some(dn) = nebula_delta {
+            nebula_energy_deltas.push(dn);
+            dn
+        } else {
+            0
+        };
         unit.energy = (unit.energy + field_delta + nebula_delta)
             .min(fixed_params.max_unit_energy)
             .max(fixed_params.min_unit_energy)
     }
     (energy_field_deltas, nebula_energy_deltas)
+}
+
+fn normalize_energy_field_deltas(
+    raw_deltas: &[i32],
+    energy_field: ArrayView2<i32>,
+) -> Vec<f32> {
+    let (min_energy, max_energy) = energy_field
+        .iter()
+        .map(|&ef| ef as f32)
+        .minmax()
+        .into_option()
+        .unwrap();
+    raw_deltas
+        .iter()
+        .map(|&d| (d as f32 - min_energy) / (max_energy - min_energy))
+        .collect()
 }
 
 pub fn get_energy_field(
@@ -689,6 +724,21 @@ fn get_match_result(state: &State, max_steps_in_match: u32) -> Option<u8> {
             }
         },
     }
+}
+
+fn get_points_scored_stats(
+    team_points: [u32; P],
+    relic_node_points_map: ArrayView2<bool>,
+) -> ([u32; P], [f32; P]) {
+    let terminal_points = team_points;
+    let point_tile_count = relic_node_points_map.iter().filter(|&&v| v).count();
+    let divisor =
+        point_tile_count as f32 * FIXED_PARAMS.max_steps_in_match as f32;
+    let normalized_points = [
+        terminal_points[0] as f32 / divisor,
+        terminal_points[1] as f32 / divisor,
+    ];
+    (terminal_points, normalized_points)
 }
 
 fn step_match(state: &mut State, match_winner: Option<u8>) {
@@ -1198,12 +1248,8 @@ mod tests {
         ];
         let expected_energy_field_deltas = vec![2, 5, -10, 5, 10, 10];
         let expected_nebula_energy_deltas = vec![
-            0,
             -params.nebula_tile_energy_reduction,
-            0,
             -params.nebula_tile_energy_reduction,
-            0,
-            0,
         ];
         let (energy_field_deltas, nebula_energy_deltas) = apply_energy_field(
             &mut units,

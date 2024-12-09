@@ -29,8 +29,13 @@ use numpy::{
 use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use strum::EnumCount;
 
+type PyStatsOutputs<'py> = (
+    HashMap<String, f32>,
+    HashMap<String, Bound<'py, PyArray1<f32>>>,
+);
 type PyEnvOutputs<'py> = (
     (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
     (
@@ -42,6 +47,7 @@ type PyEnvOutputs<'py> = (
     ),
     Bound<'py, PyArray2<f32>>,
     Bound<'py, PyArray1<bool>>,
+    Option<PyStatsOutputs<'py>>,
 );
 
 #[pyclass]
@@ -122,6 +128,7 @@ impl ParallelEnv {
             (action_mask, sap_mask, unit_indices, unit_energies, units_mask),
             reward,
             done,
+            _,
         ) = output_arrays;
         for (
             (mut slice, env_data),
@@ -176,7 +183,7 @@ impl ParallelEnv {
                 },
             )
             .zip_eq(self.env_data.iter_mut())
-            .filter(|(_, ed)| ed.state.done),
+            .filter(|(_, ed)| ed.done()),
             tile_type.as_array().outer_iter(),
             energy_nodes.as_array().outer_iter(),
             energy_node_fns.as_array().outer_iter(),
@@ -254,6 +261,7 @@ impl ParallelEnv {
                 self.reward_space,
             );
         }
+        self.write_game_stats(&mut out.stats);
         out.into_pyarray_bound(py)
     }
 
@@ -281,6 +289,7 @@ impl ParallelEnv {
                 );
             })
             .for_each(|_| {});
+        self.write_game_stats(&mut out.stats);
         out.into_pyarray_bound(py)
     }
 }
@@ -372,6 +381,25 @@ impl ParallelEnv {
             observations,
         );
     }
+
+    fn write_game_stats(
+        &self,
+        stats: &mut Option<ParallelEnvGameStatsOutputs>,
+    ) {
+        let all_game_stats = self
+            .env_data
+            .iter()
+            .filter(|ed| ed.done())
+            .map(|ed| &ed.stats)
+            .collect_vec();
+        if all_game_stats.is_empty() {
+            *stats = None;
+            return;
+        }
+
+        *stats =
+            Some(ParallelEnvGameStatsOutputs::from_game_stats(all_game_stats));
+    }
 }
 
 struct EnvData {
@@ -411,6 +439,11 @@ impl EnvData {
     #[inline(always)]
     fn terminate(&mut self) {
         self.state.done = true;
+    }
+
+    #[inline(always)]
+    fn done(&self) -> bool {
+        self.state.done
     }
 
     #[inline(always)]
@@ -471,6 +504,7 @@ struct ParallelEnvOutputs {
     units_mask: Array3<bool>,
     reward: Array2<f32>,
     done: Array1<bool>,
+    stats: Option<ParallelEnvGameStatsOutputs>,
 }
 
 impl ParallelEnvOutputs {
@@ -508,6 +542,7 @@ impl ParallelEnvOutputs {
             units_mask,
             reward,
             done,
+            stats: None,
         }
     }
 
@@ -523,11 +558,13 @@ impl ParallelEnvOutputs {
             self.unit_energies.into_pyarray_bound(py),
             self.units_mask.into_pyarray_bound(py),
         );
+        let stats_dict = self.stats.map(|s| s.into_py_bound_dicts(py));
         (
             obs,
             action_info,
             self.reward.into_pyarray_bound(py),
             self.done.into_pyarray_bound(py),
+            stats_dict,
         )
     }
 
@@ -574,5 +611,188 @@ impl ParallelEnvOutputs {
                 }
             },
         )
+    }
+}
+
+struct ParallelEnvGameStatsOutputs {
+    terminal_points_scored: Array1<f32>,
+    mean_terminal_points_scored: f32,
+    normalized_terminal_points_scored: Array1<f32>,
+    mean_normalized_terminal_points_scored: f32,
+    energy_field_deltas: Array1<f32>,
+    normalized_energy_field_deltas: Array1<f32>,
+    nebula_energy_deltas: Array1<f32>,
+    energy_void_field_deltas: Array1<f32>,
+
+    mean_units_lost_to_energy: f32,
+    mean_units_lost_to_collision: f32,
+    noop_frequency: f32,
+    move_frequency: f32,
+    sap_frequency: f32,
+
+    /// Could be >= 1.0 if most saps hit more than 1 unit
+    sap_direct_hits_frequency: f32,
+    /// Could be >= 1.0 if most saps hit more than 1 unit
+    sap_adjacent_hits_frequency: f32,
+}
+
+impl ParallelEnvGameStatsOutputs {
+    fn from_game_stats(game_stats: Vec<&GameStats>) -> Self {
+        let terminal_points_scored = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.terminal_points_scored.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let mean_terminal_points_scored =
+            terminal_points_scored.mean().unwrap();
+        let normalized_terminal_points_scored = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.normalized_terminal_points_scored.iter())
+                .copied()
+                .collect(),
+        );
+        let mean_normalized_terminal_points_scored =
+            normalized_terminal_points_scored.mean().unwrap();
+        let energy_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.energy_field_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let normalized_energy_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.normalized_energy_field_deltas.iter())
+                .copied()
+                .collect(),
+        );
+        let nebula_energy_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.nebula_energy_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let energy_void_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.energy_void_field_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+
+        let n_games = game_stats.len() as f32;
+        let mean_units_lost_to_energy = game_stats
+            .iter()
+            .map(|gs| gs.units_lost_to_energy as f32)
+            .sum::<f32>()
+            / n_games;
+        let mean_units_lost_to_collision = game_stats
+            .iter()
+            .map(|gs| gs.units_lost_to_collision as f32)
+            .sum::<f32>()
+            / n_games;
+
+        let noop_frequency =
+            game_stats.iter().map(|gs| gs.noop_frequency()).sum::<f32>()
+                / n_games;
+        let move_frequency =
+            game_stats.iter().map(|gs| gs.move_frequency()).sum::<f32>()
+                / n_games;
+        let sap_frequency =
+            game_stats.iter().map(|gs| gs.sap_frequency()).sum::<f32>()
+                / n_games;
+        let sap_direct_hits_frequency = game_stats
+            .iter()
+            .map(|gs| gs.sap_direct_hits_frequency())
+            .sum::<f32>()
+            / n_games;
+        let sap_adjacent_hits_frequency = game_stats
+            .iter()
+            .map(|gs| gs.sap_adjacent_hits_frequency())
+            .sum::<f32>()
+            / n_games;
+
+        Self {
+            terminal_points_scored,
+            mean_terminal_points_scored,
+            normalized_terminal_points_scored,
+            mean_normalized_terminal_points_scored,
+            energy_field_deltas,
+            normalized_energy_field_deltas,
+            nebula_energy_deltas,
+            energy_void_field_deltas,
+            mean_units_lost_to_energy,
+            mean_units_lost_to_collision,
+            noop_frequency,
+            move_frequency,
+            sap_frequency,
+            sap_direct_hits_frequency,
+            sap_adjacent_hits_frequency,
+        }
+    }
+
+    fn into_py_bound_dicts(self, py: Python) -> PyStatsOutputs {
+        let scalar_values = HashMap::from([
+            (
+                "mean_terminal_points_scored".to_string(),
+                self.mean_terminal_points_scored,
+            ),
+            (
+                "mean_normalized_terminal_points_scored".to_string(),
+                self.mean_normalized_terminal_points_scored,
+            ),
+            (
+                "mean_units_lost_to_energy".to_string(),
+                self.mean_units_lost_to_energy,
+            ),
+            (
+                "mean_units_lost_to_collision".to_string(),
+                self.mean_units_lost_to_collision,
+            ),
+            ("noop_frequency".to_string(), self.noop_frequency),
+            ("move_frequency".to_string(), self.move_frequency),
+            ("sap_frequency".to_string(), self.sap_frequency),
+            (
+                "sap_direct_hits_frequency".to_string(),
+                self.sap_direct_hits_frequency,
+            ),
+            (
+                "sap_adjacent_hits_frequency".to_string(),
+                self.sap_adjacent_hits_frequency,
+            ),
+        ]);
+        let array_values = HashMap::from([
+            (
+                "terminal_points_scored".to_string(),
+                self.terminal_points_scored.into_pyarray_bound(py),
+            ),
+            (
+                "normalized_terminal_points_scored".to_string(),
+                self.normalized_terminal_points_scored
+                    .into_pyarray_bound(py),
+            ),
+            (
+                "energy_field_deltas".to_string(),
+                self.energy_field_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "normalized_energy_field_deltas".to_string(),
+                self.normalized_energy_field_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "nebula_energy_deltas".to_string(),
+                self.nebula_energy_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "energy_void_field_deltas".to_string(),
+                self.energy_void_field_deltas.into_pyarray_bound(py),
+            ),
+        ]);
+        (scalar_values, array_values)
     }
 }

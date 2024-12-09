@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -16,11 +16,16 @@ ActionInfoArrays = tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.bool_],
 ]
+StatsArrays = tuple[
+    dict[str, float],
+    dict[str, npt.NDArray[np.float32]],
+]
 EnvFullOut = tuple[
     ObsArrays,
     ActionInfoArrays,
     npt.NDArray[np.float32],
     npt.NDArray[np.bool_],
+    StatsArrays | None,
 ]
 
 
@@ -74,16 +79,40 @@ class ActionInfo(NamedTuple):
         return ActionInfo(*raw)
 
 
+class Stats(NamedTuple):
+    scalar_stats: dict[str, float]
+    array_stats: dict[str, npt.NDArray[np.float32]]
+
+    def validate(self) -> None:
+        for scalar in self.scalar_stats.values():
+            assert isinstance(scalar, float)
+
+        for array in self.array_stats.values():
+            assert array.ndim == 1
+            assert array.dtype == np.float32
+
+    @classmethod
+    def from_raw(cls, raw: StatsArrays | None) -> Union["Stats", None]:
+        if raw is None:
+            return None
+
+        return Stats(*raw)
+
+
 class ParallelEnvOut(NamedTuple):
     obs: Obs
     action_info: ActionInfo
     reward: npt.NDArray[np.float32]
     done: npt.NDArray[np.bool_]
+    stats: Stats | None
 
     def validate(self) -> None:
         n_envs, n_players = self.reward.shape
         self.obs.validate(n_envs, n_players)
         self.action_info.validate(n_envs, n_players)
+        if self.stats:
+            self.stats.validate()
+
         assert self.reward.shape == (n_envs, n_players)
         assert self.reward.dtype == np.float32
         assert self.done.shape == (n_envs,)
@@ -91,12 +120,13 @@ class ParallelEnvOut(NamedTuple):
 
     @classmethod
     def from_raw(cls, raw: EnvFullOut) -> "ParallelEnvOut":
-        (raw_obs_arrays, raw_action_info_arrays, reward, done) = raw
+        (raw_obs_arrays, raw_action_info_arrays, reward, done, stats) = raw
         return ParallelEnvOut(
             Obs.from_raw(raw_obs_arrays),
             ActionInfo.from_raw(raw_action_info_arrays),
             reward,
             done,
+            Stats.from_raw(stats),
         )
 
     @classmethod
