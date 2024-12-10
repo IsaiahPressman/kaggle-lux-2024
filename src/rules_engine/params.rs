@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+/// The number of players in a game
+pub const P: usize = 2;
 pub const FIXED_PARAMS: FixedParams = FixedParams {
     max_steps_in_match: 100,
     map_width: DEFAULT_MAP_WIDTH,

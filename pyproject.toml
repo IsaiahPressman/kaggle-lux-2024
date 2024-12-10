@@ -15,7 +15,7 @@ dependencies = [
     "tqdm>=4.66.6",
     "types-tqdm>=4.66.0.20240417",
     "jax[cuda12]>=0.4.35",
-    "torch==2.4.0",
+    "torch>=2.5.1",
     "pydantic>=2.10.1",
     "types-pyyaml>=6.0.12.20240917",
 ]

@@ -1,5 +1,5 @@
 use crate::rules_engine::action::Action;
-use crate::rules_engine::params::{FixedParams, VariableParams};
+use crate::rules_engine::params::{FixedParams, VariableParams, P};
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
@@ -14,7 +14,7 @@ pub struct FullReplay {
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
-    player_observations: [Vec<ReplayPlayerObservation>; 2],
+    player_observations: [Vec<ReplayPlayerObservation>; P],
 }
 
 impl FullReplay {
@@ -36,6 +36,11 @@ impl FullReplay {
                 asteroids: obs.get_asteroids(self.get_map_size()),
                 nebulae: obs.get_nebulae(self.get_map_size()),
                 energy_nodes: self.get_energy_nodes(&obs.energy_nodes),
+                energy_field: Array2::from_shape_vec(
+                    self.get_map_size(),
+                    obs.map_features.energy.iter().flatten().copied().collect(),
+                )
+                .unwrap(),
                 team_points: obs.team_points,
                 team_wins: obs.team_wins,
                 total_steps: obs.steps,
@@ -59,7 +64,7 @@ impl FullReplay {
         result
     }
 
-    pub fn get_player_observations(&self) -> Vec<[Observation; 2]> {
+    pub fn get_player_observations(&self) -> Vec<[Observation; P]> {
         let [p1_obs, p2_obs] = &self.player_observations;
         p1_obs
             .iter()
@@ -88,7 +93,7 @@ impl FullReplay {
             .iter()
             .map(|obs| {
                 Array3::from_shape_vec(
-                    (2, width, height),
+                    (P, width, height),
                     obs.vision_power_map
                         .iter()
                         .flatten()
@@ -101,20 +106,7 @@ impl FullReplay {
             .collect()
     }
 
-    pub fn get_energy_fields(&self) -> Vec<Array2<i32>> {
-        self.observations
-            .iter()
-            .map(|obs| {
-                Array2::from_shape_vec(
-                    self.get_map_size(),
-                    obs.map_features.energy.iter().flatten().copied().collect(),
-                )
-                .unwrap()
-            })
-            .collect()
-    }
-
-    pub fn get_actions(&self) -> Vec<[Vec<Action>; 2]> {
+    pub fn get_actions(&self) -> Vec<[Vec<Action>; P]> {
         self.actions
             .iter()
             .map(|acts| acts.clone().into_actions())
@@ -137,7 +129,7 @@ struct ReplayPlayerActions {
 }
 
 impl ReplayPlayerActions {
-    fn into_actions(self) -> [Vec<Action>; 2] {
+    fn into_actions(self) -> [Vec<Action>; P] {
         [
             self.player_0.into_iter().map(Action::from).collect(),
             self.player_1.into_iter().map(Action::from).collect(),
@@ -148,20 +140,20 @@ impl ReplayPlayerActions {
 #[derive(Deserialize)]
 struct ReplayObservation {
     units: ReplayUnits,
-    units_mask: [Vec<bool>; 2],
+    units_mask: [Vec<bool>; P],
     energy_nodes: Vec<[i16; 2]>,
     relic_nodes: Vec<[isize; 2]>,
     relic_node_configs: Vec<[[bool; 5]; 5]>,
     map_features: ReplayMapFeatures,
-    vision_power_map: [Vec<Vec<i32>>; 2],
-    team_points: [u32; 2],
-    team_wins: [u32; 2],
+    vision_power_map: [Vec<Vec<i32>>; P],
+    team_points: [u32; P],
+    team_wins: [u32; P],
     steps: u32,
     match_steps: u32,
 }
 
 impl ReplayObservation {
-    fn get_units(&self) -> [Vec<Unit>; 2] {
+    fn get_units(&self) -> [Vec<Unit>; P] {
         let mut result = [Vec::new(), Vec::new()];
         for team in [0, 1] {
             result[team] = self.units.position[team]
@@ -209,8 +201,8 @@ impl ReplayObservation {
 
 #[derive(Deserialize)]
 struct ReplayUnits {
-    position: [Vec<[usize; 2]>; 2],
-    energy: [Vec<[i32; 1]>; 2],
+    position: [Vec<[usize; 2]>; P],
+    energy: [Vec<[i32; 1]>; P],
 }
 
 #[derive(Deserialize)]
@@ -222,13 +214,13 @@ struct ReplayMapFeatures {
 #[derive(Deserialize)]
 struct ReplayPlayerObservation {
     units: ReplayPlayerObservationUnits,
-    units_mask: [Vec<bool>; 2],
+    units_mask: [Vec<bool>; P],
     sensor_mask: Vec<Vec<bool>>,
     map_features: ReplayMapFeatures,
     relic_nodes: Vec<[isize; 2]>,
     relic_nodes_mask: Vec<bool>,
-    team_points: [u32; 2],
-    team_wins: [u32; 2],
+    team_points: [u32; P],
+    team_wins: [u32; P],
     steps: u32,
     match_steps: u32,
 }
@@ -289,7 +281,7 @@ impl ReplayPlayerObservation {
         }
     }
 
-    fn get_units(&self) -> [Vec<Unit>; 2] {
+    fn get_units(&self) -> [Vec<Unit>; P] {
         let mut result = [Vec::new(), Vec::new()];
         for team in [0, 1] {
             result[team] = self.units.position[team]
