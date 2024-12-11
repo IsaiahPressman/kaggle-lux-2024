@@ -21,7 +21,7 @@ pub struct RelicNodeMemory {
 impl RelicNodeMemory {
     pub fn new(map_size: [usize; 2]) -> Self {
         RelicNodeMemory {
-            relic_nodes: Vec::new(),
+            relic_nodes: Vec::with_capacity(FIXED_PARAMS.max_relic_nodes),
             explored_nodes_map: Array2::default(map_size),
             points_map: Array2::default(map_size),
             known_points_map: Array2::default(map_size),

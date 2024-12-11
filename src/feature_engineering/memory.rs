@@ -4,6 +4,7 @@ mod masked_possibilities;
 #[allow(dead_code)]
 pub mod probabilities;
 mod relic_nodes;
+mod space_obstacles;
 
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;

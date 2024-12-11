@@ -74,6 +74,15 @@ impl Pos {
         Pos { x, y }
     }
 
+    pub fn inverted_wrapped_translate(
+        self,
+        deltas: [isize; 2],
+        map_size: [usize; 2],
+    ) -> Self {
+        let [dx, dy] = deltas;
+        self.wrapped_translate([-dx, -dy], map_size)
+    }
+
     #[inline(always)]
     pub fn subtract(self, target: Self) -> [isize; 2] {
         [
@@ -423,6 +432,25 @@ mod tests {
                 .wrapped_translate([-6 * 20 - 2, -8 * 25 - 2], map_size),
             Pos::new(4, 6)
         );
+    }
+
+    #[test]
+    fn test_inverted_wrapped_translate() {
+        let map_size = [8, 8];
+        let [width, height] = map_size;
+        for (((x, y), dx), dy) in (0..width)
+            .cartesian_product(0..height)
+            .cartesian_product(-3..=3)
+            .cartesian_product(-3..=3)
+        {
+            let pos = Pos::new(x, y);
+            let deltas = [dx, dy];
+            assert_eq!(
+                pos.wrapped_translate(deltas, map_size)
+                    .inverted_wrapped_translate(deltas, map_size),
+                pos
+            );
+        }
     }
 
     #[test]
