@@ -39,7 +39,7 @@ fn filter_map_tile(
     {
         None
     } else {
-        panic!("Unrecognized tile type: {}", tile_type)
+        panic!("Unrecognized tile type: {tile_type}")
     }
 }
 

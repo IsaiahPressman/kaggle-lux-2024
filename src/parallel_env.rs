@@ -5,20 +5,22 @@ use crate::feature_engineering::obs_space::basic_obs_space::{
 };
 use crate::feature_engineering::reward_space::RewardSpace;
 use crate::feature_engineering::unit_features::write_unit_features;
+use crate::izip_eq;
 use crate::rules_engine::action::Action;
-use crate::rules_engine::env::{get_reset_observation, step};
+use crate::rules_engine::env::{get_energy_field, get_reset_observation, step};
+use crate::rules_engine::game_stats::GameStats;
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{
-    KnownVariableParams, VariableParams, FIXED_PARAMS,
+    KnownVariableParams, VariableParams, FIXED_PARAMS, P,
 };
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
 use crate::rules_engine::state::{Observation, Pos, State};
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use numpy::ndarray::{
-    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayViewMut1,
-    ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
+    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayView3,
+    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
 };
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyArray3, PyArray4, PyArray5,
@@ -27,12 +29,16 @@ use numpy::{
 use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use strum::EnumCount;
 
+type PyStatsOutputs<'py> = (
+    HashMap<String, f32>,
+    HashMap<String, Bound<'py, PyArray1<f32>>>,
+);
 type PyEnvOutputs<'py> = (
+    (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
     (
-        Bound<'py, PyArray5<f32>>,
-        Bound<'py, PyArray3<f32>>,
         Bound<'py, PyArray4<bool>>,
         Bound<'py, PyArray5<bool>>,
         Bound<'py, PyArray4<isize>>,
@@ -41,6 +47,7 @@ type PyEnvOutputs<'py> = (
     ),
     Bound<'py, PyArray2<f32>>,
     Bound<'py, PyArray1<bool>>,
+    Option<PyStatsOutputs<'py>>,
 );
 
 #[pyclass]
@@ -73,15 +80,34 @@ impl ParallelEnv {
         ParallelEnvOutputs::new(self.n_envs).into_pyarray_bound(py)
     }
 
+    /// The environments that are starting a new match (there are up to 5 matches in a game)
+    fn get_new_match_envs(&self) -> Vec<usize> {
+        self.env_data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, ed)| ed.is_new_match().then_some(i))
+            .collect()
+    }
+
+    /// The environments that are starting a new game (each game consists of five matches)
+    fn get_new_game_envs(&self) -> Vec<usize> {
+        self.env_data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, ed)| ed.is_new_game().then_some(i))
+            .collect()
+    }
+
     /// Resets all environments that are done, leaving active environments as-is. \
     /// Does not update reward or done arrays.
     /// de = envs that are done
+    /// P = player count
     /// - obs_arrays: output arrays from self.step()
     /// - tile_type: (de, width, height)
-    /// - energy_nodes: (de, max_energy_nodes, 2)
+    /// - energy_nodes: (de, max_energy_nodes, P)
     /// - energy_node_fns: (de, max_energy_nodes, 4)
     /// - energy_nodes_mask: (de, max_energy_nodes)
-    /// - relic_nodes: (de, max_relic_nodes, 2)
+    /// - relic_nodes: (de, max_relic_nodes, P)
     /// - relic_node_configs: (de, max_relic_nodes, K, K) for a KxK relic configuration
     /// - relic_nodes_mask: (de, max_relic_nodes)
     #[allow(clippy::too_many_arguments)]
@@ -98,17 +124,11 @@ impl ParallelEnv {
     ) {
         let mut rng = rand::thread_rng();
         let (
-            (
-                spatial_obs,
-                global_obs,
-                action_mask,
-                sap_mask,
-                unit_indices,
-                unit_energies,
-                units_mask,
-            ),
+            (spatial_obs, global_obs),
+            (action_mask, sap_mask, unit_indices, unit_energies, units_mask),
             reward,
             done,
+            _,
         ) = output_arrays;
         for (
             (mut slice, env_data),
@@ -119,8 +139,8 @@ impl ParallelEnv {
             relic_nodes,
             relic_node_configs,
             relic_nodes_mask,
-        ) in izip!(
-            izip!(
+        ) in izip_eq!(
+            izip_eq!(
                 spatial_obs.readwrite().as_array_mut().outer_iter_mut(),
                 global_obs.readwrite().as_array_mut().outer_iter_mut(),
                 action_mask.readwrite().as_array_mut().outer_iter_mut(),
@@ -146,6 +166,8 @@ impl ParallelEnv {
                     let obs_arrays = ObsArraysSlice {
                         spatial_obs,
                         global_obs,
+                    };
+                    let action_info_arrays = ActionInfoArraysSlice {
                         action_mask,
                         sap_mask,
                         unit_indices,
@@ -154,13 +176,14 @@ impl ParallelEnv {
                     };
                     SingleEnvSlice {
                         obs_arrays,
+                        action_info_arrays,
                         reward,
                         done,
                     }
                 },
             )
             .zip_eq(self.env_data.iter_mut())
-            .filter(|(_, ed)| ed.state.done),
+            .filter(|(_, ed)| ed.done()),
             tile_type.as_array().outer_iter(),
             energy_nodes.as_array().outer_iter(),
             energy_node_fns.as_array().outer_iter(),
@@ -193,6 +216,8 @@ impl ParallelEnv {
                 FIXED_PARAMS.map_size,
                 FIXED_PARAMS.relic_config_size,
             );
+            state.energy_field =
+                get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
             // We randomly generate params here, as they aren't needed when generating the
             // initial map state in python
             let params = PARAM_RANGES.random_params(&mut rng);
@@ -200,8 +225,10 @@ impl ParallelEnv {
 
             let obs = get_reset_observation(&env_data.state, &env_data.params);
             slice.obs_arrays.reset();
+            slice.action_info_arrays.reset();
             Self::update_memories_and_write_output_arrays(
                 slice.obs_arrays,
+                slice.action_info_arrays,
                 &mut env_data.memories,
                 &obs,
                 &[Vec::new(), Vec::new()],
@@ -216,7 +243,7 @@ impl ParallelEnv {
         actions: PyReadonlyArray4<'py, isize>,
     ) -> PyEnvOutputs<'py> {
         let actions = actions.as_array();
-        assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
+        assert_eq!(actions.dim(), (self.n_envs, P, FIXED_PARAMS.max_units, 3));
         let mut out = ParallelEnvOutputs::new(self.n_envs);
         let mut rng = rand::thread_rng();
         for ((env_data, slice), actions) in self
@@ -225,22 +252,7 @@ impl ParallelEnv {
             .zip_eq(out.iter_env_slices_mut())
             .zip_eq(actions.outer_iter())
         {
-            let actions: [Vec<Action>; 2] = actions
-                .outer_iter()
-                .map(|player_actions| {
-                    player_actions
-                        .outer_iter()
-                        .map(|a| {
-                            let a: [isize; 3] =
-                                a.as_slice().unwrap().try_into().unwrap();
-                            Action::from(a)
-                        })
-                        .collect_vec()
-                })
-                .collect_vec()
-                .try_into()
-                .unwrap();
-
+            let actions = Self::action_array_to_vec(actions);
             Self::step_env(
                 env_data,
                 &mut rng,
@@ -249,6 +261,7 @@ impl ParallelEnv {
                 self.reward_space,
             );
         }
+        self.write_game_stats(&mut out.stats);
         out.into_pyarray_bound(py)
     }
 
@@ -258,7 +271,7 @@ impl ParallelEnv {
         actions: PyReadonlyArray4<'py, isize>,
     ) -> PyEnvOutputs<'py> {
         let actions = actions.as_array();
-        assert_eq!(actions.dim(), (self.n_envs, 2, FIXED_PARAMS.max_units, 3));
+        assert_eq!(actions.dim(), (self.n_envs, P, FIXED_PARAMS.max_units, 3));
         let mut out = ParallelEnvOutputs::new(self.n_envs);
         self.env_data
             .iter_mut()
@@ -266,22 +279,7 @@ impl ParallelEnv {
             .zip_eq(actions.outer_iter())
             .par_bridge()
             .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
-                let actions: [Vec<Action>; 2] = actions
-                    .outer_iter()
-                    .map(|player_actions| {
-                        player_actions
-                            .outer_iter()
-                            .map(|a| {
-                                let a: [isize; 3] =
-                                    a.as_slice().unwrap().try_into().unwrap();
-                                Action::from(a)
-                            })
-                            .collect_vec()
-                    })
-                    .collect_vec()
-                    .try_into()
-                    .unwrap();
-
+                let actions = Self::action_array_to_vec(actions);
                 Self::step_env(
                     env_data,
                     rng,
@@ -291,20 +289,38 @@ impl ParallelEnv {
                 );
             })
             .for_each(|_| {});
-
+        self.write_game_stats(&mut out.stats);
         out.into_pyarray_bound(py)
     }
 }
 
 impl ParallelEnv {
+    fn action_array_to_vec(actions: ArrayView3<isize>) -> [Vec<Action>; P] {
+        actions
+            .outer_iter()
+            .map(|player_actions| {
+                player_actions
+                    .outer_iter()
+                    .map(|a| {
+                        let a: [isize; 3] =
+                            a.as_slice().unwrap().try_into().unwrap();
+                        Action::from(a)
+                    })
+                    .collect_vec()
+            })
+            .collect_vec()
+            .try_into()
+            .unwrap()
+    }
+
     fn step_env(
         env_data: &mut EnvData,
         rng: &mut ThreadRng,
         mut env_slice: SingleEnvSlice,
-        actions: &[Vec<Action>; 2],
+        actions: &[Vec<Action>; P],
         reward_space: RewardSpace,
     ) {
-        let (obs, result) = step(
+        let (obs, result, stats) = step(
             &mut env_data.state,
             rng,
             actions,
@@ -312,8 +328,10 @@ impl ParallelEnv {
             reward_space.termination_mode(),
             None,
         );
+        env_data.stats.extend(stats);
         Self::update_memories_and_write_output_arrays(
             env_slice.obs_arrays,
+            env_slice.action_info_arrays,
             &mut env_data.memories,
             &obs,
             actions,
@@ -330,10 +348,11 @@ impl ParallelEnv {
     /// Writes the observations into the respective arrays and updates memories
     /// Must be called *after* updating state and getting latest observation
     fn update_memories_and_write_output_arrays(
-        mut slice: ObsArraysSlice,
-        memories: &mut [Memory; 2],
-        observations: &[Observation; 2],
-        last_actions: &[Vec<Action>; 2],
+        mut obs_slice: ObsArraysSlice,
+        mut action_info_slice: ActionInfoArraysSlice,
+        memories: &mut [Memory; P],
+        observations: &[Observation; P],
+        last_actions: &[Vec<Action>; P],
         params: &KnownVariableParams,
     ) {
         memories
@@ -344,29 +363,49 @@ impl ParallelEnv {
                 mem.update(obs, last_actions, &FIXED_PARAMS, params)
             });
         write_obs_arrays(
-            slice.spatial_obs.view_mut(),
-            slice.global_obs.view_mut(),
+            obs_slice.spatial_obs.view_mut(),
+            obs_slice.global_obs.view_mut(),
             observations,
             memories,
         );
         write_basic_action_space(
-            slice.action_mask.view_mut(),
-            slice.sap_mask.view_mut(),
+            action_info_slice.action_mask.view_mut(),
+            action_info_slice.sap_mask.view_mut(),
             observations,
             params,
         );
         write_unit_features(
-            slice.unit_indices.view_mut(),
-            slice.unit_energies.view_mut(),
-            slice.units_mask.view_mut(),
+            action_info_slice.unit_indices.view_mut(),
+            action_info_slice.unit_energies.view_mut(),
+            action_info_slice.units_mask.view_mut(),
             observations,
         );
+    }
+
+    fn write_game_stats(
+        &self,
+        stats: &mut Option<ParallelEnvGameStatsOutputs>,
+    ) {
+        let all_game_stats = self
+            .env_data
+            .iter()
+            .filter(|ed| ed.done())
+            .map(|ed| &ed.stats)
+            .collect_vec();
+        if all_game_stats.is_empty() {
+            *stats = None;
+            return;
+        }
+
+        *stats =
+            Some(ParallelEnvGameStatsOutputs::from_game_stats(all_game_stats));
     }
 }
 
 struct EnvData {
     state: State,
-    memories: [Memory; 2],
+    memories: [Memory; P],
+    stats: GameStats,
     params: VariableParams,
     known_params: KnownVariableParams,
 }
@@ -382,6 +421,7 @@ impl EnvData {
     }
 
     fn from_state_params(state: State, params: VariableParams) -> Self {
+        let stats = GameStats::new();
         let known_params = KnownVariableParams::from(params.clone());
         let memories = [
             Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
@@ -390,19 +430,46 @@ impl EnvData {
         Self {
             state,
             memories,
+            stats,
             params,
             known_params,
         }
     }
 
+    #[inline(always)]
     fn terminate(&mut self) {
         self.state.done = true;
+    }
+
+    #[inline(always)]
+    fn done(&self) -> bool {
+        self.state.done
+    }
+
+    #[inline(always)]
+    fn is_new_match(&self) -> bool {
+        self.state.match_steps == 0
+    }
+
+    #[inline(always)]
+    fn is_new_game(&self) -> bool {
+        self.state.total_steps == 0
     }
 }
 
 struct ObsArraysSlice<'a> {
     spatial_obs: ArrayViewMut4<'a, f32>,
     global_obs: ArrayViewMut2<'a, f32>,
+}
+
+impl ObsArraysSlice<'_> {
+    fn reset(&mut self) {
+        self.spatial_obs.fill(0.0);
+        self.global_obs.fill(0.0);
+    }
+}
+
+struct ActionInfoArraysSlice<'a> {
     action_mask: ArrayViewMut3<'a, bool>,
     sap_mask: ArrayViewMut4<'a, bool>,
     unit_indices: ArrayViewMut3<'a, isize>,
@@ -410,10 +477,8 @@ struct ObsArraysSlice<'a> {
     units_mask: ArrayViewMut2<'a, bool>,
 }
 
-impl ObsArraysSlice<'_> {
+impl ActionInfoArraysSlice<'_> {
     fn reset(&mut self) {
-        self.spatial_obs.fill(0.0);
-        self.global_obs.fill(0.0);
         self.action_mask.fill(false);
         self.sap_mask.fill(false);
         self.unit_indices.fill(0);
@@ -424,6 +489,7 @@ impl ObsArraysSlice<'_> {
 
 struct SingleEnvSlice<'a> {
     obs_arrays: ObsArraysSlice<'a>,
+    action_info_arrays: ActionInfoArraysSlice<'a>,
     reward: ArrayViewMut1<'a, f32>,
     done: &'a mut bool,
 }
@@ -438,32 +504,33 @@ struct ParallelEnvOutputs {
     units_mask: Array3<bool>,
     reward: Array2<f32>,
     done: Array1<bool>,
+    stats: Option<ParallelEnvGameStatsOutputs>,
 }
 
 impl ParallelEnvOutputs {
     fn new(n_envs: usize) -> Self {
         let spatial_obs = Array5::zeros((
             n_envs,
-            2,
+            P,
             get_spatial_feature_count(),
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
-        let global_obs = Array3::zeros((n_envs, 2, get_global_feature_count()));
+        let global_obs = Array3::zeros((n_envs, P, get_global_feature_count()));
         let action_mask =
-            Array4::default((n_envs, 2, FIXED_PARAMS.max_units, Action::COUNT));
+            Array4::default((n_envs, P, FIXED_PARAMS.max_units, Action::COUNT));
         let sap_mask = Array5::default((
             n_envs,
-            2,
+            P,
             FIXED_PARAMS.max_units,
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
         let unit_indices =
-            Array4::zeros((n_envs, 2, FIXED_PARAMS.max_units, 2));
-        let unit_energies = Array3::zeros((n_envs, 2, FIXED_PARAMS.max_units));
-        let units_mask = Array3::default((n_envs, 2, FIXED_PARAMS.max_units));
-        let reward = Array2::zeros((n_envs, 2));
+            Array4::zeros((n_envs, P, FIXED_PARAMS.max_units, 2));
+        let unit_energies = Array3::zeros((n_envs, P, FIXED_PARAMS.max_units));
+        let units_mask = Array3::default((n_envs, P, FIXED_PARAMS.max_units));
+        let reward = Array2::zeros((n_envs, P));
         let done = Array1::default(n_envs);
         Self {
             spatial_obs,
@@ -475,6 +542,7 @@ impl ParallelEnvOutputs {
             units_mask,
             reward,
             done,
+            stats: None,
         }
     }
 
@@ -482,21 +550,26 @@ impl ParallelEnvOutputs {
         let obs = (
             self.spatial_obs.into_pyarray_bound(py),
             self.global_obs.into_pyarray_bound(py),
+        );
+        let action_info = (
             self.action_mask.into_pyarray_bound(py),
             self.sap_mask.into_pyarray_bound(py),
             self.unit_indices.into_pyarray_bound(py),
             self.unit_energies.into_pyarray_bound(py),
             self.units_mask.into_pyarray_bound(py),
         );
+        let stats_dict = self.stats.map(|s| s.into_py_bound_dicts(py));
         (
             obs,
+            action_info,
             self.reward.into_pyarray_bound(py),
             self.done.into_pyarray_bound(py),
+            stats_dict,
         )
     }
 
     fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvSlice> {
-        izip!(
+        izip_eq!(
             self.spatial_obs.outer_iter_mut(),
             self.global_obs.outer_iter_mut(),
             self.action_mask.outer_iter_mut(),
@@ -522,6 +595,8 @@ impl ParallelEnvOutputs {
                 let obs_arrays = ObsArraysSlice {
                     spatial_obs,
                     global_obs,
+                };
+                let action_info_arrays = ActionInfoArraysSlice {
                     action_mask,
                     sap_mask,
                     unit_indices,
@@ -530,10 +605,194 @@ impl ParallelEnvOutputs {
                 };
                 SingleEnvSlice {
                     obs_arrays,
+                    action_info_arrays,
                     reward,
                     done,
                 }
             },
         )
+    }
+}
+
+struct ParallelEnvGameStatsOutputs {
+    terminal_points_scored: Array1<f32>,
+    mean_terminal_points_scored: f32,
+    normalized_terminal_points_scored: Array1<f32>,
+    mean_normalized_terminal_points_scored: f32,
+    energy_field_deltas: Array1<f32>,
+    normalized_energy_field_deltas: Array1<f32>,
+    nebula_energy_deltas: Array1<f32>,
+    energy_void_field_deltas: Array1<f32>,
+
+    mean_units_lost_to_energy: f32,
+    mean_units_lost_to_collision: f32,
+    noop_frequency: f32,
+    move_frequency: f32,
+    sap_frequency: f32,
+
+    /// Could be >= 1.0 if most saps hit more than 1 unit
+    sap_direct_hits_frequency: f32,
+    /// Could be >= 1.0 if most saps hit more than 1 unit
+    sap_adjacent_hits_frequency: f32,
+}
+
+impl ParallelEnvGameStatsOutputs {
+    fn from_game_stats(game_stats: Vec<&GameStats>) -> Self {
+        let terminal_points_scored = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.terminal_points_scored.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let mean_terminal_points_scored =
+            terminal_points_scored.mean().unwrap();
+        let normalized_terminal_points_scored = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.normalized_terminal_points_scored.iter())
+                .copied()
+                .collect(),
+        );
+        let mean_normalized_terminal_points_scored =
+            normalized_terminal_points_scored.mean().unwrap();
+        let energy_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.energy_field_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let normalized_energy_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.normalized_energy_field_deltas.iter())
+                .copied()
+                .collect(),
+        );
+        let nebula_energy_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.nebula_energy_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+        let energy_void_field_deltas = Array1::from_vec(
+            game_stats
+                .iter()
+                .flat_map(|gs| gs.energy_void_field_deltas.iter())
+                .map(|&p| p as f32)
+                .collect(),
+        );
+
+        let n_games = game_stats.len() as f32;
+        let mean_units_lost_to_energy = game_stats
+            .iter()
+            .map(|gs| gs.units_lost_to_energy as f32)
+            .sum::<f32>()
+            / n_games;
+        let mean_units_lost_to_collision = game_stats
+            .iter()
+            .map(|gs| gs.units_lost_to_collision as f32)
+            .sum::<f32>()
+            / n_games;
+
+        let noop_frequency =
+            game_stats.iter().map(|gs| gs.noop_frequency()).sum::<f32>()
+                / n_games;
+        let move_frequency =
+            game_stats.iter().map(|gs| gs.move_frequency()).sum::<f32>()
+                / n_games;
+        let sap_frequency =
+            game_stats.iter().map(|gs| gs.sap_frequency()).sum::<f32>()
+                / n_games;
+        let sap_direct_hits_frequency = game_stats
+            .iter()
+            .map(|gs| gs.sap_direct_hits_frequency())
+            .sum::<f32>()
+            / n_games;
+        let sap_adjacent_hits_frequency = game_stats
+            .iter()
+            .map(|gs| gs.sap_adjacent_hits_frequency())
+            .sum::<f32>()
+            / n_games;
+
+        Self {
+            terminal_points_scored,
+            mean_terminal_points_scored,
+            normalized_terminal_points_scored,
+            mean_normalized_terminal_points_scored,
+            energy_field_deltas,
+            normalized_energy_field_deltas,
+            nebula_energy_deltas,
+            energy_void_field_deltas,
+            mean_units_lost_to_energy,
+            mean_units_lost_to_collision,
+            noop_frequency,
+            move_frequency,
+            sap_frequency,
+            sap_direct_hits_frequency,
+            sap_adjacent_hits_frequency,
+        }
+    }
+
+    fn into_py_bound_dicts(self, py: Python) -> PyStatsOutputs {
+        let scalar_values = HashMap::from([
+            (
+                "mean_terminal_points_scored".to_string(),
+                self.mean_terminal_points_scored,
+            ),
+            (
+                "mean_normalized_terminal_points_scored".to_string(),
+                self.mean_normalized_terminal_points_scored,
+            ),
+            (
+                "mean_units_lost_to_energy".to_string(),
+                self.mean_units_lost_to_energy,
+            ),
+            (
+                "mean_units_lost_to_collision".to_string(),
+                self.mean_units_lost_to_collision,
+            ),
+            ("noop_frequency".to_string(), self.noop_frequency),
+            ("move_frequency".to_string(), self.move_frequency),
+            ("sap_frequency".to_string(), self.sap_frequency),
+            (
+                "sap_direct_hits_frequency".to_string(),
+                self.sap_direct_hits_frequency,
+            ),
+            (
+                "sap_adjacent_hits_frequency".to_string(),
+                self.sap_adjacent_hits_frequency,
+            ),
+        ]);
+        let array_values = HashMap::from([
+            (
+                "terminal_points_scored".to_string(),
+                self.terminal_points_scored.into_pyarray_bound(py),
+            ),
+            (
+                "normalized_terminal_points_scored".to_string(),
+                self.normalized_terminal_points_scored
+                    .into_pyarray_bound(py),
+            ),
+            (
+                "energy_field_deltas".to_string(),
+                self.energy_field_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "normalized_energy_field_deltas".to_string(),
+                self.normalized_energy_field_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "nebula_energy_deltas".to_string(),
+                self.nebula_energy_deltas.into_pyarray_bound(py),
+            ),
+            (
+                "energy_void_field_deltas".to_string(),
+                self.energy_void_field_deltas.into_pyarray_bound(py),
+            ),
+        ]);
+        (scalar_values, array_values)
     }
 }

@@ -20,7 +20,7 @@ impl Action {
             Down => [0, 1],
             Left => [-1, 0],
             NoOp | Sap(_) => {
-                panic!("invalid move action: {:?}", self);
+                panic!("invalid move action: {self:?}");
             },
         }
     }
@@ -35,7 +35,7 @@ impl From<[isize; 3]> for Action {
             [3, 0, 0] => Down,
             [4, 0, 0] => Left,
             [5, x, y] => Sap([x, y]),
-            a => panic!("Invalid action: {:?}", a),
+            a => panic!("Invalid action: {a:?}"),
         }
     }
 }

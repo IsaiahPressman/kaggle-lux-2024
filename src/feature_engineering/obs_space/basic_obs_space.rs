@@ -1,4 +1,5 @@
 use crate::feature_engineering::memory::Memory;
+use crate::rules_engine::params::P;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -46,8 +47,8 @@ const ENERGY_FIELD_NORM: f32 = 7.0;
 pub fn write_obs_arrays(
     mut spatial_out: ArrayViewMut4<f32>,
     mut global_out: ArrayViewMut2<f32>,
-    observations: &[Observation; 2],
-    memories: &[Memory; 2],
+    observations: &[Observation; P],
+    memories: &[Memory; P],
 ) {
     for (((obs, mem), team_spatial_out), team_global_out) in observations
         .iter()
