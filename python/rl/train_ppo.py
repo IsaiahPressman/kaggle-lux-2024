@@ -23,8 +23,8 @@ from torch import optim
 from torch.cuda.amp import GradScaler
 
 FILE: Final[Path] = Path(__file__)
-CONFIG_FILE: Final[Path] = FILE.parent / "config" / "ppo.yaml"
-NAME: Final[str] = FILE.stem
+NAME: Final[str] = "ppo"
+CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
@@ -48,6 +48,12 @@ class LossCoefficients(BaseModel):
     policy: float
     value: float
     entropy: float
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        arbitrary_types_allowed=True,
+    )
 
 
 class PPOConfig(BaseModel):
@@ -77,6 +83,7 @@ class PPOConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
+        arbitrary_types_allowed=True,
     )
 
     @property

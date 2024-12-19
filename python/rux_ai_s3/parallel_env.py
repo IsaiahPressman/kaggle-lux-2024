@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 from luxai_s3.params import EnvParams
 from luxai_s3.state import gen_map
-from pydantic import field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from rux_ai_s3._lowlevel import ParallelEnv as LowLevelEnv
 from rux_ai_s3._lowlevel import RewardSpace
@@ -22,10 +22,16 @@ __all__ = [
 ]
 
 
-class EnvConfig:
+class EnvConfig(BaseModel):
     n_envs: int
     frame_stack_len: int
     reward_space: RewardSpace
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        arbitrary_types_allowed=True,
+    )
 
     @field_validator("reward_space", mode="before")
     @classmethod
