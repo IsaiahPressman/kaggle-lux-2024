@@ -1,7 +1,7 @@
 from torch import nn
 from typing_extensions import assert_never
 
-from rux_2024._lowlevel import RewardSpace
+from rux_ai_s3._lowlevel import RewardSpace
 
 from .critic_heads import BoundedCriticHead, ZeroSumCriticHead
 from .types import ActivationFactory

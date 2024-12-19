@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 /// Prints a message
 #[pyfunction]
 fn hello_world() -> PyResult<String> {
-    Ok("Hello from rux-2024!".into())
+    Ok("Hello from rux-ai-s3!".into())
 }
 
 /// Makes an array

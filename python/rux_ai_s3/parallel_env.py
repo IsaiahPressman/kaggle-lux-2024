@@ -8,16 +8,32 @@ import numpy as np
 import numpy.typing as npt
 from luxai_s3.params import EnvParams
 from luxai_s3.state import gen_map
+from pydantic import field_validator
 
-from rux_2024._lowlevel import ParallelEnv as LowLevelEnv
-from rux_2024._lowlevel import RewardSpace
+from rux_ai_s3._lowlevel import ParallelEnv as LowLevelEnv
+from rux_ai_s3._lowlevel import RewardSpace
 
 from .types import Obs, ParallelEnvOut
 
 __all__ = [
+    "EnvConfig",
     "ParallelEnv",
     "RewardSpace",
 ]
+
+
+class EnvConfig:
+    n_envs: int
+    frame_stack_len: int
+    reward_space: RewardSpace
+
+    @field_validator("reward_space", mode="before")
+    @classmethod
+    def _validate_reward_space(cls, reward_space: RewardSpace | str) -> RewardSpace:
+        if isinstance(reward_space, RewardSpace):
+            return reward_space
+
+        return RewardSpace.from_str(reward_space)
 
 
 class ParallelEnv:
@@ -26,14 +42,13 @@ class ParallelEnv:
         n_envs: int,
         reward_space: RewardSpace,
         frame_stack_len: int,
-        seed: int = 42,
     ) -> None:
         self.n_envs = n_envs
         self.reward_space = reward_space
         self.frame_stack_len = frame_stack_len
         fixed_params = EnvParams()
 
-        self._random_state = jax.random.key(seed)
+        self._random_state = jax.random.key(seed=42)
         self._env = LowLevelEnv(n_envs, reward_space)
         self._raw_gen_map_vmapped = jax.vmap(
             functools.partial(
@@ -56,7 +71,7 @@ class ParallelEnv:
         return self._last_out
 
     def get_frame_stacked_obs(self) -> Obs:
-        return Obs.stack_frame_history(self._frame_history)
+        return Obs.concatenate_frame_history(self._frame_history)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
         self._random_state, *subkeys = jax.random.split(self._random_state, n_maps + 1)
@@ -106,7 +121,15 @@ class ParallelEnv:
         self._soft_reset()
         self._update_frame_history()
 
-    def step(self, actions: npt.NDArray[np.int_]) -> None:
+    def step(self, actions: npt.NDArray[np.int64]) -> None:
         self._last_out = ParallelEnvOut.from_raw(self._env.par_step(actions))
         self._soft_reset()
         self._update_frame_history()
+
+    @classmethod
+    def from_config(cls, config: EnvConfig) -> "ParallelEnv":
+        return ParallelEnv(
+            n_envs=config.n_envs,
+            reward_space=config.reward_space,
+            frame_stack_len=config.frame_stack_len,
+        )

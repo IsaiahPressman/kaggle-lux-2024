@@ -12,7 +12,7 @@ wheels/
 target/
 
 # Rust link files
-python/rux_2024/*.cpython*
+python/rux_ai_s3/*.cpython*
 
 # venv
 .venv

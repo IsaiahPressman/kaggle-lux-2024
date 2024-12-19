@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from enum import Enum
 from typing import NamedTuple, Union
 
 import numpy as np
@@ -46,23 +45,23 @@ class Obs(NamedTuple):
         return Obs(*raw)
 
     @classmethod
-    def stack_frame_history(cls, frames: Sequence["Obs"]) -> "Obs":
-        raw_stacked = [
+    def concatenate_frame_history(cls, frames: Sequence["Obs"]) -> "Obs":
+        raw_concatenated = [
             np.concatenate(obs_frames, axis=3) for obs_frames in zip(*frames)
         ]
-        return Obs(*raw_stacked)
+        return Obs(*raw_concatenated)
 
 
 class ActionInfo(NamedTuple):
-    action_mask: npt.NDArray[np.bool_]
+    main_mask: npt.NDArray[np.bool_]
     sap_mask: npt.NDArray[np.bool_]
     unit_indices: npt.NDArray[np.int64]
     unit_energies: npt.NDArray[np.float32]
     units_mask: npt.NDArray[np.bool_]
 
     def validate(self, n_envs: int, n_players: int) -> None:
-        assert self.action_mask.ndim == 4
-        assert self.action_mask.dtype == np.bool_
+        assert self.main_mask.ndim == 4
+        assert self.main_mask.dtype == np.bool_
         assert self.sap_mask.ndim == 5
         assert self.sap_mask.dtype == np.bool_
         assert self.unit_indices.ndim == 4
@@ -108,6 +107,7 @@ class ParallelEnvOut(NamedTuple):
 
     def validate(self) -> None:
         n_envs, n_players = self.reward.shape
+        assert n_players == 2
         self.obs.validate(n_envs, n_players)
         self.action_info.validate(n_envs, n_players)
         if self.stats:
@@ -134,12 +134,3 @@ class ParallelEnvOut(NamedTuple):
         out = cls.from_raw(raw)
         out.validate()
         return out
-
-
-class Action(Enum):
-    NO_OP = 0
-    UP = 1
-    RIGHT = 2
-    DOWN = 3
-    LEFT = 4
-    SAP = 5

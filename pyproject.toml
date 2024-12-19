@@ -1,5 +1,5 @@
 [project]
-name = "rux-2024"
+name = "rux-ai-s3"
 version = "0.1.0"
 description = "Add your description here"
 authors = [
@@ -18,6 +18,7 @@ dependencies = [
     "torch>=2.5.1",
     "pydantic>=2.10.1",
     "types-pyyaml>=6.0.12.20240917",
+    "wandb>=0.19.1",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
@@ -32,7 +33,7 @@ dev-dependencies = []
 
 [tool.maturin]
 python-source = "python"
-module-name = "rux_2024._lowlevel"
+module-name = "rux_ai_s3._lowlevel"
 features = ["pyo3/extension-module"]
 
 [tool.ruff.lint]
