@@ -20,7 +20,7 @@ from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.types import Stats
 from torch import optim
-from torch.amp import GradScaler
+from torch.amp import GradScaler  # type: ignore[attr-defined]
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"

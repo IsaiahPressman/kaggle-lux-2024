@@ -85,8 +85,7 @@ class ParallelEnv:
 
     def _make_empty_out(self) -> ParallelEnvOut:
         empty_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
-        empty_out = empty_out._replace(done=np.ones_like(empty_out.done))
-        return empty_out
+        return empty_out._replace(done=np.ones_like(empty_out.done))
 
     def _make_empty_frame_history(self) -> deque[Obs]:
         return deque(
