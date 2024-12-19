@@ -20,7 +20,7 @@ from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.types import Stats
 from torch import optim
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
@@ -183,7 +183,7 @@ def main() -> None:
         model = torch.compile(model)  # type: ignore[assignment]
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer_kwargs)  # type: ignore[arg-type]
-    scaler = GradScaler()
+    scaler = GradScaler("cuda")
     train_state = TrainState(
         model=model,
         optimizer=optimizer,
@@ -220,8 +220,8 @@ def build_model(
     cfg: PPOConfig,
 ) -> ActorCritic:
     example_obs = env.get_frame_stacked_obs()
-    spatial_in_channels = example_obs.spatial_obs.shape[3]
-    global_in_channels = example_obs.global_obs.shape[3]
+    spatial_in_channels = example_obs.spatial_obs.shape[2]
+    global_in_channels = example_obs.global_obs.shape[2]
     return ActorCritic(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,

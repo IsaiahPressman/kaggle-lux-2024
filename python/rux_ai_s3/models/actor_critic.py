@@ -92,7 +92,11 @@ class ActorCriticOut(NamedTuple):
             [main_actions.cpu().numpy(), *sap_targets],
             axis=-1,
         )
-        actions[..., 1:] -= unit_indices
+        actions[..., 1:] = np.where(
+            actions[..., 0, None] == Action.SAP.value,
+            actions[..., 1:] - unit_indices,
+            np.zeros_like(actions[..., 1:]),
+        )
         return actions
 
     @staticmethod
@@ -222,8 +226,8 @@ class ActorCritic(nn.Module):
                 ResidualBlock(
                     in_channels=d_model,
                     out_channels=d_model,
+                    activation=activation,
                     kernel_size=kernel_size,
-                    activation=activation(),
                     squeeze_excitation=True,
                 )
                 for _ in range(n_blocks)

@@ -3,7 +3,11 @@ from typing_extensions import assert_never
 
 from rux_ai_s3._lowlevel import RewardSpace
 
-from .critic_heads import BoundedCriticHead, ZeroSumCriticHead
+from .critic_heads import (
+    BoundedCriticHead,
+    PositiveUnboundedCriticHead,
+    ZeroSumCriticHead,
+)
 from .types import ActivationFactory
 
 
@@ -27,6 +31,10 @@ def build_critic_head(
         )
 
     if reward_space == RewardSpace.POINTS_SCORED:
-        raise NotImplementedError("Positive unbounded critic")
+        return PositiveUnboundedCriticHead(
+            reward_min=0,
+            d_model=d_model,
+            activation=activation,
+        )
 
     assert_never(reward_space)

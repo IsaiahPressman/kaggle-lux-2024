@@ -80,11 +80,13 @@ class ParallelEnv:
         return Obs.concatenate_frame_history(self._frame_history)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
-        self._random_state, *subkeys = jax.random.split(self._random_state, n_maps + 1)
-        return self._raw_gen_map_vmapped(subkeys)
+        self._random_state, subkey = jax.random.split(self._random_state)
+        return self._raw_gen_map_vmapped(jax.random.split(subkey, num=n_maps))
 
     def _make_empty_out(self) -> ParallelEnvOut:
-        return ParallelEnvOut.from_raw(self._env.get_empty_outputs())
+        empty_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
+        empty_out = empty_out._replace(done=np.ones_like(empty_out.done))
+        return empty_out
 
     def _make_empty_frame_history(self) -> deque[Obs]:
         return deque(
