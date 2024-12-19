@@ -63,7 +63,7 @@ impl SpaceObstacleMemory {
                     self.explored_tiles_map
                         [pos.reflect(self.map_size).as_index()] = true;
                 } else if should_see && !self.known_nebulae[pos.as_index()] {
-                    // TODO: Handle nebula movement after vision map
+                    // TODO: Handle nebula movement after vision map is computed
                     self.explored_tiles_map[pos.as_index()] = true;
                     self.explored_tiles_map
                         [pos.reflect(self.map_size).as_index()] = true;
