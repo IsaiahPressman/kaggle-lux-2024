@@ -5,20 +5,21 @@ optimizer_kwargs:
 steps_per_update: 32
 epochs_per_update: 1
 train_batch_size: 128
-use_mixed_precision: true
+use_mixed_precision: false
 
 gamma: 0.999
 gae_lambda: 0.95
-clip_coefficient: 0.2
+clip_coefficient: 0.25
 loss_coefficients:
   policy: 1.0
   value: 0.5
   entropy: 0.01
 
 env_config:
-  n_envs: 512
+  n_envs: 64
   frame_stack_len: 4
-  reward_space: POINTS_SCORED
+  # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
+  reward_space: MATCH_WINNER
 
 d_model: 64
 n_layers: 4

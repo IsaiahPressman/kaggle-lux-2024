@@ -1,6 +1,7 @@
 import argparse
 import collections
 import itertools
+import math
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -234,7 +235,10 @@ def main() -> None:
             array_stats.update(stats.array_stats)
 
         time_elapsed = time.perf_counter() - step_start_time
-        scalar_stats["updates_per_second"] = 1.0 / time_elapsed
+        batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
+        scalar_stats["updates_per_second"] = (
+            batches_per_epoch * cfg.epochs_per_update / time_elapsed
+        )
         scalar_stats["env_steps_per_second"] = (
             cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
         )

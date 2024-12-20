@@ -106,6 +106,7 @@ impl HiddenParametersMemory {
                 obs,
                 &self.last_obs_data,
                 &sap_count_maps,
+                fixed_params,
                 variable_params,
             );
         }
@@ -182,6 +183,8 @@ fn determine_nebula_tile_energy_reduction(
     for (energy_before_nebula, actual) in last_obs
         .my_units
         .iter()
+        // Skip units that died last turn
+        .filter(|u_last_turn| u_last_turn.alive())
         .filter_map(|unit_last_turn| {
             id_to_unit
                 .get(&unit_last_turn.id)
@@ -288,6 +291,7 @@ fn determine_unit_sap_dropoff_factor(
     obs: &Observation,
     last_obs_data: &LastObservationData,
     sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
+    fixed_params: &FixedParams,
     params: &KnownVariableParams,
 ) {
     // Note that the environment resolution order goes:
@@ -306,6 +310,8 @@ fn determine_unit_sap_dropoff_factor(
         last_obs_data
             .opp_units
             .iter()
+            // Skip units that died last turn
+            .filter(|u_last_turn| u_last_turn.alive())
             .filter_map(|u_last_turn| {
                 id_to_opp_unit_now
                     .get(&u_last_turn.id)
@@ -336,8 +342,6 @@ fn determine_unit_sap_dropoff_factor(
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        let energy_before_action =
-            opp_unit_last_turn.energy - direct_sap_loss + energy_field_delta;
         for (&sap_dropoff_factor, mask) in unit_sap_dropoff_factor
             .iter_options_mut_mask()
             .filter(|(_, mask)| **mask)
@@ -346,9 +350,19 @@ fn determine_unit_sap_dropoff_factor(
                 * sap_dropoff_factor) as i32;
             if opp_unit_now.pos.subtract(opp_unit_last_turn.pos) == [0, 0] {
                 // NoOp or Sap action was taken
-                let expected_energy_noop = energy_before_action - adj_sap_loss;
-                let expected_energy_sap =
-                    energy_before_action - params.unit_sap_cost - adj_sap_loss;
+                let expected_energy_noop = get_expected_energy(
+                    opp_unit_last_turn.energy - direct_sap_loss - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
+                let expected_energy_sap = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_sap_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
                 if expected_energy_noop != opp_unit_now.energy
                     && expected_energy_sap != opp_unit_now.energy
                 {
@@ -356,8 +370,14 @@ fn determine_unit_sap_dropoff_factor(
                 }
             } else {
                 // Move action was taken
-                let expected_energy =
-                    energy_before_action - params.unit_move_cost - adj_sap_loss;
+                let expected_energy = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_move_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
                 if expected_energy != opp_unit_now.energy {
                     *mask = false;
                 }
@@ -366,8 +386,48 @@ fn determine_unit_sap_dropoff_factor(
     }
 
     if unit_sap_dropoff_factor.all_masked() {
+        let unit_energy_field = obs
+            .get_opp_units()
+            .iter()
+            .map(|u| obs.energy_field[u.pos.as_index()])
+            .collect_vec();
         // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!("unit_sap_dropoff_factor_mask is all false")
+        panic!(
+            "unit_sap_dropoff_factor_mask is all false.
+            My units last turn: {:?}
+            My units now: {:?}
+            Opp units last turn: {:?}
+            Opp units now: {:?}
+            Move cost / sap cost: {:?} / {:?}
+            Nebulae: {:?}
+            Energy field: {:?}
+            Direct saps: {:?}
+            Adjacent saps: {:?}",
+            last_obs_data.my_units,
+            obs.get_my_units(),
+            last_obs_data.opp_units,
+            obs.get_opp_units(),
+            params.unit_move_cost,
+            params.unit_sap_cost,
+            last_obs_data.nebulae,
+            unit_energy_field,
+            sap_count_map,
+            adjacent_sap_count_map,
+        );
+    }
+}
+
+fn get_expected_energy(
+    pre_field_energy: i32,
+    energy_field_delta: i32,
+    fixed_params: &FixedParams,
+) -> i32 {
+    if pre_field_energy >= 0 || pre_field_energy + energy_field_delta >= 0 {
+        (pre_field_energy + energy_field_delta)
+            .min(fixed_params.max_unit_energy)
+            .max(fixed_params.min_unit_energy)
+    } else {
+        pre_field_energy
     }
 }
 
@@ -723,6 +783,14 @@ mod tests {
         vec![Unit::new(Pos::new(0, 0), 85, 0)],
         vec![false, true, false],
     )]
+    // Goes into negative energy after sap
+    #[case(
+        vec![Unit::new(Pos::new(1, 0), 100, 0)],
+        vec![Sap([0, 1])],
+        vec![Unit::new(Pos::new(1, 1), 0, 0)],
+        vec![Unit::new(Pos::new(1, 2), -7, 0)],
+        vec![false, true, false],
+    )]
     fn test_determine_unit_sap_dropoff_factor(
         #[case] my_units: Vec<Unit>,
         #[case] last_actions: Vec<Action>,
@@ -757,6 +825,7 @@ mod tests {
             &obs,
             &last_obs_data,
             &sap_count_maps,
+            &FIXED_PARAMS,
             &params,
         );
         assert_eq!(possibilities.get_mask(), expected_result);
@@ -798,6 +867,7 @@ mod tests {
             &obs,
             &last_obs_data,
             &sap_count_maps,
+            &FIXED_PARAMS,
             &params,
         );
     }
