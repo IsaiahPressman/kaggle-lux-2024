@@ -203,7 +203,7 @@ fn move_units(
         let deltas = match action {
             Action::Up | Action::Right | Action::Down | Action::Left => {
                 move_count += 1;
-                action.as_move_delta()
+                action.as_move_delta().unwrap()
             },
             Action::NoOp => {
                 noop_count += 1;
@@ -328,7 +328,7 @@ fn resolve_collisions_and_energy_void_fields(
         Vec::with_capacity(units[0].len() + units[1].len());
     let mut units_lost_to_collision = 0;
     for (team, opp) in [(0, 1), (1, 0)] {
-        let mut to_remove = Vec::new();
+        let mut to_remove = Vec::with_capacity(units[team].len());
         for (i, unit) in units[team].iter_mut().enumerate() {
             let [x, y] = unit.pos.as_index();
             // Resolve collision

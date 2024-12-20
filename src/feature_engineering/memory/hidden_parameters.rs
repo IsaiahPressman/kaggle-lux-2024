@@ -6,7 +6,7 @@ use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos, Unit};
 use itertools::Itertools;
-use numpy::ndarray::Zip;
+use numpy::ndarray::{Array2, Zip};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
@@ -105,6 +105,7 @@ impl HiddenParametersMemory {
                 &mut self.unit_sap_dropoff_factor,
                 obs,
                 &self.last_obs_data,
+                last_actions,
                 &sap_count_maps,
                 fixed_params,
                 variable_params,
@@ -119,6 +120,7 @@ struct LastObservationData {
     my_units: Vec<Unit>,
     opp_units: Vec<Unit>,
     nebulae: Vec<Pos>,
+    sensor_mask: Array2<bool>,
 }
 
 impl LastObservationData {
@@ -127,6 +129,7 @@ impl LastObservationData {
             my_units: obs.get_my_units().to_vec(),
             opp_units: obs.get_opp_units().to_vec(),
             nebulae: obs.nebulae.clone(),
+            sensor_mask: obs.sensor_mask.clone(),
         }
     }
 }
@@ -192,9 +195,10 @@ fn determine_nebula_tile_energy_reduction(
         })
         .filter(|(_, unit_now)| {
             last_obs.nebulae.contains(&unit_now.pos)
-                && unit_now.energy >= fixed_params.min_unit_energy
-                && obs.get_opp_units().iter().all(|opp_u| {
-                    // Skip units that we think could have been sapped (or adjacent sapped)
+                && unit_now.alive()
+                && last_obs.opp_units.iter().all(|opp_u| {
+                    // Skip units that we think could have been sapped, adjacent sapped,
+                    // or affected by an energy void
                     let [dx, dy] = opp_u.pos.subtract(unit_now.pos);
                     dx.abs() > params.unit_sap_range + 1
                         || dy.abs() > params.unit_sap_range + 1
@@ -290,6 +294,7 @@ fn determine_unit_sap_dropoff_factor(
     unit_sap_dropoff_factor: &mut MaskedPossibilities<f32>,
     obs: &Observation,
     last_obs_data: &LastObservationData,
+    last_actions: &[Action],
     sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
     fixed_params: &FixedParams,
     params: &KnownVariableParams,
@@ -317,20 +322,36 @@ fn determine_unit_sap_dropoff_factor(
                     .get(&u_last_turn.id)
                     .map(|u_now| (u_last_turn, u_now))
             })
-            // Skip units in nebulae
-            .filter(|(_, u_now)| !last_obs_data.nebulae.contains(&u_now.pos))
+            // Skip units in nebulae or that could be in nebulae
+            .filter(|(_, u_now)| {
+                !last_obs_data.nebulae.contains(&u_now.pos)
+                    && last_obs_data.sensor_mask[u_now.pos.as_index()]
+            })
             .filter_map(|(u_last_turn, u_now)| {
                 adjacent_sap_count_map
                     .get(&u_now.pos)
                     .map(|&count| (u_last_turn, u_now, count))
             })
             // Skip units that have lost energy to energy void
-            // NB: This won't always filter correctly if dead units are removed from observation,
-            //  since they could apply an energy void and die in the same step
             .filter(|(_, opp_unit_now, _)| {
                 obs.get_my_units().iter().all(|my_unit| {
                     !ENERGY_VOID_DELTAS
                         .contains(&opp_unit_now.pos.subtract(my_unit.pos))
+                })
+            })
+            // Skip units that have lost energy to energy void of now-dead units of mine
+            .filter(|(_, opp_unit_now, _)| {
+                last_obs_data.my_units.iter().all(|my_unit| {
+                    let last_action = last_actions[my_unit.id];
+                    let new_pos = my_unit
+                        .pos
+                        .maybe_translate(
+                            last_action.as_move_delta().unwrap_or([0, 0]),
+                            fixed_params.map_size,
+                        )
+                        .unwrap();
+                    !ENERGY_VOID_DELTAS
+                        .contains(&opp_unit_now.pos.subtract(new_pos))
                 })
             })
             .filter_map(|(u_last_turn, u_now, sap_count)| {
@@ -600,7 +621,7 @@ mod tests {
         #[case] expected_result: Vec<bool>,
     ) {
         let obs = Observation {
-            units: [my_units, vec![Unit::with_pos(Pos::new(3, 3))]],
+            units: [my_units, Vec::new()],
             energy_field: arr2(
                 &[[Some(2), Some(1), Some(0), Some(-1), Some(-2), None]; 6],
             ),
@@ -608,6 +629,7 @@ mod tests {
         };
         let last_obs = LastObservationData {
             my_units: my_units_last_turn,
+            opp_units: vec![Unit::with_pos(Pos::new(3, 3))],
             nebulae: vec![
                 Pos::new(1, 0),
                 Pos::new(1, 1),
@@ -617,7 +639,7 @@ mod tests {
                 Pos::new(1, 5),
                 Pos::new(3, 3),
             ],
-            ..Default::default()
+            sensor_mask: Array2::default(FIXED_PARAMS.map_size),
         };
         let fixed_params = FIXED_PARAMS;
         let params = KnownVariableParams {
@@ -714,6 +736,7 @@ mod tests {
     // Not adjacent
     #[case(
         vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
         vec![Sap([1, 1])],
         vec![Unit::new(Pos::new(1, 1), 100, 0)],
         vec![Unit::new(Pos::new(1, 1), 91, 0)],
@@ -721,6 +744,7 @@ mod tests {
     )]
     // Adjacent to sap
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
@@ -730,6 +754,7 @@ mod tests {
     // Adjacent to sap, rounds down
     #[case(
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 98, 0)],
@@ -737,6 +762,7 @@ mod tests {
     )]
     // Adjacent to multiple sap actions
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
@@ -746,6 +772,7 @@ mod tests {
     // Ignore units in nebulae
     #[case(
         vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
         vec![Sap([0, 1])],
         vec![Unit::new(Pos::new(0, 2), 100, 0)],
         vec![Unit::new(Pos::new(0, 2), 75, 0)],
@@ -754,6 +781,16 @@ mod tests {
     // Ignore units hit by energy void field
     #[case(
         vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Sap([1, 0])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 90, 0)],
+        vec![true, true, true],
+    )]
+    // Ignore units hit by energy void field of now-dead unit
+    #[case(
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        Vec::new(),
         vec![Sap([1, 0])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 90, 0)],
@@ -761,6 +798,7 @@ mod tests {
     )]
     // Counts move action cost
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 1), 100, 0)],
@@ -770,6 +808,7 @@ mod tests {
     // Considers both NoOp and Sap actions for opposing units
     #[case(
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 80, 0)],
@@ -777,6 +816,7 @@ mod tests {
     )]
     // Hit by direct and adjacent sap
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-4, -4])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
@@ -786,12 +826,14 @@ mod tests {
     // Goes into negative energy after sap
     #[case(
         vec![Unit::new(Pos::new(1, 0), 100, 0)],
+        vec![Unit::new(Pos::new(1, 0), 100, 0)],
         vec![Sap([0, 1])],
         vec![Unit::new(Pos::new(1, 1), 0, 0)],
         vec![Unit::new(Pos::new(1, 2), -7, 0)],
         vec![false, true, false],
     )]
     fn test_determine_unit_sap_dropoff_factor(
+        #[case] my_units_last_turn: Vec<Unit>,
         #[case] my_units: Vec<Unit>,
         #[case] last_actions: Vec<Action>,
         #[case] opp_units_last_turn: Vec<Unit>,
@@ -801,14 +843,15 @@ mod tests {
         let mut possibilities =
             MaskedPossibilities::from_options(vec![0.25, 0.5, 1.0]);
         let obs = Observation {
-            units: [my_units.clone(), opp_units],
+            units: [my_units, opp_units],
             energy_field: arr2(&[[Some(0), Some(1), Some(2)]; 3]),
             ..Default::default()
         };
         let last_obs_data = LastObservationData {
-            my_units,
+            my_units: my_units_last_turn,
             opp_units: opp_units_last_turn,
             nebulae: vec![Pos::new(0, 2)],
+            sensor_mask: Array2::from_elem(FIXED_PARAMS.map_size, true),
         };
         let params = KnownVariableParams {
             unit_move_cost: 2,
@@ -824,6 +867,7 @@ mod tests {
             &mut possibilities,
             &obs,
             &last_obs_data,
+            &last_actions,
             &sap_count_maps,
             &FIXED_PARAMS,
             &params,
@@ -849,9 +893,10 @@ mod tests {
         let last_obs_data = LastObservationData {
             my_units,
             opp_units: vec![Unit::new(Pos::new(0, 0), 100, 0)],
+            sensor_mask: Array2::from_elem(FIXED_PARAMS.map_size, true),
             ..Default::default()
         };
-        let last_actions = vec![Sap([-3, -3])];
+        let last_actions = vec![Sap([-3, -3]); FIXED_PARAMS.max_units];
         let params = KnownVariableParams {
             unit_move_cost: 2,
             unit_sap_cost: 10,
@@ -866,6 +911,7 @@ mod tests {
             &mut possibilities,
             &obs,
             &last_obs_data,
+            &last_actions,
             &sap_count_maps,
             &FIXED_PARAMS,
             &params,
