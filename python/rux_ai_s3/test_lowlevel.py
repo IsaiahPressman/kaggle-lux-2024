@@ -223,8 +223,7 @@ class TestParallelEnv:
 
 def test_reward_space() -> None:
     for rs in RewardSpace.list():
-        _, name = str(rs).split(".", maxsplit=1)
-        assert RewardSpace.from_str(name) == rs
+        assert RewardSpace.from_str(str(rs)) == rs
 
     with pytest.raises(ValueError, match="Invalid RewardSpace"):
         RewardSpace.from_str("INVALID_REWARD_SPACE")

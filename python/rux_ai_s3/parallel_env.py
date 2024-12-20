@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 from luxai_s3.params import EnvParams
 from luxai_s3.state import gen_map
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 from rux_ai_s3._lowlevel import ParallelEnv as LowLevelEnv
 from rux_ai_s3._lowlevel import RewardSpace
@@ -40,6 +40,10 @@ class EnvConfig(BaseModel):
             return reward_space
 
         return RewardSpace.from_str(reward_space)
+
+    @field_serializer("reward_space")
+    def serialize_reward_space(self, reward_space: RewardSpace) -> str:
+        return str(reward_space)
 
 
 class ParallelEnv:

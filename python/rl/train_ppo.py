@@ -12,7 +12,6 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional as F
-import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
 from rux_ai_s3.constants import PROJECT_NAME, Action
@@ -22,6 +21,8 @@ from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.types import Stats
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
+
+import wandb
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
@@ -246,7 +247,7 @@ def main() -> None:
             step,
             scalar_stats,
             array_stats,
-            args.debug,
+            wandb_log=args.release,
         )
 
 
@@ -487,10 +488,10 @@ def log_results(
     step: int,
     scalar_stats: dict[str, float],
     array_stats: dict[str, npt.NDArray[np.float32]],
-    debug: bool,
+    wandb_log: bool,
 ) -> None:
-    if debug:
-        print(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
+    print(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
+    if not wandb_log:
         return
 
     histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]

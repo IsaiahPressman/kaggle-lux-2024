@@ -1,6 +1,9 @@
 # Exclude lockfiles while unstable
 *.lock
 
+# Exclude wandb outputs
+wandb/
+
 # python generated files
 __pycache__/
 *.py[oc]

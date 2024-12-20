@@ -45,6 +45,11 @@ impl RewardSpace {
 
 #[pymethods]
 impl RewardSpace {
+    fn __str__(&self) -> PyResult<String> {
+        let (_, name) = self.__pyo3__repr__().split_once(".").unwrap();
+        Ok(name.to_string())
+    }
+
     #[staticmethod]
     fn list() -> Vec<Self> {
         Self::iter().collect()
@@ -53,8 +58,7 @@ impl RewardSpace {
     #[staticmethod]
     fn from_str(s: &str) -> PyResult<Self> {
         for rs in RewardSpace::iter() {
-            let (_, name) = rs.__pyo3__repr__().split_once(".").unwrap();
-            if name == s {
+            if rs.__str__()? == s {
                 return Ok(rs);
             }
         }
