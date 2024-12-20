@@ -29,6 +29,9 @@ class ActorCriticOut(NamedTuple):
     value: torch.Tensor
     """shape (batch, [players,])"""
 
+    def to_device(self, device: torch.device) -> "ActorCriticOut":
+        return ActorCriticOut(*(t.to(device) for t in self))
+
     def to_env_actions(
         self,
         unit_indices: npt.NDArray[np.int64],
@@ -60,26 +63,24 @@ class ActorCriticOut(NamedTuple):
     def add_player_dim(self) -> "ActorCriticOut":
         return ActorCriticOut(*(self._add_player_dim(t) for t in self))
 
-    def player_dim_flattened(self) -> "ActorCriticOut":
-        return ActorCriticOut(*(torch.flatten(t, start_dim=0, end_dim=1) for t in self))
+    def flatten(self, start_dim: int, end_dim: int) -> "ActorCriticOut":
+        return ActorCriticOut(
+            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+        )
 
     def compute_joint_log_probs(self) -> torch.Tensor:
-        main_log_probs = (
-            self.main_log_probs.gather(dim=-1, index=self.main_actions.unsqueeze(-1))
-            .squeeze(-1)
-            .sum(dim=-1)
-        )
-        sap_log_probs = (
-            self.sap_log_probs.gather(dim=-1, index=self.sap_actions.unsqueeze(-1))
-            .squeeze(-1)
-            .sum(dim=-1)
-        )
+        main_log_probs = self.main_log_probs.gather(
+            dim=-1, index=self.main_actions.unsqueeze(-1)
+        ).squeeze(-1)
+        sap_log_probs = self.sap_log_probs.gather(
+            dim=-1, index=self.sap_actions.unsqueeze(-1)
+        ).squeeze(-1)
         log_probs = main_log_probs + torch.where(
             self.main_actions == Action.SAP.value,
             sap_log_probs,
             torch.zeros_like(sap_log_probs),
         )
-        return log_probs.sum(dim=-1)
+        return torch.flatten(log_probs, start_dim=-2, end_dim=-1).sum(dim=-1)
 
     @staticmethod
     def _extract_env_actions(
@@ -92,11 +93,7 @@ class ActorCriticOut(NamedTuple):
             [main_actions.cpu().numpy(), *sap_targets],
             axis=-1,
         )
-        actions[..., 1:] = np.where(
-            actions[..., 0, None] == Action.SAP.value,
-            actions[..., 1:] - unit_indices,
-            np.zeros_like(actions[..., 1:]),
-        )
+        actions[..., 1:] -= unit_indices
         return actions
 
     @staticmethod

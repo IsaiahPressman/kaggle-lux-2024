@@ -43,7 +43,7 @@ class BoundedCriticHead(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.critic_base(x)
         x = torch.flatten(x, start_dim=-2, end_dim=-1).mean(dim=-1)
-        x = self.linear(x)
+        x = self.linear(x).squeeze(dim=-1)
         return F.sigmoid(x) * (self.reward_max - self.reward_min) + self.reward_min
 
 
@@ -65,7 +65,7 @@ class PositiveUnboundedCriticHead(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.critic_base(x)
         x = torch.flatten(x, start_dim=-2, end_dim=-1).mean(dim=-1)
-        x = self.linear(x)
+        x = self.linear(x).squeeze(dim=-1)
         return F.relu(x) + self.reward_min
 
 

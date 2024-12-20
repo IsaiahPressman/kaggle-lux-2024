@@ -74,6 +74,11 @@ class BasicActorHead(nn.Module):
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
         main_actions = self.log_probs_to_actions(main_log_probs, random_sample_actions)
+        main_actions = torch.where(
+            action_info.main_mask.any(dim=-1),
+            main_actions,
+            torch.zeros_like(main_actions),
+        )
         sap_actions = self.log_probs_to_actions(sap_log_probs, random_sample_actions)
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
@@ -81,8 +86,8 @@ class BasicActorHead(nn.Module):
     def safe_mask_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         infs_mask = torch.where(
             mask,
-            -torch.inf,
             0,
+            -torch.inf,
         )
         return torch.where(
             mask.any(dim=-1, keepdim=True),

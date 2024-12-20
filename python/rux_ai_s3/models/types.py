@@ -12,8 +12,13 @@ class TorchObs(NamedTuple):
     spatial_obs: torch.Tensor
     global_obs: torch.Tensor
 
-    def player_dim_flattened(self) -> "TorchObs":
-        return TorchObs(*(torch.flatten(t, start_dim=0, end_dim=1) for t in self))
+    def flatten(self, start_dim: int, end_dim: int) -> "TorchObs":
+        return TorchObs(
+            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+        )
+
+    def to_device(self, device: torch.device) -> "TorchObs":
+        return TorchObs(*(t.to(device) for t in self))
 
     @classmethod
     def from_numpy(cls, obs: Obs, device: torch.device) -> "TorchObs":
@@ -32,6 +37,14 @@ class TorchActionInfo(NamedTuple):
     unit_energies: torch.Tensor
     units_mask: torch.Tensor
 
+    def flatten(self, start_dim: int, end_dim: int) -> "TorchActionInfo":
+        return TorchActionInfo(
+            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+        )
+
+    def to_device(self, device: torch.device) -> "TorchActionInfo":
+        return TorchActionInfo(*(t.to(device) for t in self))
+
     @classmethod
     def from_numpy(
         cls, action_info: ActionInfo, device: torch.device
@@ -41,9 +54,4 @@ class TorchActionInfo(NamedTuple):
                 key: torch.from_numpy(val).to(device)
                 for key, val in action_info._asdict().items()
             }
-        )
-
-    def player_dim_flattened(self) -> "TorchActionInfo":
-        return TorchActionInfo(
-            *(torch.flatten(t, start_dim=0, end_dim=1) for t in self)
         )

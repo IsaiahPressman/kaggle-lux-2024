@@ -29,11 +29,11 @@ impl Action {
 impl From<[isize; 3]> for Action {
     fn from(value: [isize; 3]) -> Self {
         match value {
-            [0, 0, 0] => NoOp,
-            [1, 0, 0] => Up,
-            [2, 0, 0] => Right,
-            [3, 0, 0] => Down,
-            [4, 0, 0] => Left,
+            [0, _, _] => NoOp,
+            [1, _, _] => Up,
+            [2, _, _] => Right,
+            [3, _, _] => Down,
+            [4, _, _] => Left,
             [5, x, y] => Sap([x, y]),
             a => panic!("Invalid action: {a:?}"),
         }

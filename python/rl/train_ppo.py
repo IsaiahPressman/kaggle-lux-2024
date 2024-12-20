@@ -25,6 +25,7 @@ from torch.amp import GradScaler  # type: ignore[attr-defined]
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
+CPU: Final[torch.device] = torch.device("cpu")
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
@@ -127,25 +128,53 @@ class ExperienceBatch:
     reward: npt.NDArray[np.float32]
     done: npt.NDArray[np.bool_]
 
-    def player_dim_flattened(self) -> "ExperienceBatch":
+    def validate(self) -> None:
+        expected = self.reward.shape
+        for t in itertools.chain(self.obs, self.action_info, self.model_out):
+            assert t.shape[: self.reward.ndim] == expected
+
+        assert self.done.shape == expected
+
+    def trim(self) -> "ExperienceBatch":
+        obs = TorchObs(*(t[:-1] for t in self.obs))
+        action_info = TorchActionInfo(*(t[:-1] for t in self.action_info))
+        model_out = ActorCriticOut(*(t[:-1] for t in self.model_out))
         return ExperienceBatch(
-            obs=self.obs.player_dim_flattened(),
-            action_info=self.action_info.player_dim_flattened(),
-            model_out=self.model_out.player_dim_flattened(),
-            reward=self.reward.reshape((-1, *self.reward.shape[2:])),
-            done=self.done.reshape((-1, *self.done.shape[2:])),
+            obs=obs,
+            action_info=action_info,
+            model_out=model_out,
+            reward=self.reward[1:],
+            done=self.done[1:],
+        )
+
+    def flatten(self, end_dim: int) -> "ExperienceBatch":
+        return ExperienceBatch(
+            obs=self.obs.flatten(0, end_dim),
+            action_info=self.action_info.flatten(0, end_dim),
+            model_out=self.model_out.flatten(0, end_dim),
+            reward=self.reward.reshape((-1, *self.reward.shape[(end_dim + 1) :])),
+            done=self.done.reshape((-1, *self.done.shape[(end_dim + 1) :])),
         )
 
     def index(self, ix: npt.NDArray[np.int_]) -> "ExperienceBatch":
         obs = TorchObs(*(t[ix] for t in self.obs))
         action_info = TorchActionInfo(*(t[ix] for t in self.action_info))
-        model_out = ActorCriticOut(*(t[ix] for t in self.action_info))
+        model_out = ActorCriticOut(*(t[ix] for t in self.model_out))
         return ExperienceBatch(
             obs=obs,
             action_info=action_info,
             model_out=model_out,
             reward=self.reward[ix],
             done=self.done[ix],
+        )
+
+    def to_device(self, device: torch.device) -> "ExperienceBatch":
+        return ExperienceBatch(
+            obs=self.obs.to_device(device),
+            action_info=self.action_info.to_device(device),
+            model_out=self.model_out.to_device(device),
+            reward=self.reward,
+            done=self.done,
         )
 
     @classmethod
@@ -206,7 +235,9 @@ def main() -> None:
 
         time_elapsed = time.perf_counter() - step_start_time
         scalar_stats["updates_per_second"] = 1.0 / time_elapsed
-        scalar_stats["env_steps_per_second"] = cfg.steps_per_update / time_elapsed
+        scalar_stats["env_steps_per_second"] = (
+            cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
+        )
         log_results(
             step,
             scalar_stats,
@@ -248,14 +279,14 @@ def collect_trajectories(
         stacked_obs = TorchObs.from_numpy(env.get_frame_stacked_obs(), cfg.device)
         action_info = TorchActionInfo.from_numpy(last_out.action_info, cfg.device)
         model_out: ActorCriticOut = model(
-            obs=stacked_obs.player_dim_flattened(),
-            action_info=action_info.player_dim_flattened(),
+            obs=stacked_obs.flatten(start_dim=0, end_dim=1),
+            action_info=action_info.flatten(start_dim=0, end_dim=1),
             random_sample_actions=True,
         )
 
-        batch_obs.append(stacked_obs)
-        batch_action_info.append(action_info)
-        batch_model_out.append(model_out.add_player_dim())
+        batch_obs.append(stacked_obs.to_device(CPU))
+        batch_action_info.append(action_info.to_device(CPU))
+        batch_model_out.append(model_out.add_player_dim().to_device(CPU))
         batch_reward.append(last_out.reward)
         batch_done.append(last_out.done[:, None].repeat(2, axis=1))
         if step < cfg.steps_per_update:
@@ -278,23 +309,25 @@ def update_model(
     cfg: PPOConfig,
 ) -> dict[str, float]:
     advantages_np, returns_np = bootstrap_value(experience, cfg)
-    advantages = torch.from_numpy(advantages_np).to(cfg.device)
-    returns = torch.from_numpy(returns_np).to(cfg.device)
+    advantages = torch.from_numpy(advantages_np)
+    returns = torch.from_numpy(returns_np)
+    experience.validate()
     # Combine batch/player dims for experience batch, advantages, and returns
-    experience = experience.player_dim_flattened()
-    advantages = torch.flatten(advantages, start_dim=0, end_dim=1)
-    returns = torch.flatten(returns, start_dim=0, end_dim=1)
+    experience = experience.trim().flatten(end_dim=2)
+    advantages = torch.flatten(advantages, start_dim=0, end_dim=2)
+    returns = torch.flatten(returns, start_dim=0, end_dim=2)
     aggregated_stats = collections.defaultdict(list)
     for _ in range(cfg.epochs_per_update):
+        assert experience.done.shape[0] == cfg.full_batch_size
         batch_indices = np.random.permutation(cfg.full_batch_size)
         for minibatch_start in range(0, cfg.full_batch_size, cfg.train_batch_size):
             minibatch_end = minibatch_start + cfg.train_batch_size
             minibatch_indices = batch_indices[minibatch_start:minibatch_end]
             batch_stats = update_model_on_batch(
                 train_state,
-                experience.index(minibatch_indices),
-                advantages[minibatch_indices],
-                returns[minibatch_indices],
+                experience.index(minibatch_indices).to_device(cfg.device),
+                advantages[minibatch_indices].to(cfg.device),
+                returns[minibatch_indices].to(cfg.device),
                 cfg,
             )
             for k, v in batch_stats.items():
@@ -338,8 +371,8 @@ def update_model_on_batch(
         device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
     ):
         new_out: ActorCriticOut = train_state.model(
-            obs=experience.obs.player_dim_flattened(),
-            action_info=experience.action_info.player_dim_flattened(),
+            obs=experience.obs,
+            action_info=experience.action_info,
             random_sample_actions=True,
         )._replace(
             main_actions=experience.model_out.main_actions,
