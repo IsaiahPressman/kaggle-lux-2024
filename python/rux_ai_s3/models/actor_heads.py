@@ -67,15 +67,22 @@ class BasicActorHead(nn.Module):
         )
 
         main_log_probs = F.log_softmax(
-            self.safe_mask_logits(main_logits, action_info.main_mask), dim=-1
+            self.safe_mask_logits(
+                main_logits,
+                action_info.main_mask,
+                action_info.units_mask,
+            ),
+            dim=-1,
         )
         masked_sap_logits = self.safe_mask_logits(
-            sap_logits, torch.flatten(action_info.sap_mask, start_dim=-2, end_dim=-1)
+            sap_logits,
+            torch.flatten(action_info.sap_mask, start_dim=-2, end_dim=-1),
+            action_info.units_mask,
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
         main_actions = self.log_probs_to_actions(main_log_probs, random_sample_actions)
         main_actions = torch.where(
-            action_info.main_mask.any(dim=-1),
+            action_info.units_mask,
             main_actions,
             torch.zeros_like(main_actions),
         )
@@ -83,14 +90,19 @@ class BasicActorHead(nn.Module):
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
     @staticmethod
-    def safe_mask_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def safe_mask_logits(
+        logits: torch.Tensor,
+        available_actions_mask: torch.Tensor,
+        available_units_mask: torch.Tensor,
+    ) -> torch.Tensor:
         infs_mask = torch.where(
-            mask,
+            available_actions_mask,
             0,
             -torch.inf,
         )
         return torch.where(
-            mask.any(dim=-1, keepdim=True),
+            available_units_mask.unsqueeze(-1)
+            & available_actions_mask.any(dim=-1, keepdim=True),
             logits + infs_mask,
             torch.zeros_like(logits),
         )

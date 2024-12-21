@@ -80,7 +80,8 @@ class ActorCriticOut(NamedTuple):
             sap_log_probs,
             torch.zeros_like(sap_log_probs),
         )
-        return torch.flatten(log_probs, start_dim=-2, end_dim=-1).sum(dim=-1)
+        assert log_probs.ndim == 2
+        return log_probs.sum(dim=-1)
 
     @staticmethod
     def _extract_env_actions(
@@ -108,7 +109,7 @@ class ActorCritic(nn.Module):
         spatial_in_channels: int,
         global_in_channels: int,
         d_model: int,
-        n_layers: int,
+        n_blocks: int,
         reward_space: RewardSpace,
         kernel_size: int = 3,
         activation: ActivationFactory = nn.GELU,
@@ -127,7 +128,7 @@ class ActorCritic(nn.Module):
         )
         self.base = self._build_base(
             d_model=d_model,
-            n_blocks=n_layers,
+            n_blocks=n_blocks,
             activation=activation,
             kernel_size=kernel_size,
         )

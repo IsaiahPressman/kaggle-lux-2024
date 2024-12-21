@@ -1,7 +1,9 @@
 use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-use crate::rules_engine::env::{estimate_vision_power_map, ENERGY_VOID_DELTAS};
+use crate::rules_engine::env::{
+    estimate_vision_power_map, just_respawned, ENERGY_VOID_DELTAS,
+};
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos, Unit};
@@ -180,6 +182,7 @@ fn determine_nebula_tile_energy_reduction(
     // Therefore, whenever we are comparing energies, we take the current unit's energy and
     // position and compare it to last turn's nebulae and energy field. Confusingly enough,
     // last turn's energy field is provided in this turn's observation.
+    let options_before_update = nebula_tile_energy_reduction_options.clone();
     let id_to_unit: BTreeMap<usize, Unit> =
         obs.get_my_units().iter().map(|u| (u.id, *u)).collect();
     // NB: This assumes that units don't take invalid actions (like moving into an asteroid)
@@ -193,6 +196,8 @@ fn determine_nebula_tile_energy_reduction(
                 .get(&unit_last_turn.id)
                 .map(|unit_now| (unit_last_turn, unit_now))
         })
+        // Skip units that could have just respawned
+        .filter(|(_, u_now)| !just_respawned(u_now, obs.team_id, fixed_params))
         .filter(|(_, unit_now)| {
             last_obs.nebulae.contains(&unit_now.pos)
                 && unit_now.alive()
@@ -235,23 +240,9 @@ fn determine_nebula_tile_energy_reduction(
     }
 
     if nebula_tile_energy_reduction_options.all_masked() {
-        let unit_energy_field = obs
-            .get_my_units()
-            .iter()
-            .map(|u| obs.energy_field[u.pos.as_index()])
-            .collect_vec();
-        // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!(
-            "nebula_tile_energy_reduction_mask is all false.
-            Units last turn: {:?}
-            Units now: {:?}
-            Nebulae: {:?}
-            Energy field: {:?}",
-            last_obs.my_units,
-            obs.get_my_units(),
-            last_obs.nebulae,
-            unit_energy_field,
-        )
+        // In edge cases (such as where we're sapped while unable to see the sapper,
+        // reset the memory to what it was before the turn
+        *nebula_tile_energy_reduction_options = options_before_update;
     }
 }
 
@@ -315,12 +306,14 @@ fn determine_unit_sap_dropoff_factor(
         last_obs_data
             .opp_units
             .iter()
-            // Skip units that died last turn
-            .filter(|u_last_turn| u_last_turn.alive())
             .filter_map(|u_last_turn| {
                 id_to_opp_unit_now
                     .get(&u_last_turn.id)
                     .map(|u_now| (u_last_turn, u_now))
+            })
+            // Skip units that could have just respawned
+            .filter(|(_, u_now)| {
+                !just_respawned(u_now, obs.opp_team_id(), fixed_params)
             })
             // Skip units in nebulae or that could be in nebulae
             .filter(|(_, u_now)| {
@@ -660,13 +653,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![true, true, true])]
-    #[should_panic(expected = "nebula_tile_energy_reduction_mask is all false")]
-    #[case(vec![true, true, false])]
-    fn test_determine_nebula_tile_energy_reduction_panics(
-        #[case] mask: Vec<bool>,
+    #[case(
+        vec![true, true, true],
+        vec![false, false, true],
+    )]
+    #[case(
+        vec![true, true, false],
+        vec![true, true, false],
+    )]
+    fn test_determine_nebula_tile_energy_reduction_resets(
+        #[case] mask_before_update: Vec<bool>,
+        #[case] mask_after_update: Vec<bool>,
     ) {
-        let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
+        let mut possibilities =
+            MaskedPossibilities::new(vec![0, 1, 2], mask_before_update);
         let obs = Observation {
             units: [vec![Unit::new(Pos::new(0, 0), 10, 0)], Vec::new()],
             energy_field: arr2(&[[Some(2)]]),
@@ -686,6 +686,7 @@ mod tests {
             &FIXED_PARAMS,
             &KnownVariableParams::default(),
         );
+        assert_eq!(possibilities.get_mask(), &mask_after_update);
     }
 
     #[test]

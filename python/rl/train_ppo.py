@@ -78,7 +78,7 @@ class PPOConfig(BaseModel):
 
     # Model config
     d_model: int
-    n_layers: int
+    n_blocks: int
 
     # Miscellaneous config
     device: torch.device
@@ -262,7 +262,7 @@ def build_model(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
         d_model=cfg.d_model,
-        n_layers=cfg.n_layers,
+        n_blocks=cfg.n_blocks,
         reward_space=env.reward_space,
     )
 

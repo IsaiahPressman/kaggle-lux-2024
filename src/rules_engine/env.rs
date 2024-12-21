@@ -552,6 +552,19 @@ fn spawn_units(units: &mut [Vec<Unit>; 2], fixed_params: &FixedParams) {
     }
 }
 
+pub fn just_respawned(
+    unit: &Unit,
+    team_id: usize,
+    fixed_params: &FixedParams,
+) -> bool {
+    let pos = match team_id {
+        0 => Pos::new(0, 0),
+        1 => Pos::new(fixed_params.map_width - 1, fixed_params.map_height - 1),
+        _ => unreachable!(),
+    };
+    unit.energy == fixed_params.init_unit_energy && unit.pos == pos
+}
+
 pub fn estimate_vision_power_map(
     units: &[Unit],
     map_size: [usize; 2],
@@ -734,10 +747,14 @@ fn get_points_scored_stats(
     let point_tile_count = relic_node_points_map.iter().filter(|&&v| v).count();
     let divisor =
         point_tile_count as f32 * FIXED_PARAMS.max_steps_in_match as f32;
-    let normalized_points = [
-        terminal_points[0] as f32 / divisor,
-        terminal_points[1] as f32 / divisor,
-    ];
+    let normalized_points = if divisor != 0.0 {
+        [
+            terminal_points[0] as f32 / divisor,
+            terminal_points[1] as f32 / divisor,
+        ]
+    } else {
+        [0.0, 0.0]
+    };
     (terminal_points, normalized_points)
 }
 
@@ -1337,6 +1354,8 @@ mod tests {
         ];
         spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
+        assert!(just_respawned(&units[0][0], 0, &fixed_params));
+        assert!(just_respawned(&units[1][0], 1, &fixed_params));
     }
 
     #[test]
