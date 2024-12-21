@@ -1,15 +1,15 @@
+mod env_api;
 mod feature_engineering;
 pub mod izip_eq;
-mod parallel_env;
 mod rules_engine;
 
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count,
 };
 use crate::feature_engineering::reward_space::RewardSpace;
+use env_api::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
-use parallel_env::ParallelEnv;
 use pyo3::prelude::*;
 
 /// Prints a message
