@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from enum import Enum
 from typing import NamedTuple, Union
 
 import numpy as np
@@ -134,3 +135,12 @@ class ParallelEnvOut(NamedTuple):
         out = cls.from_raw(raw)
         out.validate()
         return out
+
+
+class Action(Enum):
+    NO_OP = 0
+    UP = 1
+    RIGHT = 2
+    DOWN = 3
+    LEFT = 4
+    SAP = 5

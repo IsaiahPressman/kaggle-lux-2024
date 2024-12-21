@@ -1,7 +1,9 @@
 import argparse
 import collections
+import datetime
 import itertools
 import math
+import os
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -12,17 +14,16 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional as F
+import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
-from rux_ai_s3.constants import PROJECT_NAME, Action
+from rux_ai_s3.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
-from rux_ai_s3.types import Stats
+from rux_ai_s3.types import Action, Stats
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
-
-import wandb
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
@@ -204,6 +205,7 @@ class ExperienceBatch:
 def main() -> None:
     args = UserArgs.from_argparse()
     cfg = PPOConfig.from_file(CONFIG_FILE)
+    init_train_dir()
     env = ParallelEnv(
         n_envs=cfg.env_config.n_envs,
         reward_space=cfg.env_config.reward_space,
@@ -222,10 +224,63 @@ def main() -> None:
     )
     if args.release:
         wandb.init(
-            project=f"{PROJECT_NAME}_{NAME}",
+            project=PROJECT_NAME,
+            group=NAME,
             config=cfg.model_dump(),
         )
 
+    last_checkpointed = datetime.datetime.now()
+    try:
+        for step in cfg.iter_updates():
+            train_step(
+                args=args,
+                cfg=cfg,
+                env=env,
+                train_state=train_state,
+            )
+            if (
+                (now := datetime.datetime.now()) - last_checkpointed
+            ) >= datetime.timedelta(minutes=10):
+                last_checkpointed = now
+                checkpoint(step, train_state)
+    finally:
+        checkpoint(step + 1, train_state)
+
+
+def init_train_dir() -> None:
+    start_time = datetime.datetime.now()
+    train_dir = (
+        TRAIN_OUTPUTS_DIR
+        / NAME
+        / start_time.strftime("%Y_%m_%d")
+        / start_time.strftime("%H_%M")
+    )
+    train_dir.mkdir(parents=True, exist_ok=True)
+    os.chdir(train_dir)
+
+
+def build_model(
+    env: ParallelEnv,
+    cfg: PPOConfig,
+) -> ActorCritic:
+    example_obs = env.get_frame_stacked_obs()
+    spatial_in_channels = example_obs.spatial_obs.shape[2]
+    global_in_channels = example_obs.global_obs.shape[2]
+    return ActorCritic(
+        spatial_in_channels=spatial_in_channels,
+        global_in_channels=global_in_channels,
+        d_model=cfg.d_model,
+        n_blocks=cfg.n_blocks,
+        reward_space=env.reward_space,
+    )
+
+
+def train_step(
+    args: UserArgs,
+    cfg: PPOConfig,
+    env: ParallelEnv,
+    train_state: TrainState,
+) -> None:
     for step in cfg.iter_updates():
         step_start_time = time.perf_counter()
         experience, stats = collect_trajectories(env, train_state.model, cfg)
@@ -249,22 +304,6 @@ def main() -> None:
             array_stats,
             wandb_log=args.release,
         )
-
-
-def build_model(
-    env: ParallelEnv,
-    cfg: PPOConfig,
-) -> ActorCritic:
-    example_obs = env.get_frame_stacked_obs()
-    spatial_in_channels = example_obs.spatial_obs.shape[2]
-    global_in_channels = example_obs.global_obs.shape[2]
-    return ActorCritic(
-        spatial_in_channels=spatial_in_channels,
-        global_in_channels=global_in_channels,
-        d_model=cfg.d_model,
-        n_blocks=cfg.n_blocks,
-        reward_space=env.reward_space,
-    )
 
 
 @torch.no_grad()
@@ -497,6 +536,28 @@ def log_results(
     histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
     combined_stats = dict(**scalar_stats, **histograms)
     wandb.log(combined_stats)
+
+
+def checkpoint(step: int, train_state: TrainState) -> None:
+    checkpoint_name = f"checkpoint_{str(step).zfill(6)}"
+    full_path = f"{checkpoint_name}.pt"
+    weights_path = f"{checkpoint_name}_weights.pt"
+    torch.save(
+        {
+            "step": step,
+            "model": train_state.model.state_dict(),
+            "optimizer": train_state.optimizer.state_dict(),
+            "scaler": train_state.scaler.state_dict(),
+        },
+        full_path,
+    )
+    torch.save(
+        {
+            "model": train_state.model.state_dict(),
+        },
+        weights_path,
+    )
+    print(f"Full checkpoint saved to {full_path} and weights saved to {weights_path}")
 
 
 if __name__ == "__main__":

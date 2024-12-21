@@ -6,8 +6,9 @@ import torch
 from torch import nn
 
 from rux_ai_s3._lowlevel import RewardSpace
+from rux_ai_s3.types import Action
 
-from ..constants import MAP_SIZE, Action
+from ..constants import MAP_SIZE
 from .actor_heads import BasicActorHead
 from .conv_blocks import ResidualBlock
 from .types import ActivationFactory, TorchActionInfo, TorchObs

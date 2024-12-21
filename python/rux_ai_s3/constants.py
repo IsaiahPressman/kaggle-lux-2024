@@ -1,14 +1,6 @@
-from enum import Enum
+from pathlib import Path
 from typing import Final
 
 MAP_SIZE: Final[int] = 24
 PROJECT_NAME: Final[str] = "rux_ai_s3"
-
-
-class Action(Enum):
-    NO_OP = 0
-    UP = 1
-    RIGHT = 2
-    DOWN = 3
-    LEFT = 4
-    SAP = 5
+TRAIN_OUTPUTS_DIR: Final[Path] = Path(__file__).parents[2] / "train_outputs"

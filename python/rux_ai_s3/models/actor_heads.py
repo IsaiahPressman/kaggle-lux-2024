@@ -2,7 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ..constants import Action
+from rux_ai_s3.types import Action
+
 from .types import ActivationFactory, TorchActionInfo
 
 
