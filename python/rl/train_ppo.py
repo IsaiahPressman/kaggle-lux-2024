@@ -2,6 +2,7 @@ import argparse
 import collections
 import datetime
 import itertools
+import logging
 import math
 import os
 import time
@@ -17,10 +18,11 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
-from rux_ai_s3.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
+from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
+from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
 from rux_ai_s3.types import Action, Stats
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
@@ -33,6 +35,8 @@ CPU: Final[torch.device] = torch.device("cpu")
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+logger = logging.getLogger(NAME)
 
 
 class UserArgs(BaseModel):
@@ -207,6 +211,7 @@ class ExperienceBatch:
 def main() -> None:
     args = UserArgs.from_argparse()
     cfg = PPOConfig.from_file(CONFIG_FILE)
+    init_logger(logger=logger)
     init_train_dir(cfg)
     env = ParallelEnv(
         n_envs=cfg.env_config.n_envs,
@@ -214,6 +219,7 @@ def main() -> None:
         frame_stack_len=cfg.env_config.frame_stack_len,
     )
     model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
+    logger.info(f"Training model with {count_trainable_params(model):,d} parameters")
     if args.release:
         model = torch.compile(model)  # type: ignore[assignment]
 
@@ -532,7 +538,7 @@ def log_results(
     array_stats: dict[str, npt.NDArray[np.float32]],
     wandb_log: bool,
 ) -> None:
-    print(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
+    logger.info(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
     if not wandb_log:
         return
 
@@ -560,7 +566,7 @@ def checkpoint(step: int, train_state: TrainState) -> None:
         },
         weights_path,
     )
-    print(f"Full checkpoint saved to {full_path} and weights saved to {weights_path}")
+    logger.info(f"Full checkpoint saved to {full_path} and weights saved to {weights_path}")
 
 
 if __name__ == "__main__":
