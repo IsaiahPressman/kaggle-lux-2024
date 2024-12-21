@@ -18,10 +18,10 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
-from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
+from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
 from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
 from rux_ai_s3.types import Action, Stats
 from torch import optim
@@ -219,7 +219,9 @@ def main() -> None:
         frame_stack_len=cfg.env_config.frame_stack_len,
     )
     model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
-    logger.info(f"Training model with {count_trainable_params(model):,d} parameters")
+    logger.info(
+        "Training model with %s parameters", f"{count_trainable_params(model):,d}"
+    )
     if args.release:
         model = torch.compile(model)  # type: ignore[assignment]
 
@@ -538,7 +540,7 @@ def log_results(
     array_stats: dict[str, npt.NDArray[np.float32]],
     wandb_log: bool,
 ) -> None:
-    logger.info(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
+    logger.info("Completed step %d\n%s\n", step, yaml.dump(scalar_stats))
     if not wandb_log:
         return
 
@@ -566,7 +568,11 @@ def checkpoint(step: int, train_state: TrainState) -> None:
         },
         weights_path,
     )
-    logger.info(f"Full checkpoint saved to {full_path} and weights saved to {weights_path}")
+    logger.info(
+        "Full checkpoint saved to %s and weights saved to %s",
+        full_path,
+        weights_path,
+    )
 
 
 if __name__ == "__main__":

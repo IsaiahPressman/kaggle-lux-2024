@@ -9,13 +9,8 @@ def count_trainable_params(model: nn.Module) -> int:
 
 
 def init_logger(logger: logging.Logger) -> None:
-    # logging.basicConfig(
-    #     level=logging.INFO,
-    #     format="%(levelname)s:%(name)s:%(asctime)s:%(message)s",
-    #
-    # )
     coloredlogs.install(
         level=logging.INFO,
         logger=logger,
-        fmt="%(asctime)s %(name)s %(levelname)s %(message)s"
+        fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
