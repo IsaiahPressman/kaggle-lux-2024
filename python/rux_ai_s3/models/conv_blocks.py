@@ -26,8 +26,8 @@ class ResidualBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
+        activation: ActivationFactory,
         kernel_size: int = 3,
-        activation: ActivationFactory = nn.ReLU,
         squeeze_excitation: bool = True,
     ):
         super().__init__()

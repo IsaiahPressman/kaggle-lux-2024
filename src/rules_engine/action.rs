@@ -12,16 +12,14 @@ pub enum Action {
 }
 
 impl Action {
-    /// Get the action's move deltas [dx, dy], panicking on NoOp or Sap
-    pub fn as_move_delta(self) -> [isize; 2] {
+    /// Get the action's move deltas [dx, dy], returning None on NoOp or Sap
+    pub fn as_move_delta(self) -> Option<[isize; 2]> {
         match self {
-            Up => [0, -1],
-            Right => [1, 0],
-            Down => [0, 1],
-            Left => [-1, 0],
-            NoOp | Sap(_) => {
-                panic!("invalid move action: {self:?}");
-            },
+            Up => Some([0, -1]),
+            Right => Some([1, 0]),
+            Down => Some([0, 1]),
+            Left => Some([-1, 0]),
+            NoOp | Sap(_) => None,
         }
     }
 }
@@ -29,11 +27,11 @@ impl Action {
 impl From<[isize; 3]> for Action {
     fn from(value: [isize; 3]) -> Self {
         match value {
-            [0, 0, 0] => NoOp,
-            [1, 0, 0] => Up,
-            [2, 0, 0] => Right,
-            [3, 0, 0] => Down,
-            [4, 0, 0] => Left,
+            [0, _, _] => NoOp,
+            [1, _, _] => Up,
+            [2, _, _] => Right,
+            [3, _, _] => Down,
+            [4, _, _] => Left,
             [5, x, y] => Sap([x, y]),
             a => panic!("Invalid action: {a:?}"),
         }

@@ -93,7 +93,7 @@ class Agent:
         # save any new relic nodes that we discover for the rest of the game.
         for relic_id in visible_relic_node_ids:
             if relic_id not in self.discovered_relic_nodes_ids:
-                self.discovered_relic_nodes_ids.add(relic_id)
+                self.discovered_relic_nodes_ids.add(int(relic_id))
                 self.relic_node_positions.append(
                     observed_relic_node_positions[relic_id]
                 )

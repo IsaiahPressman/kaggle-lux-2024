@@ -365,6 +365,11 @@ impl Observation {
     }
 
     #[inline(always)]
+    pub fn opp_team_id(&self) -> usize {
+        1 - self.team_id
+    }
+
+    #[inline(always)]
     pub fn is_new_match(&self) -> bool {
         self.match_steps == 0
     }
@@ -376,7 +381,7 @@ impl Observation {
 
     #[inline(always)]
     pub fn get_opp_units(&self) -> &[Unit] {
-        &self.units[1 - self.team_id]
+        &self.units[self.opp_team_id()]
     }
 
     #[inline(always)]

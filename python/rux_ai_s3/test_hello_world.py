@@ -1,10 +1,10 @@
 import numpy as np
 
-from rux_2024._lowlevel import hello_numpy_world, hello_world
+from rux_ai_s3._lowlevel import hello_numpy_world, hello_world
 
 
 def test_hello_world() -> None:
-    assert hello_world() == "Hello from rux-2024!"
+    assert hello_world() == "Hello from rux-ai-s3!"
 
 
 def test_numpy_hello() -> None:

@@ -1,6 +1,9 @@
 # Exclude lockfiles while unstable
 *.lock
 
+# Exclude wandb outputs
+wandb/
+
 # python generated files
 __pycache__/
 *.py[oc]
@@ -12,7 +15,7 @@ wheels/
 target/
 
 # Rust link files
-python/rux_2024/*.cpython*
+python/rux_ai_s3/*.cpython*
 
 # venv
 .venv

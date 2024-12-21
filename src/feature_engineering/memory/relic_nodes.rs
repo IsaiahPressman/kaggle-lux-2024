@@ -87,15 +87,13 @@ impl RelicNodeMemory {
             BTreeSet<Pos>,
         ) = obs.units[obs.team_id]
             .iter()
+            .filter(|u| u.alive())
             .map(|u| u.pos)
             .partition(|pos| self.known_points_map[pos.as_index()]);
         let unaccounted_new_points = new_points
             - known_locations
                 .into_iter()
-                .filter(|pos| {
-                    self.points_map[pos.as_index()] == 1.0
-                        && self.known_points_map[pos.as_index()]
-                })
+                .filter(|pos| self.points_map[pos.as_index()] == 1.0)
                 .count();
         if unaccounted_new_points == 0 {
             frontier_locations.into_iter().for_each(|pos| {

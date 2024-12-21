@@ -56,10 +56,10 @@ fn write_team_actions(
                     if unit.energy < params.unit_move_cost {
                         continue;
                     };
-                    let Some(new_pos) = unit
-                        .pos
-                        .maybe_translate(action.as_move_delta(), map_size)
-                    else {
+                    let Some(new_pos) = unit.pos.maybe_translate(
+                        action.as_move_delta().unwrap(),
+                        map_size,
+                    ) else {
                         continue;
                     };
                     if obs.asteroids.contains(&new_pos) {

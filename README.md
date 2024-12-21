@@ -1,4 +1,4 @@
-# rux-2024
+# Rux-AI-S3
 
 ### Setup instructions
 1. [Install rust](https://www.rust-lang.org/tools/install) and add nightly toolchain for `rustfmt`:
