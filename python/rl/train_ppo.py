@@ -28,7 +28,9 @@ from torch.amp import GradScaler  # type: ignore[attr-defined]
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
+CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=10)
 CPU: Final[torch.device] = torch.device("cpu")
+
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
@@ -205,7 +207,7 @@ class ExperienceBatch:
 def main() -> None:
     args = UserArgs.from_argparse()
     cfg = PPOConfig.from_file(CONFIG_FILE)
-    init_train_dir()
+    init_train_dir(cfg)
     env = ParallelEnv(
         n_envs=cfg.env_config.n_envs,
         reward_space=cfg.env_config.reward_space,
@@ -229,25 +231,24 @@ def main() -> None:
             config=cfg.model_dump(),
         )
 
-    last_checkpointed = datetime.datetime.now()
+    last_checkpoint = datetime.datetime.now()
     try:
         for step in cfg.iter_updates():
             train_step(
-                args=args,
-                cfg=cfg,
+                step=step,
                 env=env,
                 train_state=train_state,
+                args=args,
+                cfg=cfg,
             )
-            if (
-                (now := datetime.datetime.now()) - last_checkpointed
-            ) >= datetime.timedelta(minutes=10):
-                last_checkpointed = now
+            if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
+                last_checkpoint = now
                 checkpoint(step, train_state)
     finally:
         checkpoint(step + 1, train_state)
 
 
-def init_train_dir() -> None:
+def init_train_dir(cfg: PPOConfig) -> None:
     start_time = datetime.datetime.now()
     train_dir = (
         TRAIN_OUTPUTS_DIR
@@ -257,6 +258,8 @@ def init_train_dir() -> None:
     )
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
+    with open("config.yaml", "w") as f:
+        yaml.dump(cfg.model_dump(), f)
 
 
 def build_model(
@@ -276,34 +279,34 @@ def build_model(
 
 
 def train_step(
-    args: UserArgs,
-    cfg: PPOConfig,
+    step: int,
     env: ParallelEnv,
     train_state: TrainState,
+    args: UserArgs,
+    cfg: PPOConfig,
 ) -> None:
-    for step in cfg.iter_updates():
-        step_start_time = time.perf_counter()
-        experience, stats = collect_trajectories(env, train_state.model, cfg)
-        scalar_stats = update_model(experience, train_state, cfg)
-        array_stats = {}
-        if stats:
-            scalar_stats.update(stats.scalar_stats)
-            array_stats.update(stats.array_stats)
+    step_start_time = time.perf_counter()
+    experience, stats = collect_trajectories(env, train_state.model, cfg)
+    scalar_stats = update_model(experience, train_state, cfg)
+    array_stats = {}
+    if stats:
+        scalar_stats.update(stats.scalar_stats)
+        array_stats.update(stats.array_stats)
 
-        time_elapsed = time.perf_counter() - step_start_time
-        batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
-        scalar_stats["updates_per_second"] = (
-            batches_per_epoch * cfg.epochs_per_update / time_elapsed
-        )
-        scalar_stats["env_steps_per_second"] = (
-            cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
-        )
-        log_results(
-            step,
-            scalar_stats,
-            array_stats,
-            wandb_log=args.release,
-        )
+    time_elapsed = time.perf_counter() - step_start_time
+    batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
+    scalar_stats["updates_per_second"] = (
+        batches_per_epoch * cfg.epochs_per_update / time_elapsed
+    )
+    scalar_stats["env_steps_per_second"] = (
+        cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
+    )
+    log_results(
+        step,
+        scalar_stats,
+        array_stats,
+        wandb_log=args.release,
+    )
 
 
 @torch.no_grad()
@@ -335,7 +338,7 @@ def collect_trajectories(
         batch_done.append(last_out.done[:, None].repeat(2, axis=1))
         if step < cfg.steps_per_update:
             env.step(model_out.to_player_env_actions(last_out.action_info.unit_indices))
-            stats = stats or env.last_out.stats
+            stats = env.last_out.stats or stats
 
     experience = ExperienceBatch.from_lists(
         obs=batch_obs,
