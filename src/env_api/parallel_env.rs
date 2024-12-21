@@ -1,7 +1,6 @@
 use crate::env_api::env_data::{
     ActionInfoArraysView, ObsArraysView, PlayerData, SingleEnvView,
 };
-use crate::env_api::types::{PyEnvOutputs, PyStatsOutputs};
 use crate::env_api::utils::{
     action_array_to_vec, update_memories_and_write_output_arrays,
 };
@@ -26,14 +25,32 @@ use numpy::ndarray::{
     stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, Axis,
 };
 use numpy::{
-    IntoPyArray, PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3,
-    PyReadonlyArray4,
+    IntoPyArray, PyArray1, PyArray2, PyArray3, PyArray4, PyArray5,
+    PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3, PyReadonlyArray4,
 };
 use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use strum::EnumCount;
+
+pub type PyStatsOutputs<'py> = (
+    HashMap<String, f32>,
+    HashMap<String, Bound<'py, PyArray1<f32>>>,
+);
+pub type PyEnvOutputs<'py> = (
+    (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
+    (
+        Bound<'py, PyArray4<bool>>,
+        Bound<'py, PyArray5<bool>>,
+        Bound<'py, PyArray4<isize>>,
+        Bound<'py, PyArray3<f32>>,
+        Bound<'py, PyArray3<bool>>,
+    ),
+    Bound<'py, PyArray2<f32>>,
+    Bound<'py, PyArray1<bool>>,
+    Option<PyStatsOutputs<'py>>,
+);
 
 #[pyclass]
 pub struct ParallelEnv {
