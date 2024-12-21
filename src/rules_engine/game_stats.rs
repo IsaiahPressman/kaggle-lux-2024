@@ -106,10 +106,18 @@ impl GameStats {
     }
 
     pub fn sap_direct_hits_frequency(&self) -> f32 {
-        self.sap_direct_hits as f32 / self.sap_count as f32
+        if self.sap_count > 0 {
+            self.sap_direct_hits as f32 / self.sap_count as f32
+        } else {
+            0.0
+        }
     }
 
     pub fn sap_adjacent_hits_frequency(&self) -> f32 {
-        self.sap_adjacent_hits as f32 / self.sap_count as f32
+        if self.sap_count > 0 {
+            self.sap_adjacent_hits as f32 / self.sap_count as f32
+        } else {
+            0.0
+        }
     }
 }

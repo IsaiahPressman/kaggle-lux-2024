@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 from luxai_s3.state import gen_map
 
-from rux_2024._lowlevel import (
+from rux_ai_s3._lowlevel import (
     ParallelEnv,
     RewardSpace,
 )
-from rux_2024.types import ParallelEnvOut
+from rux_ai_s3.types import ParallelEnvOut
 
 _MAP_SIZE = (24, 24)
 _N_ENVS = 8
@@ -127,7 +127,7 @@ class TestParallelEnv:
         )
         assert np.all(env_out.obs.spatial_obs != _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs != _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.action_info.action_mask))
+        assert np.all(np.logical_not(env_out.action_info.main_mask))
         assert np.all(np.logical_not(env_out.action_info.sap_mask))
         assert np.all(env_out.action_info.unit_indices != _INT_FLAG)
         assert np.all(env_out.action_info.unit_energies != _FLOAT_FLAG)
@@ -173,10 +173,10 @@ class TestParallelEnv:
         assert np.all(env_out.obs.spatial_obs[not_reset_env_ids] == _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs[reset_env_ids] != _FLOAT_FLAG)
         assert np.all(env_out.obs.global_obs[not_reset_env_ids] == _FLOAT_FLAG)
-        assert np.all(np.logical_not(env_out.action_info.action_mask[reset_env_ids]))
-        assert np.all(env_out.action_info.action_mask[not_reset_env_ids])
+        assert np.all(np.logical_not(env_out.action_info.main_mask[reset_env_ids]))
+        assert np.all(env_out.action_info.main_mask[not_reset_env_ids])
         assert np.all(np.logical_not(env_out.action_info.sap_mask[reset_env_ids]))
-        assert np.all(env_out.action_info.action_mask[not_reset_env_ids])
+        assert np.all(env_out.action_info.main_mask[not_reset_env_ids])
         assert np.all(env_out.action_info.unit_indices[reset_env_ids] != _INT_FLAG)
         assert np.all(env_out.action_info.unit_indices[not_reset_env_ids] == _INT_FLAG)
         assert np.all(env_out.action_info.unit_energies[reset_env_ids] != _FLOAT_FLAG)
@@ -212,7 +212,7 @@ class TestParallelEnv:
     def fill_env_out(env_out: ParallelEnvOut) -> None:
         env_out.obs.spatial_obs[:] = _FLOAT_FLAG
         env_out.obs.global_obs[:] = _FLOAT_FLAG
-        env_out.action_info.action_mask[:] = True
+        env_out.action_info.main_mask[:] = True
         env_out.action_info.sap_mask[:] = True
         env_out.action_info.unit_indices[:] = _INT_FLAG
         env_out.action_info.unit_energies[:] = _FLOAT_FLAG
@@ -223,8 +223,7 @@ class TestParallelEnv:
 
 def test_reward_space() -> None:
     for rs in RewardSpace.list():
-        _, name = str(rs).split(".", maxsplit=1)
-        assert RewardSpace.from_str(name) == rs
+        assert RewardSpace.from_str(str(rs)) == rs
 
     with pytest.raises(ValueError, match="Invalid RewardSpace"):
         RewardSpace.from_str("INVALID_REWARD_SPACE")

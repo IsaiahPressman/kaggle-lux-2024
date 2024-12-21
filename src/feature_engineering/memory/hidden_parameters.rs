@@ -1,12 +1,14 @@
 use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-use crate::rules_engine::env::{estimate_vision_power_map, ENERGY_VOID_DELTAS};
+use crate::rules_engine::env::{
+    estimate_vision_power_map, just_respawned, ENERGY_VOID_DELTAS,
+};
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos, Unit};
 use itertools::Itertools;
-use numpy::ndarray::Zip;
+use numpy::ndarray::{Array2, Zip};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
@@ -105,7 +107,9 @@ impl HiddenParametersMemory {
                 &mut self.unit_sap_dropoff_factor,
                 obs,
                 &self.last_obs_data,
+                last_actions,
                 &sap_count_maps,
+                fixed_params,
                 variable_params,
             );
         }
@@ -118,6 +122,7 @@ struct LastObservationData {
     my_units: Vec<Unit>,
     opp_units: Vec<Unit>,
     nebulae: Vec<Pos>,
+    sensor_mask: Array2<bool>,
 }
 
 impl LastObservationData {
@@ -126,6 +131,7 @@ impl LastObservationData {
             my_units: obs.get_my_units().to_vec(),
             opp_units: obs.get_opp_units().to_vec(),
             nebulae: obs.nebulae.clone(),
+            sensor_mask: obs.sensor_mask.clone(),
         }
     }
 }
@@ -176,22 +182,28 @@ fn determine_nebula_tile_energy_reduction(
     // Therefore, whenever we are comparing energies, we take the current unit's energy and
     // position and compare it to last turn's nebulae and energy field. Confusingly enough,
     // last turn's energy field is provided in this turn's observation.
+    let options_before_update = nebula_tile_energy_reduction_options.clone();
     let id_to_unit: BTreeMap<usize, Unit> =
         obs.get_my_units().iter().map(|u| (u.id, *u)).collect();
     // NB: This assumes that units don't take invalid actions (like moving into an asteroid)
     for (energy_before_nebula, actual) in last_obs
         .my_units
         .iter()
+        // Skip units that died last turn
+        .filter(|u_last_turn| u_last_turn.alive())
         .filter_map(|unit_last_turn| {
             id_to_unit
                 .get(&unit_last_turn.id)
                 .map(|unit_now| (unit_last_turn, unit_now))
         })
+        // Skip units that could have just respawned
+        .filter(|(_, u_now)| !just_respawned(u_now, obs.team_id, fixed_params))
         .filter(|(_, unit_now)| {
             last_obs.nebulae.contains(&unit_now.pos)
-                && unit_now.energy >= fixed_params.min_unit_energy
-                && obs.get_opp_units().iter().all(|opp_u| {
-                    // Skip units that we think could have been sapped (or adjacent sapped)
+                && unit_now.alive()
+                && last_obs.opp_units.iter().all(|opp_u| {
+                    // Skip units that we think could have been sapped, adjacent sapped,
+                    // or affected by an energy void
                     let [dx, dy] = opp_u.pos.subtract(unit_now.pos);
                     dx.abs() > params.unit_sap_range + 1
                         || dy.abs() > params.unit_sap_range + 1
@@ -228,23 +240,9 @@ fn determine_nebula_tile_energy_reduction(
     }
 
     if nebula_tile_energy_reduction_options.all_masked() {
-        let unit_energy_field = obs
-            .get_my_units()
-            .iter()
-            .map(|u| obs.energy_field[u.pos.as_index()])
-            .collect_vec();
-        // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!(
-            "nebula_tile_energy_reduction_mask is all false.
-            Units last turn: {:?}
-            Units now: {:?}
-            Nebulae: {:?}
-            Energy field: {:?}",
-            last_obs.my_units,
-            obs.get_my_units(),
-            last_obs.nebulae,
-            unit_energy_field,
-        )
+        // In edge cases (such as where we're sapped while unable to see the sapper,
+        // reset the memory to what it was before the turn
+        *nebula_tile_energy_reduction_options = options_before_update;
     }
 }
 
@@ -287,7 +285,9 @@ fn determine_unit_sap_dropoff_factor(
     unit_sap_dropoff_factor: &mut MaskedPossibilities<f32>,
     obs: &Observation,
     last_obs_data: &LastObservationData,
+    last_actions: &[Action],
     sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
+    fixed_params: &FixedParams,
     params: &KnownVariableParams,
 ) {
     // Note that the environment resolution order goes:
@@ -311,20 +311,40 @@ fn determine_unit_sap_dropoff_factor(
                     .get(&u_last_turn.id)
                     .map(|u_now| (u_last_turn, u_now))
             })
-            // Skip units in nebulae
-            .filter(|(_, u_now)| !last_obs_data.nebulae.contains(&u_now.pos))
+            // Skip units that could have just respawned
+            .filter(|(_, u_now)| {
+                !just_respawned(u_now, obs.opp_team_id(), fixed_params)
+            })
+            // Skip units in nebulae or that could be in nebulae
+            .filter(|(_, u_now)| {
+                !last_obs_data.nebulae.contains(&u_now.pos)
+                    && last_obs_data.sensor_mask[u_now.pos.as_index()]
+            })
             .filter_map(|(u_last_turn, u_now)| {
                 adjacent_sap_count_map
                     .get(&u_now.pos)
                     .map(|&count| (u_last_turn, u_now, count))
             })
             // Skip units that have lost energy to energy void
-            // NB: This won't always filter correctly if dead units are removed from observation,
-            //  since they could apply an energy void and die in the same step
             .filter(|(_, opp_unit_now, _)| {
                 obs.get_my_units().iter().all(|my_unit| {
                     !ENERGY_VOID_DELTAS
                         .contains(&opp_unit_now.pos.subtract(my_unit.pos))
+                })
+            })
+            // Skip units that have lost energy to energy void of now-dead units of mine
+            .filter(|(_, opp_unit_now, _)| {
+                last_obs_data.my_units.iter().all(|my_unit| {
+                    let last_action = last_actions[my_unit.id];
+                    let new_pos = my_unit
+                        .pos
+                        .maybe_translate(
+                            last_action.as_move_delta().unwrap_or([0, 0]),
+                            fixed_params.map_size,
+                        )
+                        .unwrap();
+                    !ENERGY_VOID_DELTAS
+                        .contains(&opp_unit_now.pos.subtract(new_pos))
                 })
             })
             .filter_map(|(u_last_turn, u_now, sap_count)| {
@@ -336,8 +356,6 @@ fn determine_unit_sap_dropoff_factor(
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        let energy_before_action =
-            opp_unit_last_turn.energy - direct_sap_loss + energy_field_delta;
         for (&sap_dropoff_factor, mask) in unit_sap_dropoff_factor
             .iter_options_mut_mask()
             .filter(|(_, mask)| **mask)
@@ -346,9 +364,19 @@ fn determine_unit_sap_dropoff_factor(
                 * sap_dropoff_factor) as i32;
             if opp_unit_now.pos.subtract(opp_unit_last_turn.pos) == [0, 0] {
                 // NoOp or Sap action was taken
-                let expected_energy_noop = energy_before_action - adj_sap_loss;
-                let expected_energy_sap =
-                    energy_before_action - params.unit_sap_cost - adj_sap_loss;
+                let expected_energy_noop = get_expected_energy(
+                    opp_unit_last_turn.energy - direct_sap_loss - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
+                let expected_energy_sap = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_sap_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
                 if expected_energy_noop != opp_unit_now.energy
                     && expected_energy_sap != opp_unit_now.energy
                 {
@@ -356,8 +384,14 @@ fn determine_unit_sap_dropoff_factor(
                 }
             } else {
                 // Move action was taken
-                let expected_energy =
-                    energy_before_action - params.unit_move_cost - adj_sap_loss;
+                let expected_energy = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_move_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
                 if expected_energy != opp_unit_now.energy {
                     *mask = false;
                 }
@@ -366,8 +400,48 @@ fn determine_unit_sap_dropoff_factor(
     }
 
     if unit_sap_dropoff_factor.all_masked() {
+        let unit_energy_field = obs
+            .get_opp_units()
+            .iter()
+            .map(|u| obs.energy_field[u.pos.as_index()])
+            .collect_vec();
         // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!("unit_sap_dropoff_factor_mask is all false")
+        panic!(
+            "unit_sap_dropoff_factor_mask is all false.
+            My units last turn: {:?}
+            My units now: {:?}
+            Opp units last turn: {:?}
+            Opp units now: {:?}
+            Move cost / sap cost: {:?} / {:?}
+            Nebulae: {:?}
+            Energy field: {:?}
+            Direct saps: {:?}
+            Adjacent saps: {:?}",
+            last_obs_data.my_units,
+            obs.get_my_units(),
+            last_obs_data.opp_units,
+            obs.get_opp_units(),
+            params.unit_move_cost,
+            params.unit_sap_cost,
+            last_obs_data.nebulae,
+            unit_energy_field,
+            sap_count_map,
+            adjacent_sap_count_map,
+        );
+    }
+}
+
+fn get_expected_energy(
+    pre_field_energy: i32,
+    energy_field_delta: i32,
+    fixed_params: &FixedParams,
+) -> i32 {
+    if pre_field_energy >= 0 || pre_field_energy + energy_field_delta >= 0 {
+        (pre_field_energy + energy_field_delta)
+            .min(fixed_params.max_unit_energy)
+            .max(fixed_params.min_unit_energy)
+    } else {
+        pre_field_energy
     }
 }
 
@@ -540,7 +614,7 @@ mod tests {
         #[case] expected_result: Vec<bool>,
     ) {
         let obs = Observation {
-            units: [my_units, vec![Unit::with_pos(Pos::new(3, 3))]],
+            units: [my_units, Vec::new()],
             energy_field: arr2(
                 &[[Some(2), Some(1), Some(0), Some(-1), Some(-2), None]; 6],
             ),
@@ -548,6 +622,7 @@ mod tests {
         };
         let last_obs = LastObservationData {
             my_units: my_units_last_turn,
+            opp_units: vec![Unit::with_pos(Pos::new(3, 3))],
             nebulae: vec![
                 Pos::new(1, 0),
                 Pos::new(1, 1),
@@ -557,7 +632,7 @@ mod tests {
                 Pos::new(1, 5),
                 Pos::new(3, 3),
             ],
-            ..Default::default()
+            sensor_mask: Array2::default(FIXED_PARAMS.map_size),
         };
         let fixed_params = FIXED_PARAMS;
         let params = KnownVariableParams {
@@ -578,13 +653,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![true, true, true])]
-    #[should_panic(expected = "nebula_tile_energy_reduction_mask is all false")]
-    #[case(vec![true, true, false])]
-    fn test_determine_nebula_tile_energy_reduction_panics(
-        #[case] mask: Vec<bool>,
+    #[case(
+        vec![true, true, true],
+        vec![false, false, true],
+    )]
+    #[case(
+        vec![true, true, false],
+        vec![true, true, false],
+    )]
+    fn test_determine_nebula_tile_energy_reduction_resets(
+        #[case] mask_before_update: Vec<bool>,
+        #[case] mask_after_update: Vec<bool>,
     ) {
-        let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
+        let mut possibilities =
+            MaskedPossibilities::new(vec![0, 1, 2], mask_before_update);
         let obs = Observation {
             units: [vec![Unit::new(Pos::new(0, 0), 10, 0)], Vec::new()],
             energy_field: arr2(&[[Some(2)]]),
@@ -604,6 +686,7 @@ mod tests {
             &FIXED_PARAMS,
             &KnownVariableParams::default(),
         );
+        assert_eq!(possibilities.get_mask(), &mask_after_update);
     }
 
     #[test]
@@ -654,6 +737,7 @@ mod tests {
     // Not adjacent
     #[case(
         vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
         vec![Sap([1, 1])],
         vec![Unit::new(Pos::new(1, 1), 100, 0)],
         vec![Unit::new(Pos::new(1, 1), 91, 0)],
@@ -661,6 +745,7 @@ mod tests {
     )]
     // Adjacent to sap
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
@@ -670,6 +755,7 @@ mod tests {
     // Adjacent to sap, rounds down
     #[case(
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 98, 0)],
@@ -677,6 +763,7 @@ mod tests {
     )]
     // Adjacent to multiple sap actions
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
@@ -686,6 +773,7 @@ mod tests {
     // Ignore units in nebulae
     #[case(
         vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
         vec![Sap([0, 1])],
         vec![Unit::new(Pos::new(0, 2), 100, 0)],
         vec![Unit::new(Pos::new(0, 2), 75, 0)],
@@ -694,6 +782,16 @@ mod tests {
     // Ignore units hit by energy void field
     #[case(
         vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Sap([1, 0])],
+        vec![Unit::new(Pos::new(0, 0), 100, 0)],
+        vec![Unit::new(Pos::new(0, 0), 90, 0)],
+        vec![true, true, true],
+    )]
+    // Ignore units hit by energy void field of now-dead unit
+    #[case(
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        Vec::new(),
         vec![Sap([1, 0])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 90, 0)],
@@ -701,6 +799,7 @@ mod tests {
     )]
     // Counts move action cost
     #[case(
+        vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Unit::new(Pos::new(4, 4), 10, 0)],
         vec![Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 1), 100, 0)],
@@ -710,6 +809,7 @@ mod tests {
     // Considers both NoOp and Sap actions for opposing units
     #[case(
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 80, 0)],
@@ -718,12 +818,23 @@ mod tests {
     // Hit by direct and adjacent sap
     #[case(
         vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
         vec![Sap([-3, -3]), Sap([-4, -4])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 85, 0)],
         vec![false, true, false],
     )]
+    // Goes into negative energy after sap
+    #[case(
+        vec![Unit::new(Pos::new(1, 0), 100, 0)],
+        vec![Unit::new(Pos::new(1, 0), 100, 0)],
+        vec![Sap([0, 1])],
+        vec![Unit::new(Pos::new(1, 1), 0, 0)],
+        vec![Unit::new(Pos::new(1, 2), -7, 0)],
+        vec![false, true, false],
+    )]
     fn test_determine_unit_sap_dropoff_factor(
+        #[case] my_units_last_turn: Vec<Unit>,
         #[case] my_units: Vec<Unit>,
         #[case] last_actions: Vec<Action>,
         #[case] opp_units_last_turn: Vec<Unit>,
@@ -733,14 +844,15 @@ mod tests {
         let mut possibilities =
             MaskedPossibilities::from_options(vec![0.25, 0.5, 1.0]);
         let obs = Observation {
-            units: [my_units.clone(), opp_units],
+            units: [my_units, opp_units],
             energy_field: arr2(&[[Some(0), Some(1), Some(2)]; 3]),
             ..Default::default()
         };
         let last_obs_data = LastObservationData {
-            my_units,
+            my_units: my_units_last_turn,
             opp_units: opp_units_last_turn,
             nebulae: vec![Pos::new(0, 2)],
+            sensor_mask: Array2::from_elem(FIXED_PARAMS.map_size, true),
         };
         let params = KnownVariableParams {
             unit_move_cost: 2,
@@ -756,7 +868,9 @@ mod tests {
             &mut possibilities,
             &obs,
             &last_obs_data,
+            &last_actions,
             &sap_count_maps,
+            &FIXED_PARAMS,
             &params,
         );
         assert_eq!(possibilities.get_mask(), expected_result);
@@ -780,9 +894,10 @@ mod tests {
         let last_obs_data = LastObservationData {
             my_units,
             opp_units: vec![Unit::new(Pos::new(0, 0), 100, 0)],
+            sensor_mask: Array2::from_elem(FIXED_PARAMS.map_size, true),
             ..Default::default()
         };
-        let last_actions = vec![Sap([-3, -3])];
+        let last_actions = vec![Sap([-3, -3]); FIXED_PARAMS.max_units];
         let params = KnownVariableParams {
             unit_move_cost: 2,
             unit_sap_cost: 10,
@@ -797,7 +912,9 @@ mod tests {
             &mut possibilities,
             &obs,
             &last_obs_data,
+            &last_actions,
             &sap_count_maps,
+            &FIXED_PARAMS,
             &params,
         );
     }
