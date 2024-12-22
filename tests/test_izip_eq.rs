@@ -1,4 +1,4 @@
-use _lowlevel::izip_eq;
+use lowlevel::izip_eq;
 
 #[test]
 fn test_izip_eq_unary() {

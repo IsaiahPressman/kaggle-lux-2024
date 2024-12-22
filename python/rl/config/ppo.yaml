@@ -22,7 +22,8 @@ env_config:
   reward_space: MATCH_WINNER
   jax_device: cpu:0
 
-d_model: 64
-n_blocks: 4
+rl_model_config:
+  d_model: 64
+  n_blocks: 4
 
 device: cuda:0

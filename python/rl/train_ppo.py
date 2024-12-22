@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
-from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
+from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticConfig, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
@@ -26,6 +26,8 @@ from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
 from rux_ai_s3.types import Action, Stats
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
+
+from rux_ai_s3.utils import load_from_yaml
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
@@ -80,12 +82,9 @@ class PPOConfig(BaseModel):
     clip_coefficient: float
     loss_coefficients: LossCoefficients
 
-    # Environment config
+    # Config objects
     env_config: EnvConfig
-
-    # Model config
-    d_model: int
-    n_blocks: int
+    rl_model_config: ActorCriticConfig
 
     # Miscellaneous config
     device: torch.device
@@ -113,13 +112,6 @@ class PPOConfig(BaseModel):
             return device
 
         return torch.device(device)
-
-    @classmethod
-    def from_file(cls, path: Path) -> "PPOConfig":
-        with open(path) as f:
-            data = yaml.safe_load(f)
-
-        return PPOConfig(**data)
 
 
 @dataclass
@@ -210,7 +202,7 @@ class ExperienceBatch:
 
 def main() -> None:
     args = UserArgs.from_argparse()
-    cfg = PPOConfig.from_file(CONFIG_FILE)
+    cfg = load_from_yaml(PPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
     init_train_dir(cfg)
     env = ParallelEnv.from_config(cfg.env_config)
@@ -262,7 +254,7 @@ def init_train_dir(cfg: PPOConfig) -> None:
     )
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
-    with open("config.yaml", "w") as f:
+    with open("train_config.yaml", "w") as f:
         yaml.dump(cfg.model_dump(), f)
 
 
@@ -273,12 +265,11 @@ def build_model(
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
     global_in_channels = example_obs.global_obs.shape[2]
-    return ActorCritic(
+    return ActorCritic.from_config(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
-        d_model=cfg.d_model,
-        n_blocks=cfg.n_blocks,
         reward_space=env.reward_space,
+        config=cfg.rl_model_config,
     )
 
 

@@ -3,9 +3,10 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 import torch
+from pydantic import BaseModel
 from torch import nn
 
-from rux_ai_s3._lowlevel import RewardSpace
+from rux_ai_s3.lowlevel import RewardSpace
 from rux_ai_s3.rl_training.constants import MAP_SIZE
 from rux_ai_s3.types import Action
 
@@ -13,6 +14,12 @@ from .actor_heads import BasicActorHead
 from .conv_blocks import ResidualBlock
 from .types import ActivationFactory, TorchActionInfo, TorchObs
 from .utils import build_critic_head
+
+
+class ActorCriticConfig(BaseModel):
+    d_model: int
+    n_blocks: int
+    kernel_size: int = 3
 
 
 class ActorCriticOut(NamedTuple):
@@ -171,6 +178,23 @@ class ActorCritic(nn.Module):
             main_actions=main_actions,
             sap_actions=sap_actions,
             value=value,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        spatial_in_channels: int,
+        global_in_channels: int,
+        reward_space: RewardSpace,
+        config: ActorCriticConfig,
+    ) -> "ActorCritic":
+        return ActorCritic(
+            spatial_in_channels=spatial_in_channels,
+            global_in_channels=global_in_channels,
+            d_model=config.d_model,
+            n_blocks=config.n_blocks,
+            reward_space=reward_space,
+            kernel_size=config.kernel_size,
         )
 
     @classmethod

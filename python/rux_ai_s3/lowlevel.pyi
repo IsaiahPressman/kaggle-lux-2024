@@ -45,7 +45,7 @@ class FeatureEngineeringEnv:
     def __init__(
         self,
         team_id: int,
-        params: dict[str, Any],
+        env_params: dict[str, Any],
     ) -> None: ...
     def get_empty_outputs(self) -> FeatureEngineeringFullOut: ...
     def step(

@@ -10,7 +10,7 @@ import pytest
 from luxai_s3.state import gen_map
 from luxai_s3.wrappers import LuxAIS3GymEnv
 
-from rux_ai_s3._lowlevel import (
+from rux_ai_s3.lowlevel import (
     FeatureEngineeringEnv,
     ParallelEnv,
     RewardSpace,
@@ -241,7 +241,7 @@ class TestFeatureEngineeringEnv:
         team_id = 1
         lux_env = LuxAIS3GymEnv(numpy_output=True)
         lux_obs, info = lux_env.reset(seed=42)
-        fe_env = FeatureEngineeringEnv(0, params=info["params"])
+        fe_env = FeatureEngineeringEnv(0, env_params=info["params"])
 
         actions = np.zeros((16, 3), dtype=int)
         fe_out = FeatureEngineeringOut.from_raw(

@@ -37,13 +37,15 @@ pub struct FeatureEngineeringEnv {
 #[pymethods]
 impl FeatureEngineeringEnv {
     #[new]
-    fn new(team_id: usize, params: Bound<'_, PyDict>) -> PyResult<Self> {
-        let params = params.as_any();
-        let unit_move_cost = params.get_item("unit_move_cost")?.extract()?;
-        let unit_sap_cost = params.get_item("unit_sap_cost")?.extract()?;
-        let unit_sap_range = params.get_item("unit_sap_range")?.extract()?;
+    fn new(team_id: usize, env_params: Bound<'_, PyDict>) -> PyResult<Self> {
+        let env_params = env_params.as_any();
+        let unit_move_cost =
+            env_params.get_item("unit_move_cost")?.extract()?;
+        let unit_sap_cost = env_params.get_item("unit_sap_cost")?.extract()?;
+        let unit_sap_range =
+            env_params.get_item("unit_sap_range")?.extract()?;
         let unit_sensor_range =
-            params.get_item("unit_sensor_range")?.extract()?;
+            env_params.get_item("unit_sensor_range")?.extract()?;
         let params = KnownVariableParams {
             unit_move_cost,
             unit_sap_cost,

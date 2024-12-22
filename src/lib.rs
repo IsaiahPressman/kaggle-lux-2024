@@ -40,7 +40,7 @@ fn get_global_feature_count_py() -> usize {
 
 /// A Python module implemented in Rust
 #[pymodule]
-fn _lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(hello_numpy_world, m)?)?;
 

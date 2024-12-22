@@ -5,21 +5,15 @@ from typing import Any
 
 import jax
 import numpy as np
-import numpy.typing as npt
 from luxai_s3.params import EnvParams
 from luxai_s3.state import gen_map
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
-from rux_ai_s3._lowlevel import ParallelEnv as LowLevelEnv
-from rux_ai_s3._lowlevel import RewardSpace
+from rux_ai_s3.lowlevel import ParallelEnv as LowLevelEnv
+from rux_ai_s3.lowlevel import RewardSpace
+from rux_ai_s3.types import ActionArray
 
 from .types import Obs, ParallelEnvOut
-
-__all__ = [
-    "EnvConfig",
-    "ParallelEnv",
-    "RewardSpace",
-]
 
 
 class EnvConfig(BaseModel):
@@ -154,7 +148,7 @@ class ParallelEnv:
         self._soft_reset()
         self._update_frame_history()
 
-    def step(self, actions: npt.NDArray[np.int64]) -> None:
+    def step(self, actions: ActionArray) -> None:
         self._last_out = ParallelEnvOut.from_raw(self._env.par_step(actions))
         self._soft_reset()
         self._update_frame_history()

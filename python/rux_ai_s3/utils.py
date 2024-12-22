@@ -1,6 +1,11 @@
-from typing import Any
+from pathlib import Path
+from typing import Any, TypeVar
 
 import numpy as np
+import yaml
+from pydantic import BaseModel
+
+_BaseModelT = TypeVar("_BaseModelT", bound=BaseModel)
 
 
 def to_json(obj: Any) -> Any:
@@ -24,3 +29,10 @@ def to_json(obj: Any) -> Any:
         return out
 
     return obj
+
+
+def load_from_yaml(model_cls: type[_BaseModelT], path: Path) -> _BaseModelT:
+    with open(path) as f:
+        data = yaml.safe_load(f)
+
+    return model_cls(**data)

@@ -34,7 +34,7 @@ dev-dependencies = []
 
 [tool.maturin]
 python-source = "python"
-module-name = "rux_ai_s3._lowlevel"
+module-name = "rux_ai_s3.lowlevel"
 features = ["pyo3/extension-module"]
 
 [tool.ruff.lint]
