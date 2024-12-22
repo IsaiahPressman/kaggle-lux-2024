@@ -1,21 +1,23 @@
 use crate::feature_engineering::memory::Memory;
 use crate::rules_engine::param_ranges::PARAM_RANGES;
-use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS, P};
+use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use numpy::ndarray::{
     ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4,
 };
 
 pub struct PlayerData {
-    pub memories: [Memory; P],
+    pub memories: Vec<Memory>,
     pub known_params: KnownVariableParams,
 }
 
 impl PlayerData {
-    pub fn from_known_params(known_params: KnownVariableParams) -> Self {
-        let memories = [
-            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
-            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
-        ];
+    pub fn from_player_count_known_params(
+        players: usize,
+        known_params: KnownVariableParams,
+    ) -> Self {
+        let memories = (0..players)
+            .map(|_| Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size))
+            .collect();
         Self {
             memories,
             known_params,

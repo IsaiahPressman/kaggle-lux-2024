@@ -26,6 +26,7 @@ class EnvConfig(BaseModel):
     n_envs: int
     frame_stack_len: int
     reward_space: RewardSpace
+    jax_device: str
 
     model_config = ConfigDict(
         extra="forbid",
@@ -36,26 +37,46 @@ class EnvConfig(BaseModel):
     @field_validator("reward_space", mode="before")
     @classmethod
     def _validate_reward_space(cls, reward_space: RewardSpace | str) -> RewardSpace:
-        if isinstance(reward_space, RewardSpace):
-            return reward_space
+        if isinstance(reward_space, str):
+            return RewardSpace.from_str(reward_space)
 
-        return RewardSpace.from_str(reward_space)
+        return reward_space
 
     @field_serializer("reward_space")
     def serialize_reward_space(self, reward_space: RewardSpace) -> str:
         return str(reward_space)
+
+    @field_validator("jax_device")
+    @classmethod
+    def _validate_jax_device(cls, jax_device: str) -> str:
+        try:
+            cls._jax_device_from_str(jax_device)
+        except Exception:
+            raise ValueError(f"Invalid jax_device: '{jax_device}'") from None
+
+        return jax_device
+
+    def get_jax_device(self) -> jax.Device:
+        return self._jax_device_from_str(self.jax_device)
+
+    @staticmethod
+    def _jax_device_from_str(jax_device: str) -> jax.Device:
+        device_type, device_id = jax_device.split(":")
+        return jax.devices(device_type)[int(device_id)]
 
 
 class ParallelEnv:
     def __init__(
         self,
         n_envs: int,
-        reward_space: RewardSpace,
         frame_stack_len: int,
+        reward_space: RewardSpace,
+        jax_device: jax.Device,
     ) -> None:
         self.n_envs = n_envs
-        self.reward_space = reward_space
         self.frame_stack_len = frame_stack_len
+        self.reward_space = reward_space
+        self.jax_device = jax_device
         fixed_params = EnvParams()
 
         self._random_state = jax.random.key(seed=42)
@@ -84,8 +105,9 @@ class ParallelEnv:
         return Obs.concatenate_frame_history(self._frame_history)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
-        self._random_state, subkey = jax.random.split(self._random_state)
-        return self._raw_gen_map_vmapped(jax.random.split(subkey, num=n_maps))
+        with jax.default_device(self.jax_device):
+            self._random_state, subkey = jax.random.split(self._random_state)
+            return self._raw_gen_map_vmapped(jax.random.split(subkey, num=n_maps))
 
     def _make_empty_out(self) -> ParallelEnvOut:
         empty_out = ParallelEnvOut.from_raw(self._env.get_empty_outputs())
@@ -143,4 +165,5 @@ class ParallelEnv:
             n_envs=config.n_envs,
             reward_space=config.reward_space,
             frame_stack_len=config.frame_stack_len,
+            jax_device=config.get_jax_device(),
         )

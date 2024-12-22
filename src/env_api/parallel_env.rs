@@ -34,11 +34,11 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use strum::EnumCount;
 
-pub type PyStatsOutputs<'py> = (
+type PyStatsOutputs<'py> = (
     HashMap<String, f32>,
     HashMap<String, Bound<'py, PyArray1<f32>>>,
 );
-pub type PyEnvOutputs<'py> = (
+type PyEnvOutputs<'py> = (
     (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
     (
         Bound<'py, PyArray4<bool>>,
@@ -231,9 +231,10 @@ impl ParallelEnv {
             update_memories_and_write_output_arrays(
                 slice.obs_arrays,
                 slice.action_info_arrays,
-                &mut env_data.player_data,
+                &mut env_data.player_data.memories,
                 &obs,
                 &[Vec::new(), Vec::new()],
+                &env_data.player_data.known_params,
             );
         }
     }
@@ -315,9 +316,10 @@ impl ParallelEnv {
         update_memories_and_write_output_arrays(
             env_slice.obs_arrays,
             env_slice.action_info_arrays,
-            &mut env_data.player_data,
+            &mut env_data.player_data.memories,
             &obs,
             actions,
+            &env_data.player_data.known_params,
         );
         env_slice
             .reward
@@ -366,7 +368,8 @@ impl EnvData {
     fn from_state_params(state: State, params: VariableParams) -> Self {
         let stats = GameStats::new();
         let known_params = KnownVariableParams::from(params.clone());
-        let player_data = PlayerData::from_known_params(known_params);
+        let player_data =
+            PlayerData::from_player_count_known_params(P, known_params);
         Self {
             state,
             player_data,

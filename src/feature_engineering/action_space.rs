@@ -1,6 +1,6 @@
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
-use crate::rules_engine::params::{KnownVariableParams, P};
+use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -13,7 +13,7 @@ use strum::IntoEnumIterator;
 pub fn write_basic_action_space(
     mut action_mask: ArrayViewMut3<bool>,
     mut sap_mask: ArrayViewMut4<bool>,
-    observations: &[Observation; P],
+    observations: &[Observation],
     params: &KnownVariableParams,
 ) {
     for ((obs, team_action_mask), team_sap_mask) in observations
@@ -86,6 +86,8 @@ fn write_sap_mask(
         return false;
     }
 
+    // TODO: Improve sap mask to allow sapping unseen units from last turn
+    //  and/or unseen points squares
     let (width, height) = sap_mask.dim();
     let mut unit_can_sap = false;
     let [x, y]: [usize; 2] = unit.pos.into();

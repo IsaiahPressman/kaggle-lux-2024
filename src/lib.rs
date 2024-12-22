@@ -3,6 +3,7 @@ mod feature_engineering;
 pub mod izip_eq;
 mod rules_engine;
 
+use crate::env_api::FeatureEngineeringEnv;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count,
 };
@@ -45,6 +46,7 @@ fn _lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<RewardSpace>()?;
     m.add_class::<ParallelEnv>()?;
+    m.add_class::<FeatureEngineeringEnv>()?;
     m.add_function(wrap_pyfunction!(get_spatial_feature_count_py, m)?)?;
     m.add_function(wrap_pyfunction!(get_global_feature_count_py, m)?)?;
     Ok(())

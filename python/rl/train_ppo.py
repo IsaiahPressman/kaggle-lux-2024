@@ -36,7 +36,7 @@ CPU: Final[torch.device] = torch.device("cpu")
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-logger = logging.getLogger(NAME)
+logger = logging.getLogger(NAME.upper())
 
 
 class UserArgs(BaseModel):
@@ -213,11 +213,7 @@ def main() -> None:
     cfg = PPOConfig.from_file(CONFIG_FILE)
     init_logger(logger=logger)
     init_train_dir(cfg)
-    env = ParallelEnv(
-        n_envs=cfg.env_config.n_envs,
-        reward_space=cfg.env_config.reward_space,
-        frame_stack_len=cfg.env_config.frame_stack_len,
-    )
+    env = ParallelEnv.from_config(cfg.env_config)
     model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
     logger.info(
         "Training model with %s parameters", f"{count_trainable_params(model):,d}"

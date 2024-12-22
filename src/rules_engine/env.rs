@@ -1354,8 +1354,6 @@ mod tests {
         ];
         spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
-        assert!(just_respawned(&units[0][0], 0, &fixed_params));
-        assert!(just_respawned(&units[1][0], 1, &fixed_params));
     }
 
     #[test]
@@ -1423,6 +1421,24 @@ mod tests {
         ];
         spawn_units(&mut units, &fixed_params);
         assert_eq!(units, expected_result);
+    }
+
+    #[rstest]
+    // Team 0 only succeeds at (0, 0) with 100 energy
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 100), 0, true)]
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 1), 100), 0, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 101), 0, false)]
+    // Team 1 only succeeds at (23, 23) with 100 energy
+    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 100), 1, true)]
+    #[case(Unit::with_pos_and_energy(Pos::new(22, 23), 100), 1, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 99), 1, false)]
+    fn test_just_respawned(
+        #[case] unit: Unit,
+        #[case] team_id: usize,
+        #[case] expected_result: bool,
+    ) {
+        let respawned = just_respawned(&unit, team_id, &FIXED_PARAMS);
+        assert_eq!(respawned, expected_result);
     }
 
     #[test]

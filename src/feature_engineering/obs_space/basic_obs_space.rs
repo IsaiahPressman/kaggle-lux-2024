@@ -1,5 +1,4 @@
 use crate::feature_engineering::memory::Memory;
-use crate::rules_engine::params::P;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -29,6 +28,8 @@ enum SpatialFeature {
 enum GlobalFeature {
     MyTeamPoints = 0,
     OppTeamPoints = 1,
+    // TODO: Add team_id feature
+    // TODO: Discretize team_wins features
     MyTeamWins = 2,
     OppTeamWins = 3,
     NebulaTileVisionReduction = 4,
@@ -47,8 +48,8 @@ const ENERGY_FIELD_NORM: f32 = 7.0;
 pub fn write_obs_arrays(
     mut spatial_out: ArrayViewMut4<f32>,
     mut global_out: ArrayViewMut2<f32>,
-    observations: &[Observation; P],
-    memories: &[Memory; P],
+    observations: &[Observation],
+    memories: &[Memory],
 ) {
     for (((obs, mem), team_spatial_out), team_global_out) in observations
         .iter()

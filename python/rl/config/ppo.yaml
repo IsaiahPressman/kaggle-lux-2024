@@ -20,6 +20,7 @@ env_config:
   frame_stack_len: 4
   # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
   reward_space: MATCH_WINNER
+  jax_device: cpu:0
 
 d_model: 64
 n_blocks: 4
