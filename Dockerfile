@@ -25,4 +25,6 @@ RUN rye sync
 # Activate venv, generate test cases, and run make prepare
 ENV PATH=/home/rux_ai_s3/.venv/bin/:$PATH
 RUN bash ./generate_full_game_test_cases.sh
+RUN make prepare
+# Tar compiled submission for export
 RUN tar --exclude="*__pycache__*" --transform "s,^python/,," -czvf test_submission.tar.gz python/main.py python/rux_ai_s3
