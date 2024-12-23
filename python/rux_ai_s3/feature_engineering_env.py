@@ -39,10 +39,8 @@ class FeatureEngineeringEnv:
             maxlen=self.frame_stack_len,
         )
 
-    def _update_frame_history(
-        self, last_out: FeatureEngineeringOut, is_new_match: bool
-    ) -> None:
-        self._frame_history.append(last_out.obs)
+    def _update_frame_history(self, is_new_match: bool) -> None:
+        self._frame_history.append(self._last_out.obs)
         if not is_new_match:
             return
 
@@ -57,5 +55,7 @@ class FeatureEngineeringEnv:
         last_actions: ActionArray,
         is_new_match: bool,
     ) -> None:
-        last_out = FeatureEngineeringOut.from_raw(self._env.step(lux_obs, last_actions))
-        self._update_frame_history(last_out, is_new_match)
+        self._last_out = FeatureEngineeringOut.from_raw(
+            self._env.step(lux_obs, last_actions)
+        )
+        self._update_frame_history(is_new_match)
