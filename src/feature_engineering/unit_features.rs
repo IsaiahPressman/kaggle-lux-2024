@@ -1,4 +1,3 @@
-use crate::rules_engine::params::P;
 use crate::rules_engine::state::Observation;
 use itertools::Itertools;
 use numpy::ndarray::{ArrayViewMut1, ArrayViewMut2, ArrayViewMut3};
@@ -9,7 +8,7 @@ pub fn write_unit_features(
     mut unit_indices: ArrayViewMut3<isize>,
     mut unit_energies: ArrayViewMut2<f32>,
     mut units_mask: ArrayViewMut2<bool>,
-    observations: &[Observation; P],
+    observations: &[Observation],
 ) {
     for (((obs, unit_indices), unit_energies), units_mask) in observations
         .iter()

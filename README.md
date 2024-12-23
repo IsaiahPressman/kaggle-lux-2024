@@ -22,6 +22,18 @@ There should preferably be at least one test case per possible node count value.
 followed by `process_replay_for_tests.py` on the generated replay.json, observations_0.json, and observations_1.json files.
 
 
+### Playing a game with the local agent
+`JAX_PLATFORMS=cpu luxai-s3 python/main.py python/main.py --output replay.json`
+
+### Creating a submission file
+1. Build the docker image: `docker build -t rux-ai-s3 .`
+2. Assuming the above runs without errors, we can copy the compiled + tarred submission file from the image as follows:
+```
+id=$(docker create rux-ai-s3)
+docker cp $id:/home/rux_ai_s3/test_submission.tar.gz .
+docker rm -v $id
+```
+
 ### Parameter meta-learning (as of 11-2) [source](https://github.com/Lux-AI-Challenge/Lux-Design-S3/blob/main/src/luxai_s3/params.py)
 Fixed parameters:
 - max_units

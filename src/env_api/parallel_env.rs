@@ -1,10 +1,13 @@
-use crate::feature_engineering::action_space::write_basic_action_space;
-use crate::feature_engineering::memory::Memory;
+use crate::env_api::env_data::{
+    ActionInfoArraysView, ObsArraysView, PlayerData, SingleEnvView,
+};
+use crate::env_api::utils::{
+    action_array_to_vec, update_memories_and_write_output_arrays,
+};
 use crate::feature_engineering::obs_space::basic_obs_space::{
-    get_global_feature_count, get_spatial_feature_count, write_obs_arrays,
+    get_global_feature_count, get_spatial_feature_count,
 };
 use crate::feature_engineering::reward_space::RewardSpace;
-use crate::feature_engineering::unit_features::write_unit_features;
 use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::env::{get_energy_field, get_reset_observation, step};
@@ -16,11 +19,10 @@ use crate::rules_engine::params::{
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
-use crate::rules_engine::state::{Observation, Pos, State};
+use crate::rules_engine::state::{Pos, State};
 use itertools::Itertools;
 use numpy::ndarray::{
-    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, ArrayView3,
-    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
+    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, Axis,
 };
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyArray3, PyArray4, PyArray5,
@@ -163,18 +165,18 @@ impl ParallelEnv {
                     reward,
                     done,
                 )| {
-                    let obs_arrays = ObsArraysSlice {
+                    let obs_arrays = ObsArraysView {
                         spatial_obs,
                         global_obs,
                     };
-                    let action_info_arrays = ActionInfoArraysSlice {
+                    let action_info_arrays = ActionInfoArraysView {
                         action_mask,
                         sap_mask,
                         unit_indices,
                         unit_energies,
                         units_mask,
                     };
-                    SingleEnvSlice {
+                    SingleEnvView {
                         obs_arrays,
                         action_info_arrays,
                         reward,
@@ -226,13 +228,13 @@ impl ParallelEnv {
             let obs = get_reset_observation(&env_data.state, &env_data.params);
             slice.obs_arrays.reset();
             slice.action_info_arrays.reset();
-            Self::update_memories_and_write_output_arrays(
+            update_memories_and_write_output_arrays(
                 slice.obs_arrays,
                 slice.action_info_arrays,
-                &mut env_data.memories,
+                &mut env_data.player_data.memories,
                 &obs,
                 &[Vec::new(), Vec::new()],
-                &env_data.known_params,
+                &env_data.player_data.known_params,
             );
         }
     }
@@ -252,7 +254,7 @@ impl ParallelEnv {
             .zip_eq(out.iter_env_slices_mut())
             .zip_eq(actions.outer_iter())
         {
-            let actions = Self::action_array_to_vec(actions);
+            let actions = action_array_to_vec(actions);
             Self::step_env(
                 env_data,
                 &mut rng,
@@ -279,7 +281,7 @@ impl ParallelEnv {
             .zip_eq(actions.outer_iter())
             .par_bridge()
             .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
-                let actions = Self::action_array_to_vec(actions);
+                let actions = action_array_to_vec(actions);
                 Self::step_env(
                     env_data,
                     rng,
@@ -295,28 +297,10 @@ impl ParallelEnv {
 }
 
 impl ParallelEnv {
-    fn action_array_to_vec(actions: ArrayView3<isize>) -> [Vec<Action>; P] {
-        actions
-            .outer_iter()
-            .map(|player_actions| {
-                player_actions
-                    .outer_iter()
-                    .map(|a| {
-                        let a: [isize; 3] =
-                            a.as_slice().unwrap().try_into().unwrap();
-                        Action::from(a)
-                    })
-                    .collect_vec()
-            })
-            .collect_vec()
-            .try_into()
-            .unwrap()
-    }
-
     fn step_env(
         env_data: &mut EnvData,
         rng: &mut ThreadRng,
-        mut env_slice: SingleEnvSlice,
+        mut env_slice: SingleEnvView,
         actions: &[Vec<Action>; P],
         reward_space: RewardSpace,
     ) {
@@ -329,13 +313,13 @@ impl ParallelEnv {
             None,
         );
         env_data.stats.extend(stats);
-        Self::update_memories_and_write_output_arrays(
+        update_memories_and_write_output_arrays(
             env_slice.obs_arrays,
             env_slice.action_info_arrays,
-            &mut env_data.memories,
+            &mut env_data.player_data.memories,
             &obs,
             actions,
-            &env_data.known_params,
+            &env_data.player_data.known_params,
         );
         env_slice
             .reward
@@ -344,44 +328,6 @@ impl ParallelEnv {
             .for_each(|(slice_reward, r)| *slice_reward = r);
         *env_slice.done = result.done;
     }
-
-    /// Writes the observations into the respective arrays and updates memories
-    /// Must be called *after* updating state and getting latest observation
-    fn update_memories_and_write_output_arrays(
-        mut obs_slice: ObsArraysSlice,
-        mut action_info_slice: ActionInfoArraysSlice,
-        memories: &mut [Memory; P],
-        observations: &[Observation; P],
-        last_actions: &[Vec<Action>; P],
-        params: &KnownVariableParams,
-    ) {
-        memories
-            .iter_mut()
-            .zip_eq(observations.iter())
-            .zip_eq(last_actions.iter())
-            .for_each(|((mem, obs), last_actions)| {
-                mem.update(obs, last_actions, &FIXED_PARAMS, params)
-            });
-        write_obs_arrays(
-            obs_slice.spatial_obs.view_mut(),
-            obs_slice.global_obs.view_mut(),
-            observations,
-            memories,
-        );
-        write_basic_action_space(
-            action_info_slice.action_mask.view_mut(),
-            action_info_slice.sap_mask.view_mut(),
-            observations,
-            params,
-        );
-        write_unit_features(
-            action_info_slice.unit_indices.view_mut(),
-            action_info_slice.unit_energies.view_mut(),
-            action_info_slice.units_mask.view_mut(),
-            observations,
-        );
-    }
-
     fn write_game_stats(
         &self,
         stats: &mut Option<ParallelEnvGameStatsOutputs>,
@@ -404,10 +350,9 @@ impl ParallelEnv {
 
 struct EnvData {
     state: State,
-    memories: [Memory; P],
+    player_data: PlayerData,
     stats: GameStats,
     params: VariableParams,
-    known_params: KnownVariableParams,
 }
 
 impl EnvData {
@@ -423,16 +368,13 @@ impl EnvData {
     fn from_state_params(state: State, params: VariableParams) -> Self {
         let stats = GameStats::new();
         let known_params = KnownVariableParams::from(params.clone());
-        let memories = [
-            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
-            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
-        ];
+        let player_data =
+            PlayerData::from_player_count_known_params(P, known_params);
         Self {
             state,
-            memories,
+            player_data,
             stats,
             params,
-            known_params,
         }
     }
 
@@ -455,43 +397,6 @@ impl EnvData {
     fn is_new_game(&self) -> bool {
         self.state.total_steps == 0
     }
-}
-
-struct ObsArraysSlice<'a> {
-    spatial_obs: ArrayViewMut4<'a, f32>,
-    global_obs: ArrayViewMut2<'a, f32>,
-}
-
-impl ObsArraysSlice<'_> {
-    fn reset(&mut self) {
-        self.spatial_obs.fill(0.0);
-        self.global_obs.fill(0.0);
-    }
-}
-
-struct ActionInfoArraysSlice<'a> {
-    action_mask: ArrayViewMut3<'a, bool>,
-    sap_mask: ArrayViewMut4<'a, bool>,
-    unit_indices: ArrayViewMut3<'a, isize>,
-    unit_energies: ArrayViewMut2<'a, f32>,
-    units_mask: ArrayViewMut2<'a, bool>,
-}
-
-impl ActionInfoArraysSlice<'_> {
-    fn reset(&mut self) {
-        self.action_mask.fill(false);
-        self.sap_mask.fill(false);
-        self.unit_indices.fill(0);
-        self.unit_energies.fill(0.0);
-        self.units_mask.fill(false);
-    }
-}
-
-struct SingleEnvSlice<'a> {
-    obs_arrays: ObsArraysSlice<'a>,
-    action_info_arrays: ActionInfoArraysSlice<'a>,
-    reward: ArrayViewMut1<'a, f32>,
-    done: &'a mut bool,
 }
 
 struct ParallelEnvOutputs {
@@ -568,7 +473,7 @@ impl ParallelEnvOutputs {
         )
     }
 
-    fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvSlice> {
+    fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvView> {
         izip_eq!(
             self.spatial_obs.outer_iter_mut(),
             self.global_obs.outer_iter_mut(),
@@ -592,18 +497,18 @@ impl ParallelEnvOutputs {
                 reward,
                 done,
             )| {
-                let obs_arrays = ObsArraysSlice {
+                let obs_arrays = ObsArraysView {
                     spatial_obs,
                     global_obs,
                 };
-                let action_info_arrays = ActionInfoArraysSlice {
+                let action_info_arrays = ActionInfoArraysView {
                     action_mask,
                     sap_mask,
                     unit_indices,
                     unit_energies,
                     units_mask,
                 };
-                SingleEnvSlice {
+                SingleEnvView {
                     obs_arrays,
                     action_info_arrays,
                     reward,

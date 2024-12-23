@@ -1,4 +1,4 @@
-from rux_ai_s3.constants import TRAIN_OUTPUTS_DIR
+from .constants import TRAIN_OUTPUTS_DIR
 
 
 def test_train_outputs() -> None:

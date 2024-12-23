@@ -1,6 +1,6 @@
 import numpy as np
 
-from rux_ai_s3._lowlevel import hello_numpy_world, hello_world
+from rux_ai_s3.lowlevel import hello_numpy_world, hello_world
 
 
 def test_hello_world() -> None:

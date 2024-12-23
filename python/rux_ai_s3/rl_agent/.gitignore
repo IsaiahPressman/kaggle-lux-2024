@@ -1,0 +1,5 @@
+# Ignore model weights
+*.pt
+
+# Ignore train_config
+train_config.yaml

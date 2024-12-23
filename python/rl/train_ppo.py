@@ -2,6 +2,7 @@ import argparse
 import collections
 import datetime
 import itertools
+import logging
 import math
 import os
 import time
@@ -16,21 +17,28 @@ import torch
 import torch.nn.functional as F
 import wandb
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
-from rux_ai_s3.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
-from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticConfig, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
+from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
+from rux_ai_s3.rl_training.train_config import TrainConfig
+from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
 from rux_ai_s3.types import Action, Stats
+from rux_ai_s3.utils import load_from_yaml
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
+CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=10)
 CPU: Final[torch.device] = torch.device("cpu")
+
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+logger = logging.getLogger(NAME.upper())
 
 
 class UserArgs(BaseModel):
@@ -60,7 +68,7 @@ class LossCoefficients(BaseModel):
     )
 
 
-class PPOConfig(BaseModel):
+class PPOConfig(TrainConfig):
     # Training config
     max_updates: int | None
     optimizer_kwargs: dict[str, float]
@@ -74,12 +82,9 @@ class PPOConfig(BaseModel):
     clip_coefficient: float
     loss_coefficients: LossCoefficients
 
-    # Environment config
+    # Config objects
     env_config: EnvConfig
-
-    # Model config
-    d_model: int
-    n_blocks: int
+    rl_model_config: ActorCriticConfig
 
     # Miscellaneous config
     device: torch.device
@@ -108,12 +113,9 @@ class PPOConfig(BaseModel):
 
         return torch.device(device)
 
-    @classmethod
-    def from_file(cls, path: Path) -> "PPOConfig":
-        with open(path) as f:
-            data = yaml.safe_load(f)
-
-        return PPOConfig(**data)
+    @field_serializer("device")
+    def serialize_device(self, device: torch.device) -> str:
+        return str(device)
 
 
 @dataclass
@@ -204,14 +206,14 @@ class ExperienceBatch:
 
 def main() -> None:
     args = UserArgs.from_argparse()
-    cfg = PPOConfig.from_file(CONFIG_FILE)
-    init_train_dir()
-    env = ParallelEnv(
-        n_envs=cfg.env_config.n_envs,
-        reward_space=cfg.env_config.reward_space,
-        frame_stack_len=cfg.env_config.frame_stack_len,
-    )
+    cfg = load_from_yaml(PPOConfig, CONFIG_FILE)
+    init_logger(logger=logger)
+    init_train_dir(cfg)
+    env = ParallelEnv.from_config(cfg.env_config)
     model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
+    logger.info(
+        "Training model with %s parameters", f"{count_trainable_params(model):,d}"
+    )
     if args.release:
         model = torch.compile(model)  # type: ignore[assignment]
 
@@ -229,25 +231,24 @@ def main() -> None:
             config=cfg.model_dump(),
         )
 
-    last_checkpointed = datetime.datetime.now()
+    last_checkpoint = datetime.datetime.now()
     try:
         for step in cfg.iter_updates():
             train_step(
-                args=args,
-                cfg=cfg,
+                step=step,
                 env=env,
                 train_state=train_state,
+                args=args,
+                cfg=cfg,
             )
-            if (
-                (now := datetime.datetime.now()) - last_checkpointed
-            ) >= datetime.timedelta(minutes=10):
-                last_checkpointed = now
+            if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
+                last_checkpoint = now
                 checkpoint(step, train_state)
     finally:
         checkpoint(step + 1, train_state)
 
 
-def init_train_dir() -> None:
+def init_train_dir(cfg: PPOConfig) -> None:
     start_time = datetime.datetime.now()
     train_dir = (
         TRAIN_OUTPUTS_DIR
@@ -257,6 +258,8 @@ def init_train_dir() -> None:
     )
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
+    with open("train_config.yaml", "w") as f:
+        yaml.dump(cfg.model_dump(), f, sort_keys=False)
 
 
 def build_model(
@@ -266,44 +269,43 @@ def build_model(
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
     global_in_channels = example_obs.global_obs.shape[2]
-    return ActorCritic(
+    return ActorCritic.from_config(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
-        d_model=cfg.d_model,
-        n_blocks=cfg.n_blocks,
         reward_space=env.reward_space,
+        config=cfg.rl_model_config,
     )
 
 
 def train_step(
-    args: UserArgs,
-    cfg: PPOConfig,
+    step: int,
     env: ParallelEnv,
     train_state: TrainState,
+    args: UserArgs,
+    cfg: PPOConfig,
 ) -> None:
-    for step in cfg.iter_updates():
-        step_start_time = time.perf_counter()
-        experience, stats = collect_trajectories(env, train_state.model, cfg)
-        scalar_stats = update_model(experience, train_state, cfg)
-        array_stats = {}
-        if stats:
-            scalar_stats.update(stats.scalar_stats)
-            array_stats.update(stats.array_stats)
+    step_start_time = time.perf_counter()
+    experience, stats = collect_trajectories(env, train_state.model, cfg)
+    scalar_stats = update_model(experience, train_state, cfg)
+    array_stats = {}
+    if stats:
+        scalar_stats.update(stats.scalar_stats)
+        array_stats.update(stats.array_stats)
 
-        time_elapsed = time.perf_counter() - step_start_time
-        batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
-        scalar_stats["updates_per_second"] = (
-            batches_per_epoch * cfg.epochs_per_update / time_elapsed
-        )
-        scalar_stats["env_steps_per_second"] = (
-            cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
-        )
-        log_results(
-            step,
-            scalar_stats,
-            array_stats,
-            wandb_log=args.release,
-        )
+    time_elapsed = time.perf_counter() - step_start_time
+    batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
+    scalar_stats["updates_per_second"] = (
+        batches_per_epoch * cfg.epochs_per_update / time_elapsed
+    )
+    scalar_stats["env_steps_per_second"] = (
+        cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
+    )
+    log_results(
+        step,
+        scalar_stats,
+        array_stats,
+        wandb_log=args.release,
+    )
 
 
 @torch.no_grad()
@@ -325,7 +327,6 @@ def collect_trajectories(
         model_out: ActorCriticOut = model(
             obs=stacked_obs.flatten(start_dim=0, end_dim=1),
             action_info=action_info.flatten(start_dim=0, end_dim=1),
-            random_sample_actions=True,
         )
 
         batch_obs.append(stacked_obs.to_device(CPU))
@@ -335,7 +336,7 @@ def collect_trajectories(
         batch_done.append(last_out.done[:, None].repeat(2, axis=1))
         if step < cfg.steps_per_update:
             env.step(model_out.to_player_env_actions(last_out.action_info.unit_indices))
-            stats = stats or env.last_out.stats
+            stats = env.last_out.stats or stats
 
     experience = ExperienceBatch.from_lists(
         obs=batch_obs,
@@ -417,7 +418,6 @@ def update_model_on_batch(
         new_out: ActorCriticOut = train_state.model(
             obs=experience.obs,
             action_info=experience.action_info,
-            random_sample_actions=True,
         )._replace(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,
@@ -529,7 +529,7 @@ def log_results(
     array_stats: dict[str, npt.NDArray[np.float32]],
     wandb_log: bool,
 ) -> None:
-    print(f"Completed step {step}\n" f"{yaml.dump(scalar_stats)}\n")
+    logger.info("Completed step %d\n%s\n", step, yaml.dump(scalar_stats))
     if not wandb_log:
         return
 
@@ -557,7 +557,11 @@ def checkpoint(step: int, train_state: TrainState) -> None:
         },
         weights_path,
     )
-    print(f"Full checkpoint saved to {full_path} and weights saved to {weights_path}")
+    logger.info(
+        "Full checkpoint saved to %s and weights saved to %s",
+        full_path,
+        weights_path,
+    )
 
 
 if __name__ == "__main__":

@@ -1,15 +1,16 @@
+mod env_api;
 mod feature_engineering;
 pub mod izip_eq;
-mod parallel_env;
 mod rules_engine;
 
+use crate::env_api::FeatureEngineeringEnv;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_global_feature_count, get_spatial_feature_count,
 };
 use crate::feature_engineering::reward_space::RewardSpace;
+use env_api::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
-use parallel_env::ParallelEnv;
 use pyo3::prelude::*;
 
 /// Prints a message
@@ -39,12 +40,13 @@ fn get_global_feature_count_py() -> usize {
 
 /// A Python module implemented in Rust
 #[pymodule]
-fn _lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(hello_numpy_world, m)?)?;
 
     m.add_class::<RewardSpace>()?;
     m.add_class::<ParallelEnv>()?;
+    m.add_class::<FeatureEngineeringEnv>()?;
     m.add_function(wrap_pyfunction!(get_spatial_feature_count_py, m)?)?;
     m.add_function(wrap_pyfunction!(get_global_feature_count_py, m)?)?;
     Ok(())
