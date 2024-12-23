@@ -23,6 +23,7 @@ def test_train_config_file() -> None:
 
 
 class TestAgent:
+    @pytest.mark.slow
     def test_init(self) -> None:
         lux_env = LuxAIS3GymEnv(numpy_output=True)
         _, info = lux_env.reset(seed=42)
