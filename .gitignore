@@ -1,8 +1,7 @@
-# Exclude lockfiles while unstable
 *.lock
-
-# Exclude wandb outputs
 wandb/
+# Submission files
+*.tar.gz
 
 # python generated files
 __pycache__/
