@@ -22,6 +22,9 @@ There should preferably be at least one test case per possible node count value.
 followed by `process_replay_for_tests.py` on the generated replay.json, observations_0.json, and observations_1.json files.
 
 
+### Playing a game with the local agent
+`JAX_PLATFORMS=cpu luxai-s3 python/main.py python/main.py --output replay.json`
+
 ### Parameter meta-learning (as of 11-2) [source](https://github.com/Lux-AI-Challenge/Lux-Design-S3/blob/main/src/luxai_s3/params.py)
 Fixed parameters:
 - max_units
