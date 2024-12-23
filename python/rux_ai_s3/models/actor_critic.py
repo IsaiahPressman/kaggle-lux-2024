@@ -3,21 +3,30 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 import torch
+from pydantic import BaseModel
 from torch import nn
 
-from rux_ai_s3._lowlevel import RewardSpace
+from rux_ai_s3.lowlevel import RewardSpace
+from rux_ai_s3.rl_training.constants import MAP_SIZE
+from rux_ai_s3.types import Action
 
-from ..constants import MAP_SIZE, Action
 from .actor_heads import BasicActorHead
 from .conv_blocks import ResidualBlock
 from .types import ActivationFactory, TorchActionInfo, TorchObs
 from .utils import build_critic_head
 
 
+class ActorCriticConfig(BaseModel):
+    d_model: int
+    n_blocks: int
+    kernel_size: int = 3
+
+
 class ActorCriticOut(NamedTuple):
     # TODO: Is there a better way to decide when to sap? With this setup,
     #  agents might be too conservative about sapping if they don't learn to
     #  appropriately condition the sap action probability on the sap range
+    #  Could use attention module for sapping
     main_log_probs: torch.Tensor
     """shape (batch, [players,] units, actions)"""
     sap_log_probs: torch.Tensor
@@ -146,7 +155,8 @@ class ActorCritic(nn.Module):
         self,
         obs: TorchObs,
         action_info: TorchActionInfo,
-        random_sample_actions: bool,
+        random_sample_main_actions: bool = True,
+        random_sample_sap_actions: bool = True,
     ) -> ActorCriticOut:
         """
         spatial_obs: shape (batch, s_features, w, h) \
@@ -160,7 +170,10 @@ class ActorCritic(nn.Module):
         )
         x = self.base(x)
         main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
-            x, action_info, random_sample_actions=random_sample_actions
+            x,
+            action_info,
+            random_sample_main_actions=random_sample_main_actions,
+            random_sample_sap_actions=random_sample_sap_actions,
         )
         value = self.critic_head(x)
         return ActorCriticOut(
@@ -169,6 +182,23 @@ class ActorCritic(nn.Module):
             main_actions=main_actions,
             sap_actions=sap_actions,
             value=value,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        spatial_in_channels: int,
+        global_in_channels: int,
+        reward_space: RewardSpace,
+        config: ActorCriticConfig,
+    ) -> "ActorCritic":
+        return ActorCritic(
+            spatial_in_channels=spatial_in_channels,
+            global_in_channels=global_in_channels,
+            d_model=config.d_model,
+            n_blocks=config.n_blocks,
+            reward_space=reward_space,
+            kernel_size=config.kernel_size,
         )
 
     @classmethod

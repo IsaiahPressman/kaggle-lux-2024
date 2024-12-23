@@ -1,9 +1,11 @@
 from collections.abc import Sequence
+from enum import Enum
 from typing import NamedTuple, Union
 
 import numpy as np
 import numpy.typing as npt
 
+ActionArray = npt.NDArray[np.int64]
 ObsArrays = tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -19,13 +21,14 @@ StatsArrays = tuple[
     dict[str, float],
     dict[str, npt.NDArray[np.float32]],
 ]
-EnvFullOut = tuple[
+ParallelEnvFullOut = tuple[
     ObsArrays,
     ActionInfoArrays,
     npt.NDArray[np.float32],
     npt.NDArray[np.bool_],
     StatsArrays | None,
 ]
+FeatureEngineeringFullOut = tuple[ObsArrays, ActionInfoArrays]
 
 
 class Obs(NamedTuple):
@@ -45,9 +48,9 @@ class Obs(NamedTuple):
         return Obs(*raw)
 
     @classmethod
-    def concatenate_frame_history(cls, frames: Sequence["Obs"]) -> "Obs":
+    def concatenate_frame_history(cls, frames: Sequence["Obs"], axis: int) -> "Obs":
         raw_concatenated = [
-            np.concatenate(obs_frames, axis=2) for obs_frames in zip(*frames)
+            np.concatenate(obs_frames, axis=axis) for obs_frames in zip(*frames)
         ]
         return Obs(*raw_concatenated)
 
@@ -119,7 +122,7 @@ class ParallelEnvOut(NamedTuple):
         assert self.done.dtype == np.bool_
 
     @classmethod
-    def from_raw(cls, raw: EnvFullOut) -> "ParallelEnvOut":
+    def from_raw(cls, raw: ParallelEnvFullOut) -> "ParallelEnvOut":
         (raw_obs_arrays, raw_action_info_arrays, reward, done, stats) = raw
         return ParallelEnvOut(
             Obs.from_raw(raw_obs_arrays),
@@ -130,7 +133,29 @@ class ParallelEnvOut(NamedTuple):
         )
 
     @classmethod
-    def from_raw_validated(cls, raw: EnvFullOut) -> "ParallelEnvOut":
+    def from_raw_validated(cls, raw: ParallelEnvFullOut) -> "ParallelEnvOut":
         out = cls.from_raw(raw)
         out.validate()
         return out
+
+
+class FeatureEngineeringOut(NamedTuple):
+    obs: Obs
+    action_info: ActionInfo
+
+    @classmethod
+    def from_raw(cls, raw: FeatureEngineeringFullOut) -> "FeatureEngineeringOut":
+        (raw_obs_arrays, raw_action_info_arrays) = raw
+        return FeatureEngineeringOut(
+            Obs.from_raw(raw_obs_arrays),
+            ActionInfo.from_raw(raw_action_info_arrays),
+        )
+
+
+class Action(Enum):
+    NO_OP = 0
+    UP = 1
+    RIGHT = 2
+    DOWN = 3
+    LEFT = 4
+    SAP = 5

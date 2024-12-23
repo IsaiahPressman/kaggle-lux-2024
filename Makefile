@@ -2,9 +2,9 @@ py-format:
 	rye run ruff check python/ --select I --fix
 	rye run ruff format python/
 py-test:
-	rye run pytest -vv -m "not slow" --pyargs python/
+	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv -m "not slow" --pyargs python/
 py-test-full:
-	rye run pytest -vv --pyargs python/
+	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv --pyargs python/
 py-lint:
 	rye run ruff check python/
 py-static:

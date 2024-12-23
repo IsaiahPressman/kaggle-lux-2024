@@ -2,7 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ..constants import Action
+from rux_ai_s3.types import Action
+
 from .types import ActivationFactory, TorchActionInfo
 
 
@@ -33,7 +34,8 @@ class BasicActorHead(nn.Module):
         self,
         x: torch.Tensor,
         action_info: TorchActionInfo,
-        random_sample_actions: bool,
+        random_sample_main_actions: bool,
+        random_sample_sap_actions: bool,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         x: shape (batch, d_model, w, h) \
@@ -80,13 +82,17 @@ class BasicActorHead(nn.Module):
             action_info.units_mask,
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
-        main_actions = self.log_probs_to_actions(main_log_probs, random_sample_actions)
+        main_actions = self.log_probs_to_actions(
+            main_log_probs, random_sample_main_actions
+        )
         main_actions = torch.where(
             action_info.units_mask,
             main_actions,
             torch.zeros_like(main_actions),
         )
-        sap_actions = self.log_probs_to_actions(sap_log_probs, random_sample_actions)
+        sap_actions = self.log_probs_to_actions(
+            sap_log_probs, random_sample_sap_actions
+        )
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
     @staticmethod

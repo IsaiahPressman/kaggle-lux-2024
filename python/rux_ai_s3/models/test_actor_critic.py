@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 import torch
 
-from rux_ai_s3.constants import Action
 from rux_ai_s3.models.actor_critic import ActorCriticOut
+from rux_ai_s3.types import Action
 
 
 class TestActorCriticOut:
