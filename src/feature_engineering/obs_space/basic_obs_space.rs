@@ -12,9 +12,12 @@ enum SpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
-    // TODO: UnitEnergyMin and UnitEnergyMax features?
     MyUnitEnergy,
     OppUnitEnergy,
+    MyUnitEnergyMin,
+    OppUnitEnergyMin,
+    MyUnitEnergyMax,
+    OppUnitEnergyMax,
     Asteroid,
     Nebula,
     RelicNode,
@@ -28,19 +31,20 @@ enum SpatialFeature {
 enum GlobalFeature {
     MyTeamPoints = 0,
     OppTeamPoints = 1,
-    // TODO: Add team_id feature
+    MyTeamId = 2,
     // TODO: Discretize team_wins features
-    MyTeamWins = 2,
-    OppTeamWins = 3,
-    NebulaTileVisionReduction = 4,
-    NebulaTileEnergyReduction = 8,
-    UnitSapDropoffFactor = 11,
-    End = 14,
+    MyTeamWins = 4,
+    OppTeamWins = 5,
+    NebulaTileVisionReduction = 6,
+    NebulaTileEnergyReduction = 10,
+    UnitSapDropoffFactor = 13,
+    End = 16,
 }
 
 // Normalizing constants
 const UNIT_COUNT_NORM: f32 = 4.0;
 const UNIT_ENERGY_NORM: f32 = 400.0;
+const UNIT_ENERGY_MIN_BASELINE: f32 = 0.1;
 const ENERGY_FIELD_NORM: f32 = 7.0;
 
 /// Writes into spatial_out of shape (teams, s_channels, map_width, map_height) and
@@ -78,7 +82,6 @@ fn write_team_obs(
     use GlobalFeature::*;
     use SpatialFeature::*;
 
-    let opp = 1 - obs.team_id;
     for (sf, mut slice) in
         SpatialFeature::iter().zip_eq(spatial_out.outer_iter_mut())
     {
@@ -89,16 +92,28 @@ fn write_team_obs(
                 );
             },
             MyUnitCount => {
-                write_unit_counts(slice, &obs.units[obs.team_id]);
+                write_unit_counts(slice, obs.get_my_units());
             },
             OppUnitCount => {
-                write_unit_counts(slice, &obs.units[opp]);
+                write_unit_counts(slice, obs.get_opp_units());
             },
             MyUnitEnergy => {
-                write_unit_energies(slice, &obs.units[obs.team_id]);
+                write_unit_energies(slice, obs.get_my_units());
             },
             OppUnitEnergy => {
-                write_unit_energies(slice, &obs.units[opp]);
+                write_unit_energies(slice, obs.get_opp_units());
+            },
+            MyUnitEnergyMin => {
+                write_unit_energy_min(slice, obs.get_my_units());
+            },
+            OppUnitEnergyMin => {
+                write_unit_energy_min(slice, obs.get_opp_units());
+            },
+            MyUnitEnergyMax => {
+                write_unit_energy_max(slice, obs.get_my_units());
+            },
+            OppUnitEnergyMax => {
+                write_unit_energy_max(slice, obs.get_opp_units());
             },
             Asteroid => {
                 // TODO use memory
@@ -145,6 +160,15 @@ fn write_team_obs(
                 global_result[gf as usize] =
                     obs.team_points[1 - obs.team_id] as f32;
             },
+            MyTeamId => {
+                let onehot_team_id = match obs.team_id {
+                    0 => [1., 0.],
+                    1 => [0., 1.],
+                    _ => unreachable!(),
+                };
+                global_result[gf as usize..next_gf as usize]
+                    .copy_from_slice(&onehot_team_id);
+            },
             MyTeamWins => {
                 global_result[gf as usize] = obs.team_wins[obs.team_id] as f32;
             },
@@ -181,12 +205,33 @@ fn write_team_obs(
 fn write_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     units
         .iter()
+        .filter(|u| u.alive())
         .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
 }
 
 fn write_unit_energies(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
-    units.iter().for_each(|u| {
+    units.iter().filter(|u| u.alive()).for_each(|u| {
         slice[u.pos.as_index()] += u.energy as f32 / UNIT_ENERGY_NORM
+    });
+}
+
+fn write_unit_energy_min(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
+    units.iter().filter(|u| u.alive()).for_each(|u| {
+        let cur_val = slice[u.pos.as_index()];
+        let new_val =
+            u.energy as f32 / UNIT_ENERGY_NORM + UNIT_ENERGY_MIN_BASELINE;
+        slice[u.pos.as_index()] = if cur_val == 0.0 {
+            new_val
+        } else {
+            cur_val.min(new_val)
+        }
+    });
+}
+
+fn write_unit_energy_max(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
+    units.iter().filter(|u| u.alive()).for_each(|u| {
+        slice[u.pos.as_index()] =
+            slice[u.pos.as_index()].max(u.energy as f32 / UNIT_ENERGY_NORM);
     });
 }
 
@@ -194,12 +239,19 @@ fn write_unit_energies(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
 mod tests {
     use super::*;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
+    use crate::rules_engine::params::P;
     use GlobalFeature::*;
 
     #[test]
     fn test_global_feature_indices() {
         for (feature, next_feature) in GlobalFeature::iter().tuple_windows() {
             match feature {
+                MyTeamId => {
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        P as isize
+                    );
+                },
                 NebulaTileVisionReduction => {
                     let option_count = PARAM_RANGES
                         .nebula_tile_vision_reduction
