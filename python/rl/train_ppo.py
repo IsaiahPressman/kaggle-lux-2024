@@ -17,17 +17,17 @@ import torch
 import torch.nn.functional as F
 import wandb
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticConfig, ActorCriticOut
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
+from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
 from rux_ai_s3.types import Action, Stats
+from rux_ai_s3.utils import load_from_yaml
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
-
-from rux_ai_s3.utils import load_from_yaml
 
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
@@ -68,7 +68,7 @@ class LossCoefficients(BaseModel):
     )
 
 
-class PPOConfig(BaseModel):
+class PPOConfig(TrainConfig):
     # Training config
     max_updates: int | None
     optimizer_kwargs: dict[str, float]
@@ -112,6 +112,10 @@ class PPOConfig(BaseModel):
             return device
 
         return torch.device(device)
+
+    @field_serializer("device")
+    def serialize_device(self, device: torch.device) -> str:
+        return str(device)
 
 
 @dataclass
@@ -255,7 +259,7 @@ def init_train_dir(cfg: PPOConfig) -> None:
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
     with open("train_config.yaml", "w") as f:
-        yaml.dump(cfg.model_dump(), f)
+        yaml.dump(cfg.model_dump(), f, sort_keys=False)
 
 
 def build_model(
@@ -323,7 +327,6 @@ def collect_trajectories(
         model_out: ActorCriticOut = model(
             obs=stacked_obs.flatten(start_dim=0, end_dim=1),
             action_info=action_info.flatten(start_dim=0, end_dim=1),
-            random_sample_actions=True,
         )
 
         batch_obs.append(stacked_obs.to_device(CPU))
@@ -415,7 +418,6 @@ def update_model_on_batch(
         new_out: ActorCriticOut = train_state.model(
             obs=experience.obs,
             action_info=experience.action_info,
-            random_sample_actions=True,
         )._replace(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,

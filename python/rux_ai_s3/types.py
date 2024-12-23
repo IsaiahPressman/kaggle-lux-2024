@@ -48,9 +48,9 @@ class Obs(NamedTuple):
         return Obs(*raw)
 
     @classmethod
-    def concatenate_frame_history(cls, frames: Sequence["Obs"]) -> "Obs":
+    def concatenate_frame_history(cls, frames: Sequence["Obs"], axis: int) -> "Obs":
         raw_concatenated = [
-            np.concatenate(obs_frames, axis=2) for obs_frames in zip(*frames)
+            np.concatenate(obs_frames, axis=axis) for obs_frames in zip(*frames)
         ]
         return Obs(*raw_concatenated)
 

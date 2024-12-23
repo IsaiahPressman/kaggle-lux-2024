@@ -18,10 +18,17 @@ class FeatureEngineeringEnv:
             team_id=team_id,
             env_params=env_params,
         )
+        self._last_out: FeatureEngineeringOut = FeatureEngineeringOut.from_raw(
+            self._env.get_empty_outputs()
+        )
         self._frame_history: deque[Obs] = self._make_empty_frame_history()
 
+    @property
+    def last_out(self) -> FeatureEngineeringOut:
+        return self._last_out
+
     def get_frame_stacked_obs(self) -> Obs:
-        return Obs.concatenate_frame_history(self._frame_history)
+        return Obs.concatenate_frame_history(self._frame_history, axis=1)
 
     def _make_empty_out(self) -> FeatureEngineeringOut:
         return FeatureEngineeringOut.from_raw(self._env.get_empty_outputs())

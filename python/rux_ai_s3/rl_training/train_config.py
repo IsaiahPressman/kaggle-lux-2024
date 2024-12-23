@@ -1,11 +1,7 @@
-from pathlib import Path
-
 from pydantic import BaseModel
 
 from rux_ai_s3.models.actor_critic import ActorCriticConfig
 from rux_ai_s3.parallel_env import EnvConfig
-
-TRAIN_CONFIG_FILE = Path(__file__).parent / "train_config.yaml"
 
 
 class TrainConfig(BaseModel):

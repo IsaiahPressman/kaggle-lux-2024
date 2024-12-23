@@ -96,7 +96,7 @@ class ParallelEnv:
         return self._last_out
 
     def get_frame_stacked_obs(self) -> Obs:
-        return Obs.concatenate_frame_history(self._frame_history)
+        return Obs.concatenate_frame_history(self._frame_history, axis=2)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
         with jax.default_device(self.jax_device):

@@ -1,9 +1,6 @@
 # Exclude lockfiles while unstable
 *.lock
 
-# Exclude rl_agent latest train_config
-python/rux_ai_s3/rl_agent/train_config.yaml
-
 # Exclude wandb outputs
 wandb/
 
