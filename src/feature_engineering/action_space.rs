@@ -2,12 +2,13 @@ use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
 use crate::rules_engine::params::KnownVariableParams;
-use crate::rules_engine::state::{Observation, Unit};
+use crate::rules_engine::state::{Observation, Pos, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
     s, Array2, ArrayView2, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
     Zip,
 };
+use std::collections::BTreeSet;
 use strum::IntoEnumIterator;
 
 /// Writes into action_mask of shape (teams, n_units, n_actions) and
@@ -122,7 +123,11 @@ fn get_sap_targets_map(
 ) -> Array2<bool> {
     let mut sap_targets = Array2::default(map_size);
     let [width, height] = map_size;
+    let mut enemy_unit_locations = BTreeSet::new();
+
+    // All locations adjacent to enemy units are valid sap targets
     for unit in obs.get_opp_units().iter().filter(|u| u.alive()) {
+        enemy_unit_locations.insert(unit.pos);
         let [x, y]: [usize; 2] = unit.pos.into();
         let slice = s![
             x.saturating_sub(1)..=(x + 1).min(width - 1),
@@ -130,24 +135,35 @@ fn get_sap_targets_map(
         ];
         sap_targets.slice_mut(slice).fill(true);
     }
-    // TODO: Don't include point targets that we can see are empty all around
+
+    // Some locations near unseen points tiles are also valid sap targets
     for (((x, y), &point), can_sap) in known_valuable_points_map
         .indexed_iter()
         .zip_eq(sap_targets.iter_mut())
     {
-        if point {
+        // If worth points and might have a target, is valid sap
+        if point
+            && might_have_sap_target(
+                [x, y],
+                &obs.sensor_mask,
+                &enemy_unit_locations,
+            )
+        {
             *can_sap = true;
             continue;
         }
 
-        let slice = s![
-            x.saturating_sub(1)..=(x + 1).min(width - 1),
-            y.saturating_sub(1)..=(y + 1).min(height - 1),
-        ];
-        if known_valuable_points_map
-            .slice(slice)
-            .iter()
-            .filter(|&&p| p)
+        // If adjacent to multiple point tiles that might have a target, is valid sap
+        if (x.saturating_sub(1)..=(x + 1).min(width - 1))
+            .cartesian_product(y.saturating_sub(1)..=(y + 1).min(height - 1))
+            .filter(|&(x, y)| {
+                known_valuable_points_map[[x, y]]
+                    && might_have_sap_target(
+                        [x, y],
+                        &obs.sensor_mask,
+                        &enemy_unit_locations,
+                    )
+            })
             .count()
             >= 2
         {
@@ -155,6 +171,17 @@ fn get_sap_targets_map(
         }
     }
     sap_targets
+}
+
+#[inline(always)]
+fn might_have_sap_target(
+    xy: [usize; 2],
+    sensor_mask: &Array2<bool>,
+    enemy_unit_locations: &BTreeSet<Pos>,
+) -> bool {
+    // Not visible -> could have enemy
+    // Visible -> only targetable if contains an enemy
+    !sensor_mask[xy] || enemy_unit_locations.contains(&Pos::from(xy))
 }
 
 #[cfg(test)]
@@ -274,6 +301,7 @@ mod tests {
                     Unit::with_pos(Pos::new(2, 3)),
                 ],
             ],
+            sensor_mask: Array2::default(map_size),
             ..Default::default()
         };
         let known_valuable_points_map = Array2::default(map_size);
