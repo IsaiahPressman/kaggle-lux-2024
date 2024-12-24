@@ -134,17 +134,12 @@ pub fn step(
         &FIXED_PARAMS,
         termination,
     );
-    let observation = if let Some(energy_field) = prev_energy_field {
-        get_observation(state, vision_power_map.view(), energy_field.view())
-    } else {
-        get_observation(
-            state,
-            vision_power_map.view(),
-            state.energy_field.view(),
-        )
-    };
+    let energy_field_view = prev_energy_field
+        .iter()
+        .next()
+        .map_or(state.energy_field.view(), |ef| ef.view());
     (
-        observation,
+        get_observation(state, vision_power_map.view(), energy_field_view),
         GameResult::new(points_scored, match_winner, game_winner, state.done),
         StepStats {
             terminal_points_scored,
@@ -398,8 +393,8 @@ fn get_unit_counts_map(
 }
 
 fn get_unit_aggregate_energy_map(
-    units: &[Vec<Unit>; 2],
-    unit_energies: &[Vec<i32>; 2],
+    units: &[Vec<Unit>; P],
+    unit_energies: &[Vec<i32>; P],
     map_size: [usize; 2],
 ) -> Array3<i32> {
     let mut result = Array3::zeros((P, map_size[0], map_size[1]));
@@ -419,7 +414,7 @@ fn get_unit_aggregate_energy_map(
 }
 
 fn apply_energy_field(
-    units: &mut [Vec<Unit>; 2],
+    units: &mut [Vec<Unit>; P],
     energy_field: ArrayView2<i32>,
     nebula_mask: ArrayView2<bool>,
     fixed_params: &FixedParams,
@@ -509,7 +504,7 @@ fn get_dist(a: [usize; 2], b: [usize; 2]) -> f32 {
     sum_of_squares.sqrt()
 }
 
-fn spawn_units(units: &mut [Vec<Unit>; 2], fixed_params: &FixedParams) {
+fn spawn_units(units: &mut [Vec<Unit>; P], fixed_params: &FixedParams) {
     for (team, team_units) in units
         .iter_mut()
         .enumerate()
@@ -581,7 +576,7 @@ pub fn estimate_vision_power_map(
 }
 
 fn compute_vision_power_map_from_params(
-    units: &[Vec<Unit>; 2],
+    units: &[Vec<Unit>; P],
     nebulae: &[Pos],
     map_size: [usize; 2],
     params: &VariableParams,
@@ -664,11 +659,11 @@ fn move_space_objects(
         {
             node.pos = node.pos.bounded_translate(deltas, fixed_params.map_size)
         }
-        let energy_field = mem::replace(
+        let prev_energy_field = mem::replace(
             &mut state.energy_field,
             get_energy_field(&state.energy_nodes, fixed_params),
         );
-        Some(energy_field)
+        Some(prev_energy_field)
     } else {
         None
     }
@@ -689,10 +684,10 @@ fn get_random_energy_node_deltas(
 }
 
 fn get_relic_points_scored(
-    units: &[Vec<Unit>; 2],
+    units: &[Vec<Unit>; P],
     relic_node_points_map: ArrayView2<bool>,
-) -> [u32; 2] {
-    let mut points_scored = [0; 2];
+) -> [u32; P] {
+    let mut points_scored = [0; P];
     for (points, units) in points_scored.iter_mut().zip_eq(units) {
         let mut scored_positions = Vec::with_capacity(units.len());
         *points += units
@@ -771,7 +766,7 @@ fn step_match(state: &mut State, match_winner: Option<u8>) {
 fn step_game(
     total_steps: &mut u32,
     game_over: &mut bool,
-    team_wins: [u32; 2],
+    team_wins: [u32; P],
     fixed_params: &FixedParams,
     termination: TerminationMode,
 ) -> Option<u8> {
@@ -812,7 +807,7 @@ fn get_observation(
     state: &State,
     vision_power_map: ArrayView3<i32>,
     energy_field: ArrayView2<i32>,
-) -> [Observation; 2] {
+) -> [Observation; P] {
     let [p1_mask, p2_mask] = get_sensor_masks(vision_power_map);
     let p1_energy_field = get_masked_energy_field(p1_mask.view(), energy_field);
     let p2_energy_field = get_masked_energy_field(p2_mask.view(), energy_field);
@@ -867,7 +862,7 @@ fn get_observation(
     observations
 }
 
-fn get_sensor_masks(vision_power_map: ArrayView3<i32>) -> [Array2<bool>; 2] {
+fn get_sensor_masks(vision_power_map: ArrayView3<i32>) -> [Array2<bool>; P] {
     [
         vision_power_map.slice(s![0, .., ..]).map(|&v| v > 0),
         vision_power_map.slice(s![1, .., ..]).map(|&v| v > 0),
@@ -1792,7 +1787,7 @@ mod tests {
     #[case([1, 3], FinalStep, None)]
     #[case([1, 3], ThirdMatchWin, Some(1))]
     fn test_step_game_finishes_early(
-        #[case] team_wins: [u32; 2],
+        #[case] team_wins: [u32; P],
         #[case] termination: TerminationMode,
         #[case] expected_result: Option<u8>,
     ) {
@@ -2001,7 +1996,7 @@ mod tests {
         let all_states = full_replay.get_states();
         let all_vision_power_maps = full_replay.get_vision_power_maps();
         let mut rng = rand::thread_rng();
-        let mut last_points = [0; 2];
+        let mut last_points = [0; P];
         let mut game_over = false;
 
         // Assert fixed params are correct

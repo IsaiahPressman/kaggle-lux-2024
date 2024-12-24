@@ -1,11 +1,14 @@
+use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
 use crate::rules_engine::params::KnownVariableParams;
-use crate::rules_engine::state::{Observation, Unit};
+use crate::rules_engine::state::{Observation, Pos, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
-    s, Array2, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis, Zip,
+    s, Array2, ArrayView2, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis,
+    Zip,
 };
+use std::collections::BTreeSet;
 use strum::IntoEnumIterator;
 
 /// Writes into action_mask of shape (teams, n_units, n_actions) and
@@ -14,14 +17,22 @@ pub fn write_basic_action_space(
     mut action_mask: ArrayViewMut3<bool>,
     mut sap_mask: ArrayViewMut4<bool>,
     observations: &[Observation],
+    known_valuable_points_map: &[Array2<bool>],
     params: &KnownVariableParams,
 ) {
-    for ((obs, team_action_mask), team_sap_mask) in observations
-        .iter()
-        .zip_eq(action_mask.outer_iter_mut())
-        .zip_eq(sap_mask.outer_iter_mut())
-    {
-        write_team_actions(team_action_mask, team_sap_mask, obs, params);
+    for (obs, team_action_mask, team_sap_mask, known_valuable_points_map) in izip_eq!(
+        observations.iter(),
+        action_mask.outer_iter_mut(),
+        sap_mask.outer_iter_mut(),
+        known_valuable_points_map.iter(),
+    ) {
+        write_team_actions(
+            team_action_mask,
+            team_sap_mask,
+            obs,
+            known_valuable_points_map.view(),
+            params,
+        );
     }
 }
 
@@ -29,6 +40,7 @@ fn write_team_actions(
     mut action_mask: ArrayViewMut2<bool>,
     mut sap_mask: ArrayViewMut3<bool>,
     obs: &Observation,
+    known_valuable_points_map: ArrayView2<bool>,
     params: &KnownVariableParams,
 ) {
     if obs.is_new_match() {
@@ -37,7 +49,8 @@ fn write_team_actions(
 
     let (_, width, height) = sap_mask.dim();
     let map_size = [width, height];
-    let sap_targets_map = get_sap_targets_map(obs, map_size);
+    let sap_targets_map =
+        get_sap_targets_map(obs, known_valuable_points_map, map_size);
     for unit in obs.get_my_units().iter().filter(|u| u.alive()) {
         let can_sap = write_sap_mask(
             sap_mask.index_axis_mut(Axis(0), unit.id),
@@ -86,8 +99,6 @@ fn write_sap_mask(
         return false;
     }
 
-    // TODO: Improve sap mask to allow sapping unseen units from last turn
-    //  and/or unseen points squares
     let (width, height) = sap_mask.dim();
     let mut unit_can_sap = false;
     let [x, y]: [usize; 2] = unit.pos.into();
@@ -107,11 +118,16 @@ fn write_sap_mask(
 
 fn get_sap_targets_map(
     obs: &Observation,
+    known_valuable_points_map: ArrayView2<bool>,
     map_size: [usize; 2],
 ) -> Array2<bool> {
     let mut sap_targets = Array2::default(map_size);
     let [width, height] = map_size;
-    for unit in obs.get_opp_units() {
+    let mut enemy_unit_locations = BTreeSet::new();
+
+    // All locations adjacent to enemy units are valid sap targets
+    for unit in obs.get_opp_units().iter().filter(|u| u.alive()) {
+        enemy_unit_locations.insert(unit.pos);
         let [x, y]: [usize; 2] = unit.pos.into();
         let slice = s![
             x.saturating_sub(1)..=(x + 1).min(width - 1),
@@ -119,7 +135,53 @@ fn get_sap_targets_map(
         ];
         sap_targets.slice_mut(slice).fill(true);
     }
+
+    // Some locations near unseen points tiles are also valid sap targets
+    for (((x, y), &point), can_sap) in known_valuable_points_map
+        .indexed_iter()
+        .zip_eq(sap_targets.iter_mut())
+    {
+        // If worth points and might have a target, is valid sap
+        if point
+            && might_have_sap_target(
+                [x, y],
+                &obs.sensor_mask,
+                &enemy_unit_locations,
+            )
+        {
+            *can_sap = true;
+            continue;
+        }
+
+        // If adjacent to multiple point tiles that might have a target, is valid sap
+        if (x.saturating_sub(1)..=(x + 1).min(width - 1))
+            .cartesian_product(y.saturating_sub(1)..=(y + 1).min(height - 1))
+            .filter(|&(x, y)| {
+                known_valuable_points_map[[x, y]]
+                    && might_have_sap_target(
+                        [x, y],
+                        &obs.sensor_mask,
+                        &enemy_unit_locations,
+                    )
+            })
+            .count()
+            >= 2
+        {
+            *can_sap = true;
+        }
+    }
     sap_targets
+}
+
+#[inline(always)]
+fn might_have_sap_target(
+    xy: [usize; 2],
+    sensor_mask: &Array2<bool>,
+    enemy_unit_locations: &BTreeSet<Pos>,
+) -> bool {
+    // Not visible -> could have enemy
+    // Visible -> only targetable if contains an enemy
+    !sensor_mask[xy] || enemy_unit_locations.contains(&Pos::from(xy))
 }
 
 #[cfg(test)]
@@ -168,16 +230,21 @@ mod tests {
                 vec![
                     // One visible sap target
                     Unit::with_pos(Pos::new(3, 4)),
+                    // Ignore dead units
+                    Unit::with_pos_and_energy(Pos::new(0, 1), -1),
                 ],
             ],
             asteroids: vec![Pos::new(1, 2)],
             match_steps: 1,
             ..Default::default()
         };
+        let known_valuable_points_map =
+            Array2::default((map_width, map_height));
         write_team_actions(
             action_mask.view_mut(),
             sap_mask.view_mut(),
             &obs,
+            known_valuable_points_map.view(),
             &variable_params,
         );
         let expected_action_mask = arr2(&[
@@ -234,15 +301,42 @@ mod tests {
                     Unit::with_pos(Pos::new(2, 3)),
                 ],
             ],
+            sensor_mask: Array2::default(map_size),
             ..Default::default()
         };
-        let sap_targets_mask = get_sap_targets_map(&obs, map_size);
+        let known_valuable_points_map = Array2::default(map_size);
+        let sap_targets_mask = get_sap_targets_map(
+            &obs,
+            known_valuable_points_map.view(),
+            map_size,
+        );
         let expected_sap_targets_mask = arr2(&[
             [true, true, true, false, false],
             [true, true, true, true, true],
             [false, false, true, true, true],
             [false, false, true, true, true],
             [false, false, false, false, false],
+        ]);
+        assert_eq!(sap_targets_mask, expected_sap_targets_mask);
+
+        let known_valuable_points_map = arr2(&[
+            [false, false, false, false, true],
+            [false; 5],
+            [false; 5],
+            [false, false, true, false, false],
+            [true, false, false, false, false],
+        ]);
+        let sap_targets_mask = get_sap_targets_map(
+            &obs,
+            known_valuable_points_map.view(),
+            map_size,
+        );
+        let expected_sap_targets_mask = arr2(&[
+            [true, true, true, false, true],
+            [true, true, true, true, true],
+            [false, false, true, true, true],
+            [false, true, true, true, true],
+            [true, true, false, false, false],
         ]);
         assert_eq!(sap_targets_mask, expected_sap_targets_mask);
     }

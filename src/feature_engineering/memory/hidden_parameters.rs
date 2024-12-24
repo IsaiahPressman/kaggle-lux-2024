@@ -163,7 +163,7 @@ fn determine_nebula_tile_vision_reduction(
 
     if nebula_tile_vision_reduction_options.all_masked() {
         // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!("nebula_tile_vision_reduction_mask is all false")
+        panic!("nebula_tile_vision_reduction mask is all false")
     }
 }
 
@@ -407,7 +407,7 @@ fn determine_unit_sap_dropoff_factor(
             .collect_vec();
         // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!(
-            "unit_sap_dropoff_factor_mask is all false.
+            "unit_sap_dropoff_factor mask is all false.
             My units last turn: {:?}
             My units now: {:?}
             Opp units last turn: {:?}
@@ -524,7 +524,7 @@ mod tests {
 
     #[rstest]
     #[case(vec![true, true, true])]
-    #[should_panic(expected = "nebula_tile_vision_reduction_mask is all false")]
+    #[should_panic(expected = "nebula_tile_vision_reduction mask is all false")]
     #[case(vec![true, true, false])]
     fn test_determine_nebula_tile_vision_reduction_panics(
         #[case] mask: Vec<bool>,
@@ -878,7 +878,7 @@ mod tests {
 
     #[rstest]
     #[case(vec![true, true, true])]
-    #[should_panic(expected = "unit_sap_dropoff_factor_mask is all false")]
+    #[should_panic(expected = "unit_sap_dropoff_factor mask is all false")]
     #[case(vec![true, true, false])]
     fn test_determine_unit_sap_dropoff_factor_panics(
         #[case] dropoff_mask: Vec<bool>,

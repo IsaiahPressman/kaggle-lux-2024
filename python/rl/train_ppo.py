@@ -369,11 +369,11 @@ def update_model(
             minibatch_end = minibatch_start + cfg.train_batch_size
             minibatch_indices = batch_indices[minibatch_start:minibatch_end]
             batch_stats = update_model_on_batch(
-                train_state,
-                experience.index(minibatch_indices).to_device(cfg.device),
-                advantages[minibatch_indices].to(cfg.device),
-                returns[minibatch_indices].to(cfg.device),
-                cfg,
+                train_state=train_state,
+                experience=experience.index(minibatch_indices).to_device(cfg.device),
+                advantages=advantages[minibatch_indices].to(cfg.device),
+                returns=returns[minibatch_indices].to(cfg.device),
+                cfg=cfg,
             )
             for k, v in batch_stats.items():
                 aggregated_stats[k].append(v)
@@ -412,6 +412,8 @@ def update_model_on_batch(
     returns: torch.Tensor,
     cfg: PPOConfig,
 ) -> dict[str, float]:
+    # NB: Batch of observations is random, with no association between
+    # trajectories, games, and players
     with torch.autocast(
         device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
     ):
