@@ -11,7 +11,7 @@ use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos};
 use energy_field::EnergyFieldMemory;
 use hidden_parameters::HiddenParametersMemory;
-use numpy::ndarray::Array2;
+use numpy::ndarray::{Array2, Zip};
 use relic_nodes::RelicNodeMemory;
 
 pub struct Memory {
@@ -82,5 +82,11 @@ impl Memory {
 
     pub fn get_known_relic_points_map(&self) -> &Array2<bool> {
         &self.relic_nodes.known_points_map
+    }
+
+    pub fn get_known_valuable_relic_points_map(&self) -> Array2<bool> {
+        Zip::from(&self.relic_nodes.points_map)
+            .and(&self.relic_nodes.known_points_map)
+            .map_collect(|&value, &known| known && value >= 0.99)
     }
 }
