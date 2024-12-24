@@ -29,24 +29,29 @@ impl<T> MaskedPossibilities<T> {
             .collect()
     }
 
+    #[inline(always)]
     pub fn still_unsolved(&self) -> bool {
         self.mask.iter().filter(|mask| **mask).count() > 1
     }
 
+    #[inline(always)]
     pub fn iter_options_mut_mask(
         &mut self,
     ) -> impl Iterator<Item = (&T, &mut bool)> {
         self.options.iter().zip_eq(self.mask.iter_mut())
     }
 
+    #[inline(always)]
     pub fn all_masked(&self) -> bool {
         self.mask.iter().all(|mask| !mask)
     }
 
+    #[inline(always)]
     pub fn get_options(&self) -> &[T] {
         &self.options
     }
 
+    #[inline(always)]
     pub fn get_mask(&self) -> &[bool] {
         &self.mask
     }

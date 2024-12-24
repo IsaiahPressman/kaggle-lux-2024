@@ -134,17 +134,12 @@ pub fn step(
         &FIXED_PARAMS,
         termination,
     );
-    let observation = if let Some(energy_field) = prev_energy_field {
-        get_observation(state, vision_power_map.view(), energy_field.view())
-    } else {
-        get_observation(
-            state,
-            vision_power_map.view(),
-            state.energy_field.view(),
-        )
-    };
+    let energy_field_view = prev_energy_field
+        .iter()
+        .next()
+        .map_or(state.energy_field.view(), |ef| ef.view());
     (
-        observation,
+        get_observation(state, vision_power_map.view(), energy_field_view),
         GameResult::new(points_scored, match_winner, game_winner, state.done),
         StepStats {
             terminal_points_scored,
@@ -664,11 +659,11 @@ fn move_space_objects(
         {
             node.pos = node.pos.bounded_translate(deltas, fixed_params.map_size)
         }
-        let energy_field = mem::replace(
+        let prev_energy_field = mem::replace(
             &mut state.energy_field,
             get_energy_field(&state.energy_nodes, fixed_params),
         );
-        Some(energy_field)
+        Some(prev_energy_field)
     } else {
         None
     }

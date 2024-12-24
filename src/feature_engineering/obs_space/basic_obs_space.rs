@@ -36,10 +36,11 @@ enum GlobalFeature {
     MyTeamWins = 4,
     OppTeamWins = 7,
     MatchSteps = 10,
-    NebulaTileVisionReduction = 11,
-    NebulaTileEnergyReduction = 15,
-    UnitSapDropoffFactor = 18,
-    End = 21,
+    UnitSapDropoffFactor = 11,
+    NebulaTileVisionReduction = 14,
+    NebulaTileEnergyReduction = 18,
+    EnergyNodeDriftSpeed = 21,
+    End = 26,
 }
 
 // Normalizing constants
@@ -186,6 +187,11 @@ fn write_team_obs(
                 global_result[gf as usize] = obs.match_steps as f32
                     / FIXED_PARAMS.max_steps_in_match as f32;
             },
+            UnitSapDropoffFactor => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &mem.get_unit_sap_dropoff_factor_weights(),
+                );
+            },
             NebulaTileVisionReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
                     &mem.get_nebula_tile_vision_reduction_weights(),
@@ -196,9 +202,9 @@ fn write_team_obs(
                     &mem.get_nebula_tile_energy_reduction_weights(),
                 );
             },
-            UnitSapDropoffFactor => {
+            EnergyNodeDriftSpeed => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &mem.get_unit_sap_dropoff_factor_weights(),
+                    &mem.get_energy_node_drift_speed_weights(),
                 );
             },
             End => {
@@ -277,6 +283,18 @@ mod tests {
                         option_count as isize
                     );
                 },
+                UnitSapDropoffFactor => {
+                    let option_count = PARAM_RANGES
+                        .unit_sap_dropoff_factor
+                        .iter()
+                        .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                        .dedup()
+                        .count();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
+                    );
+                },
                 NebulaTileVisionReduction => {
                     let option_count = PARAM_RANGES
                         .nebula_tile_vision_reduction
@@ -301,9 +319,9 @@ mod tests {
                         option_count as isize
                     );
                 },
-                UnitSapDropoffFactor => {
+                EnergyNodeDriftSpeed => {
                     let option_count = PARAM_RANGES
-                        .unit_sap_dropoff_factor
+                        .energy_node_drift_speed
                         .iter()
                         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                         .dedup()

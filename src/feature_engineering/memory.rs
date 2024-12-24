@@ -23,7 +23,7 @@ pub struct Memory {
 
 impl Memory {
     pub fn new(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
-        let energy_field = EnergyFieldMemory::new(map_size);
+        let energy_field = EnergyFieldMemory::new(param_ranges, map_size);
         let hidden_parameters = HiddenParametersMemory::new(param_ranges);
         let relic_nodes = RelicNodeMemory::new(map_size);
         Self {
@@ -48,6 +48,12 @@ impl Memory {
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
         &self.energy_field.energy_field
+    }
+
+    pub fn get_energy_node_drift_speed_weights(&self) -> Vec<f32> {
+        self.energy_field
+            .energy_node_drift_speed
+            .get_weighted_possibilities()
     }
 
     pub fn get_nebula_tile_vision_reduction_weights(&self) -> Vec<f32> {
