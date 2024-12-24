@@ -1,9 +1,9 @@
 # ruff: noqa
 # mypy: ignore-errors
 import json
+import os
+import sys
 from argparse import Namespace
-
-from rux_ai_s3.rl_agent import Agent
 
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 agent_dict = (
@@ -24,6 +24,15 @@ def agent_fn(observation, configurations):
     player = observation.player
     remaining_overage_time = observation.remainingOverageTime
     if step == 0:
+        if "__raw_path__" in configurations:
+            dirname = os.path.dirname(configurations["__raw_path__"])
+        else:
+            dirname = os.path.dirname(__file__)
+
+        sys.path.append(os.path.abspath(dirname))
+
+        from rux_ai_s3.rl_agent import Agent
+
         agent_dict[player] = Agent(player, configurations["env_cfg"])
 
     agent = agent_dict[player]
