@@ -51,10 +51,15 @@ pub fn update_memories_and_write_output_arrays(
         observations,
         memories,
     );
+    let known_valuable_points_maps = memories
+        .iter()
+        .map(|m| m.get_known_valuable_relic_points_map())
+        .collect_vec();
     write_basic_action_space(
         action_info_slice.action_mask.view_mut(),
         action_info_slice.sap_mask.view_mut(),
         observations,
+        &known_valuable_points_maps,
         params,
     );
     write_unit_features(

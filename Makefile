@@ -2,9 +2,11 @@ py-format:
 	rye run ruff check python/ --select I --fix
 	rye run ruff format python/
 py-test:
-	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv -m "not slow" --pyargs python/
-py-test-full:
-	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv --pyargs python/
+	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv -m "not agent and not slow" --pyargs python/
+py-test-slow:
+	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv -m "not agent" --pyargs python/
+py-test-agent:
+	CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu rye run pytest -vv -m "agent" --pyargs python/
 py-lint:
 	rye run ruff check python/
 py-static:
@@ -27,9 +29,10 @@ build:
 build-release:
 	maturin develop --release
 
-test: rs-test-full py-test-full
+test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static
 prepare: build-release rs-format py-format check test
+prepare-agent: prepare py-test-agent
 
 clean:
 	cargo clean

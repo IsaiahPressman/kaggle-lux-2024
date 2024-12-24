@@ -1,3 +1,5 @@
+use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
+use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
@@ -6,13 +8,22 @@ use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
 #[derive(Debug)]
 pub struct EnergyFieldMemory {
     pub energy_field: Array2<Option<i32>>,
-    // TODO: Track energy_node_drift_speed parameter
+    pub energy_node_drift_speed: MaskedPossibilities<f32>,
 }
 
 impl EnergyFieldMemory {
-    pub fn new(map_size: [usize; 2]) -> Self {
+    pub fn new(params_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
         EnergyFieldMemory {
             energy_field: Array2::default(map_size),
+            energy_node_drift_speed: MaskedPossibilities::from_options(
+                params_ranges
+                    .energy_node_drift_speed
+                    .iter()
+                    .copied()
+                    .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                    .dedup()
+                    .collect_vec(),
+            ),
         }
     }
 
@@ -29,16 +40,28 @@ impl EnergyFieldMemory {
                 energy_last_turn.is_none_or(|e| e == new_energy.expect(err_msg))
             },
         ) {
-            // If there are no conflicts between this turn and last turns non-null values,
-            // then we're good to update and move on
+            // If there are no conflicts between this turn and last turns
+            // non-null values, then we're good to update and move on
             self.energy_field = new_energy_field;
         } else {
-            // If there are any conflicts, that means that some of the energy nodes have moved,
-            // so we reset the known energy field and start over from the current observation
+            // If there are any conflicts, that means that some of the energy
+            // nodes have moved, so we reset the known energy field and start
+            // over from the current observation
             self.energy_field.fill(None);
             update_energy_field(
                 self.energy_field.view_mut(),
                 obs.energy_field.view(),
+            );
+            // NB: Energy nodes have a (slim) chance of not moving. As a
+            // result, don't update the drift speed in the negative case (i.e.
+            // no movement when we would have expected some)
+            //
+            // Subtract 2: 1 for the delay in the observed energy field and 1
+            // because the energy field is moved before step is incremented
+            // when creating the observation
+            update_energy_node_drift_speed(
+                &mut self.energy_node_drift_speed,
+                obs.total_steps.saturating_sub(2),
             );
         }
     }
@@ -71,9 +94,28 @@ fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
     }
 }
 
+fn update_energy_node_drift_speed(
+    energy_node_drift_speed: &mut MaskedPossibilities<f32>,
+    step: u32,
+) {
+    for (&candidate_speed, mask) in
+        energy_node_drift_speed.iter_options_mut_mask()
+    {
+        if step as f32 * candidate_speed % 1.0 != 0.0 {
+            *mask = false;
+        }
+    }
+
+    if energy_node_drift_speed.all_masked() {
+        // TODO: For game-time build, don't panic and instead just fail to update mask
+        panic!("energy_node_drift_speed mask is all false")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::param_ranges::PARAM_RANGES;
     use numpy::ndarray::arr2;
     use rstest::rstest;
 
@@ -125,7 +167,7 @@ mod tests {
         #[case] obs_energy_field: Array2<Option<i32>>,
         #[case] expected_result: Array2<Option<i32>>,
     ) {
-        let mut memory = EnergyFieldMemory::new([4, 4]);
+        let mut memory = EnergyFieldMemory::new(&PARAM_RANGES, [4, 4]);
         memory.energy_field = known_energy_field;
         let obs = Observation {
             energy_field: obs_energy_field,
@@ -209,5 +251,34 @@ mod tests {
     ) {
         symmetrize(field.view_mut());
         assert_eq!(field, expected_result);
+    }
+
+    #[rstest]
+    #[case(0, vec![true; 5])]
+    #[case(20, vec![false, false, false, false, true])]
+    #[case(25, vec![false, false, false, true, false])]
+    #[case(50, vec![false, true, false, true, false])]
+    #[case(100, vec![true; 5])]
+    fn test_update_energy_node_drift_speed(
+        #[case] step: u32,
+        #[case] expected_result: Vec<bool>,
+    ) {
+        let mut energy_node_drift_speed =
+            EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
+                .energy_node_drift_speed;
+        update_energy_node_drift_speed(&mut energy_node_drift_speed, step);
+        assert_eq!(
+            energy_node_drift_speed.get_mask().to_vec(),
+            expected_result
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "energy_node_drift_speed mask is all false")]
+    fn test_update_energy_node_drift_speed_panics() {
+        let mut energy_node_drift_speed =
+            EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
+                .energy_node_drift_speed;
+        update_energy_node_drift_speed(&mut energy_node_drift_speed, 11);
     }
 }

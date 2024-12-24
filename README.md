@@ -30,7 +30,7 @@ followed by `process_replay_for_tests.py` on the generated replay.json, observat
 2. Assuming the above runs without errors, we can copy the compiled + tarred submission file from the image as follows:
 ```
 id=$(docker create rux-ai-s3)
-docker cp $id:/home/rux_ai_s3/test_submission.tar.gz .
+docker cp $id:/home/rux_ai_s3/submission.tar.gz .
 docker rm -v $id
 ```
 
