@@ -17,12 +17,14 @@ def test_agent_config_file() -> None:
     load_from_yaml(AgentConfig, AGENT_CONFIG_FILE)
 
 
+@pytest.mark.agent
 def test_train_config_file() -> None:
     assert TRAIN_CONFIG_FILE.is_file()
     load_from_yaml(TrainConfig, TRAIN_CONFIG_FILE)
 
 
 class TestAgent:
+    @pytest.mark.agent
     @pytest.mark.slow
     def test_init(self) -> None:
         lux_env = LuxAIS3GymEnv(numpy_output=True)
@@ -32,6 +34,7 @@ class TestAgent:
             agent = Agent(player, env_cfg)
             assert agent.team_id == id_
 
+    @pytest.mark.agent
     @pytest.mark.slow
     @pytest.mark.parametrize(
         "player",
