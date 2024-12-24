@@ -107,7 +107,7 @@ fn update_energy_node_drift_speed(
     }
 
     if energy_node_drift_speed.all_masked() {
-        // TODO: For game-time build, don't panic and instead just fail to update mask?
+        // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!("energy_node_drift_speed mask is all false")
     }
 }
