@@ -1,4 +1,5 @@
 use crate::feature_engineering::memory::Memory;
+use crate::rules_engine::params::FIXED_PARAMS;
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -29,15 +30,16 @@ enum SpatialFeature {
 
 #[derive(Debug, Clone, Copy, EnumIter)]
 enum GlobalFeature {
-    MyTeamPoints = 0,
-    OppTeamPoints = 1,
-    MyTeamId = 2,
+    MyTeamId = 0,
+    MyTeamPoints = 2,
+    OppTeamPoints = 3,
     MyTeamWins = 4,
     OppTeamWins = 7,
-    NebulaTileVisionReduction = 10,
-    NebulaTileEnergyReduction = 14,
-    UnitSapDropoffFactor = 17,
-    End = 20,
+    MatchSteps = 10,
+    NebulaTileVisionReduction = 11,
+    NebulaTileEnergyReduction = 15,
+    UnitSapDropoffFactor = 18,
+    End = 21,
 }
 
 // Normalizing constants
@@ -151,14 +153,6 @@ fn write_team_obs(
     let mut global_result: Vec<f32> = vec![0.0; End as usize];
     for (gf, next_gf) in GlobalFeature::iter().tuple_windows() {
         match gf {
-            MyTeamPoints => {
-                global_result[gf as usize] =
-                    obs.team_points[obs.team_id] as f32;
-            },
-            OppTeamPoints => {
-                global_result[gf as usize] =
-                    obs.team_points[1 - obs.team_id] as f32;
-            },
             MyTeamId => {
                 let onehot_team_id = match obs.team_id {
                     0 => [1., 0.],
@@ -167,6 +161,14 @@ fn write_team_obs(
                 };
                 global_result[gf as usize..next_gf as usize]
                     .copy_from_slice(&onehot_team_id);
+            },
+            MyTeamPoints => {
+                global_result[gf as usize] =
+                    obs.team_points[obs.team_id] as f32;
+            },
+            OppTeamPoints => {
+                global_result[gf as usize] =
+                    obs.team_points[1 - obs.team_id] as f32;
             },
             MyTeamWins => {
                 let my_team_wins =
@@ -179,6 +181,10 @@ fn write_team_obs(
                     discretize_team_wins(obs.team_wins[obs.opp_team_id()]);
                 global_result[gf as usize..next_gf as usize]
                     .copy_from_slice(&opp_team_wins);
+            },
+            MatchSteps => {
+                global_result[gf as usize] = obs.match_steps as f32
+                    / FIXED_PARAMS.max_steps_in_match as f32;
             },
             NebulaTileVisionReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
