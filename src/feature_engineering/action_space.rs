@@ -130,6 +130,7 @@ fn get_sap_targets_map(
         ];
         sap_targets.slice_mut(slice).fill(true);
     }
+    // TODO: Don't include point targets that we can see are empty all around
     for (((x, y), &point), can_sap) in known_valuable_points_map
         .indexed_iter()
         .zip_eq(sap_targets.iter_mut())

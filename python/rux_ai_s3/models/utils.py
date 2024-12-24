@@ -6,7 +6,6 @@ from rux_ai_s3.lowlevel import RewardSpace
 from .critic_heads import (
     BoundedCriticHead,
     PositiveUnboundedCriticHead,
-    ZeroSumCriticHead,
 )
 from .types import ActivationFactory
 
@@ -17,15 +16,17 @@ def build_critic_head(
     activation: ActivationFactory,
 ) -> nn.Module:
     if reward_space == RewardSpace.FINAL_WINNER:
-        return ZeroSumCriticHead(
-            d_model,
+        return BoundedCriticHead(
+            reward_min=-1,
+            reward_max=1,
+            d_model=d_model,
             activation=activation,
         )
 
     if reward_space == RewardSpace.MATCH_WINNER:
         return BoundedCriticHead(
-            reward_min=-3,
-            reward_max=3,
+            reward_min=-5,
+            reward_max=5,
             d_model=d_model,
             activation=activation,
         )
