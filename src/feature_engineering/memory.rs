@@ -15,6 +15,7 @@ use numpy::ndarray::Array2;
 use relic_nodes::RelicNodeMemory;
 
 pub struct Memory {
+    // TODO: Test various memory modules against ground truth
     energy_field: EnergyFieldMemory,
     hidden_parameters: HiddenParametersMemory,
     relic_nodes: RelicNodeMemory,

@@ -32,13 +32,12 @@ enum GlobalFeature {
     MyTeamPoints = 0,
     OppTeamPoints = 1,
     MyTeamId = 2,
-    // TODO: Discretize team_wins features
     MyTeamWins = 4,
-    OppTeamWins = 5,
-    NebulaTileVisionReduction = 6,
-    NebulaTileEnergyReduction = 10,
-    UnitSapDropoffFactor = 13,
-    End = 16,
+    OppTeamWins = 7,
+    NebulaTileVisionReduction = 10,
+    NebulaTileEnergyReduction = 14,
+    UnitSapDropoffFactor = 17,
+    End = 20,
 }
 
 // Normalizing constants
@@ -170,11 +169,16 @@ fn write_team_obs(
                     .copy_from_slice(&onehot_team_id);
             },
             MyTeamWins => {
-                global_result[gf as usize] = obs.team_wins[obs.team_id] as f32;
+                let my_team_wins =
+                    discretize_team_wins(obs.team_wins[obs.team_id]);
+                global_result[gf as usize..next_gf as usize]
+                    .copy_from_slice(&my_team_wins);
             },
             OppTeamWins => {
-                global_result[gf as usize] =
-                    obs.team_wins[1 - obs.team_id] as f32;
+                let opp_team_wins =
+                    discretize_team_wins(obs.team_wins[obs.opp_team_id()]);
+                global_result[gf as usize..next_gf as usize]
+                    .copy_from_slice(&opp_team_wins);
             },
             NebulaTileVisionReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
@@ -235,6 +239,14 @@ fn write_unit_energy_max(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     });
 }
 
+fn discretize_team_wins(wins: u32) -> [f32; 3] {
+    match wins {
+        0 => [1., 0., 0.],
+        1 => [0., 1., 0.],
+        2.. => [0., 0., 1.],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +262,13 @@ mod tests {
                     assert_eq!(
                         next_feature as isize - feature as isize,
                         P as isize
+                    );
+                },
+                MyTeamWins | OppTeamWins => {
+                    let option_count = discretize_team_wins(0).len();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
                     );
                 },
                 NebulaTileVisionReduction => {
@@ -293,6 +312,15 @@ mod tests {
                     assert_eq!(feature as isize, next_feature as isize - 1)
                 },
             }
+        }
+    }
+
+    #[test]
+    fn test_discretize_team_wins() {
+        for wins in 0..=5 {
+            let mut expected = [0.; 3];
+            expected[wins.min(2)] = 1.;
+            assert_eq!(discretize_team_wins(wins as u32), expected);
         }
     }
 }
