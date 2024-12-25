@@ -539,6 +539,7 @@ struct ParallelEnvGameStatsOutputs {
     sap_direct_hits_frequency: f32,
     /// Could be >= 1.0 if most saps hit more than 1 unit
     sap_adjacent_hits_frequency: f32,
+    sap_miss_frequency: f32,
 }
 
 impl ParallelEnvGameStatsOutputs {
@@ -621,6 +622,11 @@ impl ParallelEnvGameStatsOutputs {
             .map(|gs| gs.sap_adjacent_hits_frequency())
             .sum::<f32>()
             / n_games;
+        let sap_miss_frequency = game_stats
+            .iter()
+            .map(|gs| gs.sap_miss_frequency())
+            .sum::<f32>()
+            / n_games;
 
         Self {
             terminal_points_scored,
@@ -638,6 +644,7 @@ impl ParallelEnvGameStatsOutputs {
             sap_frequency,
             sap_direct_hits_frequency,
             sap_adjacent_hits_frequency,
+            sap_miss_frequency,
         }
     }
 
@@ -669,6 +676,10 @@ impl ParallelEnvGameStatsOutputs {
             (
                 "sap_adjacent_hits_frequency".to_string(),
                 self.sap_adjacent_hits_frequency,
+            ),
+            (
+                "sap_miss_frequency".to_string(),
+                self.sap_miss_frequency,
             ),
         ]);
         let array_values = HashMap::from([

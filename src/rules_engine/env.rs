@@ -58,7 +58,7 @@ pub fn step(
         params,
     );
     let energy_before_sapping = get_unit_energies(&state.units);
-    let (sap_direct_hits, sap_adjacent_hits) = sap_units(
+    let (sap_direct_hits, sap_adjacent_hits, sap_misses) = sap_units(
         &mut state.units,
         &energy_before_sapping,
         &actions,
@@ -155,6 +155,7 @@ pub fn step(
             sap_count,
             sap_direct_hits,
             sap_adjacent_hits,
+            sap_misses,
         },
     )
 }
@@ -250,9 +251,10 @@ fn sap_units(
     actions: &[Vec<Action>; P],
     map_size: [usize; 2],
     params: &VariableParams,
-) -> (u16, u16) {
+) -> (u16, u16, u16) {
     let mut sap_direct_hits = 0;
     let mut sap_adjacent_hits = 0;
+    let mut sap_miss_count = 0;
     for (team, opp) in [(0, 1), (1, 0)] {
         let mut sap_count = vec![0; units[opp].len()];
         let mut adjacent_sap_count = vec![0; units[opp].len()];
@@ -281,12 +283,22 @@ fn sap_units(
                 continue;
             };
             unit.energy -= params.unit_sap_cost;
+            let mut sap_miss = true;
             for (i, opp_u) in units[opp].iter().enumerate() {
                 match target_pos.subtract(opp_u.pos) {
-                    [0, 0] => sap_count[i] += 1,
-                    [-1..=1, -1..=1] => adjacent_sap_count[i] += 1,
+                    [0, 0] => {
+                        sap_count[i] += 1;
+                        sap_miss = false;
+                    },
+                    [-1..=1, -1..=1] => {
+                        adjacent_sap_count[i] += 1;
+                        sap_miss = false;
+                    },
                     _ => {},
                 }
+            }
+            if sap_miss {
+                sap_miss_count += 1;
             }
         }
 
@@ -304,7 +316,7 @@ fn sap_units(
             opp_u.energy -= adj_sap_loss as i32;
         }
     }
-    (sap_direct_hits, sap_adjacent_hits)
+    (sap_direct_hits, sap_adjacent_hits, sap_miss_count)
 }
 
 fn resolve_collisions_and_energy_void_fields(
