@@ -3,7 +3,7 @@ use itertools::Itertools;
 #[derive(Debug, Clone, Default)]
 pub struct MaskedPossibilities<T> {
     options: Vec<T>,
-    mask: Vec<bool>,
+    pub mask: Vec<bool>,
 }
 
 #[allow(dead_code)]

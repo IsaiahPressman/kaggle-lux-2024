@@ -240,8 +240,8 @@ fn determine_nebula_tile_energy_reduction(
     }
 
     if nebula_tile_energy_reduction_options.all_masked() {
-        // In edge cases (such as where we're sapped while unable to see the sapper,
-        // reset the memory to what it was before the turn
+        // In edge cases, such as where we're sapped while unable to see the sapper,
+        // reset the memory to what it was before this turn
         *nebula_tile_energy_reduction_options = options_before_update;
     }
 }
