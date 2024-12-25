@@ -35,10 +35,21 @@ impl<T> MaskedPossibilities<T> {
     }
 
     #[inline(always)]
-    pub fn iter_options_mut_mask(
+    pub fn iter_unmasked_options_mut_mask(
         &mut self,
     ) -> impl Iterator<Item = (&T, &mut bool)> {
-        self.options.iter().zip_eq(self.mask.iter_mut())
+        self.options
+            .iter()
+            .zip_eq(self.mask.iter_mut())
+            .filter(|(opt, mask)| **mask)
+    }
+
+    #[inline(always)]
+    pub fn iter_unmasked_options(&self) -> impl Iterator<Item = &T> {
+        self.options
+            .iter()
+            .zip_eq(self.mask.iter())
+            .filter_map(|(opt, mask)| mask.then_some(opt))
     }
 
     #[inline(always)]

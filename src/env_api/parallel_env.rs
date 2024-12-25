@@ -677,10 +677,7 @@ impl ParallelEnvGameStatsOutputs {
                 "sap_adjacent_hits_frequency".to_string(),
                 self.sap_adjacent_hits_frequency,
             ),
-            (
-                "sap_miss_frequency".to_string(),
-                self.sap_miss_frequency,
-            ),
+            ("sap_miss_frequency".to_string(), self.sap_miss_frequency),
         ]);
         let array_values = HashMap::from([
             (

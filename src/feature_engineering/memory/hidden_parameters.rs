@@ -152,7 +152,7 @@ fn determine_nebula_tile_vision_reduction(
         .for_each(|expected_vision, can_see| {
             if *expected_vision > 0 && !can_see {
                 nebula_tile_vision_reduction_options
-                    .iter_options_mut_mask()
+                    .iter_unmasked_options_mut_mask()
                     .for_each(|(vision_reduction, mask)| {
                         if vision_reduction < expected_vision {
                             *mask = false
@@ -226,8 +226,7 @@ fn determine_nebula_tile_energy_reduction(
         })
     {
         for (&energy_loss, mask) in nebula_tile_energy_reduction_options
-            .iter_options_mut_mask()
-            .filter(|(_, mask)| **mask)
+            .iter_unmasked_options_mut_mask()
         {
             if (energy_before_nebula - energy_loss)
                 .min(fixed_params.max_unit_energy)
@@ -356,9 +355,8 @@ fn determine_unit_sap_dropoff_factor(
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        for (&sap_dropoff_factor, mask) in unit_sap_dropoff_factor
-            .iter_options_mut_mask()
-            .filter(|(_, mask)| **mask)
+        for (&sap_dropoff_factor, mask) in
+            unit_sap_dropoff_factor.iter_unmasked_options_mut_mask()
         {
             let adj_sap_loss = ((adj_sap_count * params.unit_sap_cost) as f32
                 * sap_dropoff_factor) as i32;
