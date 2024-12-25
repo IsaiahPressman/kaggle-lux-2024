@@ -98,6 +98,7 @@ fn update_energy_node_drift_speed(
     energy_node_drift_speed: &mut MaskedPossibilities<f32>,
     step: u32,
 ) {
+    let possibilities_before_update = energy_node_drift_speed.clone();
     for (&candidate_speed, mask) in
         energy_node_drift_speed.iter_options_mut_mask()
     {
@@ -107,8 +108,9 @@ fn update_energy_node_drift_speed(
     }
 
     if energy_node_drift_speed.all_masked() {
-        // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!("energy_node_drift_speed mask is all false")
+        // In edge cases, such as where we miss the step when things actually updated,
+        // reset the memory to what it was before this turn
+        *energy_node_drift_speed = possibilities_before_update;
     }
 }
 
@@ -274,11 +276,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "energy_node_drift_speed mask is all false")]
-    fn test_update_energy_node_drift_speed_panics() {
+    fn test_update_energy_node_drift_speed_resets() {
         let mut energy_node_drift_speed =
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
+        let mask_before_update = vec![false, true, false, true, true];
+        energy_node_drift_speed.mask = mask_before_update.clone();
         update_energy_node_drift_speed(&mut energy_node_drift_speed, 11);
+        assert_eq!(energy_node_drift_speed.mask, mask_before_update);
     }
 }
