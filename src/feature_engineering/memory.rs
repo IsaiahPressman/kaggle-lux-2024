@@ -6,6 +6,7 @@ pub mod probabilities;
 mod relic_nodes;
 mod space_obstacles;
 
+use crate::feature_engineering::memory::space_obstacles::SpaceObstacleMemory;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
@@ -20,6 +21,7 @@ pub struct Memory {
     energy_field: EnergyFieldMemory,
     hidden_parameters: HiddenParametersMemory,
     relic_nodes: RelicNodeMemory,
+    space_obstacles: SpaceObstacleMemory,
 }
 
 impl Memory {
@@ -27,10 +29,12 @@ impl Memory {
         let energy_field = EnergyFieldMemory::new(param_ranges, map_size);
         let hidden_parameters = HiddenParametersMemory::new(param_ranges);
         let relic_nodes = RelicNodeMemory::new(map_size);
+        let space_obstacles = SpaceObstacleMemory::new(param_ranges, map_size);
         Self {
             energy_field,
             hidden_parameters,
             relic_nodes,
+            space_obstacles,
         }
     }
 
@@ -45,6 +49,7 @@ impl Memory {
         self.hidden_parameters
             .update(obs, last_actions, fixed_params, params);
         self.relic_nodes.update(obs);
+        self.space_obstacles.update(obs, params);
     }
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
@@ -95,5 +100,23 @@ impl Memory {
         Zip::from(&self.relic_nodes.points_map)
             .and(&self.relic_nodes.known_points_map)
             .map_collect(|&value, &known| known && value >= 0.99)
+    }
+
+    pub fn get_known_asteroids_map(&self) -> &Array2<bool> {
+        &self.space_obstacles.known_asteroids
+    }
+
+    pub fn get_known_nebulae_map(&self) -> &Array2<bool> {
+        &self.space_obstacles.known_nebulae
+    }
+
+    pub fn get_explored_tiles_map(&self) -> &Array2<bool> {
+        &self.space_obstacles.explored_tiles
+    }
+
+    pub fn get_nebula_tile_drift_speed_weights(&self) -> Vec<f32> {
+        self.space_obstacles
+            .nebula_tile_drift_speed
+            .get_weighted_possibilities()
     }
 }

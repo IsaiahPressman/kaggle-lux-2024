@@ -4,7 +4,7 @@ use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
-use numpy::ndarray::{Array2, Zip};
+use numpy::ndarray::{s, Array2, Zip};
 
 /// Tracks everything known by a player about space obstacle (asteroid and nebulae) locations
 
@@ -12,7 +12,7 @@ use numpy::ndarray::{Array2, Zip};
 pub struct SpaceObstacleMemory {
     pub known_asteroids: Array2<bool>,
     pub known_nebulae: Array2<bool>,
-    pub explored_tiles_map: Array2<bool>,
+    pub explored_tiles: Array2<bool>,
     pub nebula_tile_drift_speed: MaskedPossibilities<f32>,
     map_size: [usize; 2],
 }
@@ -38,7 +38,7 @@ impl SpaceObstacleMemory {
         Self {
             known_asteroids: Array2::default(map_size),
             known_nebulae: Array2::default(map_size),
-            explored_tiles_map: Array2::default(map_size),
+            explored_tiles: Array2::default(map_size),
             nebula_tile_drift_speed,
             map_size,
         }
@@ -51,7 +51,7 @@ impl SpaceObstacleMemory {
         Self {
             known_asteroids: Array2::default(map_size),
             known_nebulae: Array2::default(map_size),
-            explored_tiles_map: Array2::default(map_size),
+            explored_tiles: Array2::default(map_size),
             nebula_tile_drift_speed,
             map_size,
         }
@@ -96,13 +96,13 @@ impl SpaceObstacleMemory {
             .for_each(|(x, y), &sensed, &should_see| {
                 let pos = Pos::new(x, y);
                 if sensed {
-                    self.explored_tiles_map[pos.as_index()] = true;
-                    self.explored_tiles_map
+                    self.explored_tiles[pos.as_index()] = true;
+                    self.explored_tiles
                         [pos.reflect(self.map_size).as_index()] = true;
                 } else if should_see && !self.known_nebulae[pos.as_index()] {
-                    // TODO: Handle nebula movement after vision map is computed
-                    self.explored_tiles_map[pos.as_index()] = true;
-                    self.explored_tiles_map
+                    // TODO: Left off here - handle nebula movement after vision map is computed
+                    self.explored_tiles[pos.as_index()] = true;
+                    self.explored_tiles
                         [pos.reflect(self.map_size).as_index()] = true;
                     self.known_nebulae[pos.as_index()] = true;
                     self.known_nebulae[pos.reflect(self.map_size).as_index()] =
@@ -136,7 +136,7 @@ impl SpaceObstacleMemory {
         let negative_drift = [-1, 1];
         let positive_drift = [1, -1];
         for (pos, observed_tile) in observed
-            .explored_tiles_map
+            .explored_tiles
             .indexed_iter()
             .filter(|(_, &explored)| explored)
             .map(|((x, y), _)| {
@@ -178,6 +178,7 @@ impl SpaceObstacleMemory {
             }
         }
 
+        // !not_drifting_possible => objects have definitely drifted
         if !not_drifting_possible {
             self.nebula_tile_drift_speed
                 .iter_unmasked_options_mut_mask()
@@ -187,6 +188,7 @@ impl SpaceObstacleMemory {
                     }
                 })
         }
+        // !negative_drift_possible => drifted positively or not moved
         if !negative_drift_possible {
             self.nebula_tile_drift_speed
                 .iter_unmasked_options_mut_mask()
@@ -196,6 +198,7 @@ impl SpaceObstacleMemory {
                     }
                 })
         }
+        // !positive_drift_possible => drifted negatively or not moved
         if !positive_drift_possible {
             self.nebula_tile_drift_speed
                 .iter_unmasked_options_mut_mask()
@@ -213,21 +216,22 @@ impl SpaceObstacleMemory {
             0 => panic!(
                 "No possible space object movement matches the observation"
             ),
-            1 => {},
+            1 => {
+                if negative_drift_possible {
+                    self.apply_drift(negative_drift);
+                } else if positive_drift_possible {
+                    self.apply_drift(positive_drift);
+                }
+            },
             2..4 => {
                 // This isn't ideal, but can happen whenever there are multiple
                 // possibilities for how the map moved.
                 // TODO: Maintain multiple "candidate" interpretations of the
                 //  world to handle this case better?
                 *self = observed;
-                return;
             },
             4.. => unreachable!(),
         }
-
-        // TODO: Left off here - move space objects according to
-        //  specified drift
-        todo!()
     }
 
     fn not_drifting_possible(&self, step: u32) -> bool {
@@ -249,7 +253,7 @@ impl SpaceObstacleMemory {
     }
 
     fn get_tile_type_at(&self, index: [usize; 2]) -> Option<TileType> {
-        if !self.explored_tiles_map[index] {
+        if !self.explored_tiles[index] {
             None
         } else if self.known_nebulae[index] {
             Some(TileType::Nebula)
@@ -258,6 +262,12 @@ impl SpaceObstacleMemory {
         } else {
             Some(TileType::Empty)
         }
+    }
+
+    fn apply_drift(&mut self, drift: [isize; 2]) {
+        apply_drift(&mut self.known_asteroids, drift);
+        apply_drift(&mut self.known_nebulae, drift);
+        apply_drift(&mut self.explored_tiles, drift);
     }
 }
 
@@ -276,10 +286,28 @@ fn should_positive_drift(step: u32, speed: f32) -> bool {
     speed > 0.0 && should_drift(step, speed)
 }
 
+fn apply_drift<T>(arr: &mut Array2<T>, drift: [isize; 2])
+where
+    T: Clone,
+{
+    let mut shifted = Array2::uninit(arr.dim());
+    let [dx, dy] = drift;
+    arr.slice(s![-dx.., -dy..])
+        .assign_to(shifted.slice_mut(s![..dx, ..dy]));
+    arr.slice(s![-dx.., ..-dy])
+        .assign_to(shifted.slice_mut(s![..dx, dy..]));
+    arr.slice(s![..-dx, -dy..])
+        .assign_to(shifted.slice_mut(s![dx.., ..dy]));
+    arr.slice(s![..-dx, ..-dy])
+        .assign_to(shifted.slice_mut(s![dx.., dy..]));
+    *arr = unsafe { shifted.assume_init() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
+    use rstest::rstest;
 
     #[test]
     fn test_update_total_steps_assumption() {
@@ -287,5 +315,31 @@ mod tests {
             .nebula_tile_drift_speed
             .iter()
             .all(|&s| (1. / s) % 20. == 0.))
+    }
+
+    #[rstest]
+    #[case(Pos::new(0, 0))]
+    #[case(Pos::new(0, 8))]
+    #[case(Pos::new(1, 9))]
+    #[case(Pos::new(3, 5))]
+    #[case(Pos::new(7, 4))]
+    #[case(Pos::new(9, 9))]
+    fn test_apply_drift(#[case] pos: Pos) {
+        let base = 2;
+        let special = 5;
+        let map_size = [10, 10];
+        for drift in [[-1, 1], [1, -1]] {
+            let mut arr = Array2::from_elem(map_size, base);
+            arr[pos.as_index()] = special;
+            apply_drift(&mut arr, drift);
+            let pos_drifted = pos.wrapped_translate(drift, map_size);
+            for ((x, y), &val) in arr.indexed_iter() {
+                if Pos::new(x, y) == pos_drifted {
+                    assert_eq!(val, special);
+                } else {
+                    assert_eq!(val, base);
+                }
+            }
+        }
     }
 }

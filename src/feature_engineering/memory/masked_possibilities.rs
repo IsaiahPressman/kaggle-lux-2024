@@ -41,7 +41,7 @@ impl<T> MaskedPossibilities<T> {
         self.options
             .iter()
             .zip_eq(self.mask.iter_mut())
-            .filter(|(opt, mask)| **mask)
+            .filter(|(_, mask)| **mask)
     }
 
     #[inline(always)]
