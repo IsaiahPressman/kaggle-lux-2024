@@ -99,6 +99,10 @@ class PPOConfig(TrainConfig):
     def full_batch_size(self) -> int:
         return self.env_config.n_envs * self.steps_per_update * 2
 
+    @property
+    def game_steps_per_update(self) -> int:
+        return self.env_config.n_envs * self.steps_per_update
+
     def iter_updates(self) -> Generator[int, None, None]:
         if self.max_updates is None:
             return (i for i in itertools.count(1))
@@ -294,6 +298,7 @@ def train_step(
 
     time_elapsed = time.perf_counter() - step_start_time
     batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
+    scalar_stats["game_steps"] = step * cfg.game_steps_per_update
     scalar_stats["updates_per_second"] = (
         batches_per_epoch * cfg.epochs_per_update / time_elapsed
     )
