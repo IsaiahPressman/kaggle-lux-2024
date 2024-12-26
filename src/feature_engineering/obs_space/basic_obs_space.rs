@@ -21,6 +21,7 @@ enum SpatialFeature {
     OppUnitEnergyMax,
     Asteroid,
     Nebula,
+    TileExplored,
     RelicNode,
     RelicNodeExplored,
     RelicNodePoints,      // Guesstimate of the points value
@@ -39,8 +40,9 @@ enum GlobalFeature {
     UnitSapDropoffFactor = 11,
     NebulaTileVisionReduction = 14,
     NebulaTileEnergyReduction = 18,
-    EnergyNodeDriftSpeed = 21,
-    End = 26,
+    NebulaTileDriftSpeed = 21,
+    EnergyNodeDriftSpeed = 25,
+    End = 30,
 }
 
 // Normalizing constants
@@ -117,14 +119,19 @@ fn write_team_obs(
             OppUnitEnergyMax => {
                 write_unit_energy_max(slice, obs.get_opp_units());
             },
-            Asteroid => {
-                // TODO use memory
-                obs.asteroids.iter().for_each(|a| slice[a.as_index()] = 1.0);
-            },
-            Nebula => {
-                // TODO use memory
-                obs.nebulae.iter().for_each(|n| slice[n.as_index()] = 1.0);
-            },
+            Asteroid => Zip::from(&mut slice)
+                .and(mem.get_known_asteroids_map())
+                .for_each(|out, &asteroid| {
+                    *out = if asteroid { 1.0 } else { 0.0 }
+                }),
+            Nebula => Zip::from(&mut slice)
+                .and(mem.get_known_nebulae_map())
+                .for_each(|out, &nebula| *out = if nebula { 1.0 } else { 0.0 }),
+            TileExplored => Zip::from(&mut slice)
+                .and(mem.get_explored_tiles_map())
+                .for_each(|out, &explored| {
+                    *out = if explored { 1.0 } else { 0.0 }
+                }),
             RelicNode => {
                 mem.get_relic_nodes()
                     .iter()
@@ -200,6 +207,11 @@ fn write_team_obs(
             NebulaTileEnergyReduction => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
                     &mem.get_nebula_tile_energy_reduction_weights(),
+                );
+            },
+            NebulaTileDriftSpeed => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &mem.get_nebula_tile_drift_speed_weights(),
                 );
             },
             EnergyNodeDriftSpeed => {
@@ -312,6 +324,18 @@ mod tests {
                         .nebula_tile_energy_reduction
                         .iter()
                         .sorted()
+                        .dedup()
+                        .count();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
+                    );
+                },
+                NebulaTileDriftSpeed => {
+                    let option_count = PARAM_RANGES
+                        .nebula_tile_drift_speed
+                        .iter()
+                        .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                         .dedup()
                         .count();
                     assert_eq!(

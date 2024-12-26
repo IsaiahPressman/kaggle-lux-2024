@@ -12,18 +12,19 @@ pub struct EnergyFieldMemory {
 }
 
 impl EnergyFieldMemory {
-    pub fn new(params_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
+    pub fn new(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
+        let energy_node_drift_speed = MaskedPossibilities::from_options(
+            param_ranges
+                .energy_node_drift_speed
+                .iter()
+                .copied()
+                .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                .dedup()
+                .collect_vec(),
+        );
         EnergyFieldMemory {
             energy_field: Array2::default(map_size),
-            energy_node_drift_speed: MaskedPossibilities::from_options(
-                params_ranges
-                    .energy_node_drift_speed
-                    .iter()
-                    .copied()
-                    .sorted_by(|a, b| a.partial_cmp(b).unwrap())
-                    .dedup()
-                    .collect_vec(),
-            ),
+            energy_node_drift_speed,
         }
     }
 
@@ -100,7 +101,7 @@ fn update_energy_node_drift_speed(
 ) {
     let possibilities_before_update = energy_node_drift_speed.clone();
     for (&candidate_speed, mask) in
-        energy_node_drift_speed.iter_options_mut_mask()
+        energy_node_drift_speed.iter_unmasked_options_mut_mask()
     {
         if step as f32 * candidate_speed % 1.0 != 0.0 {
             *mask = false;

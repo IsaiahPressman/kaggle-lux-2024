@@ -17,6 +17,7 @@ pub struct StepStats {
     pub sap_count: u16,
     pub sap_direct_hits: u16,
     pub sap_adjacent_hits: u16,
+    pub sap_misses: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +43,7 @@ pub struct GameStats {
     pub sap_count: u32,
     pub sap_direct_hits: u32,
     pub sap_adjacent_hits: u32,
+    pub sap_misses: u32,
 }
 
 impl GameStats {
@@ -60,6 +62,7 @@ impl GameStats {
             sap_count: 0,
             sap_direct_hits: 0,
             sap_adjacent_hits: 0,
+            sap_misses: 0,
         }
     }
 
@@ -87,6 +90,7 @@ impl GameStats {
         self.sap_count += u32::from(stats.sap_count);
         self.sap_direct_hits += u32::from(stats.sap_direct_hits);
         self.sap_adjacent_hits += u32::from(stats.sap_adjacent_hits);
+        self.sap_misses += u32::from(stats.sap_misses);
     }
 
     fn total_actions(&self) -> u32 {
@@ -116,6 +120,14 @@ impl GameStats {
     pub fn sap_adjacent_hits_frequency(&self) -> f32 {
         if self.sap_count > 0 {
             self.sap_adjacent_hits as f32 / self.sap_count as f32
+        } else {
+            0.0
+        }
+    }
+
+    pub fn sap_miss_frequency(&self) -> f32 {
+        if self.sap_count > 0 {
+            self.sap_misses as f32 / self.sap_count as f32
         } else {
             0.0
         }
