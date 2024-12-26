@@ -180,37 +180,13 @@ impl SpaceObstacleMemory {
             }
         }
 
-        // !not_drifting_possible => objects have definitely drifted
-        if !not_drifting_possible {
-            self.nebula_tile_drift_speed
-                .iter_unmasked_options_mut_mask()
-                .for_each(|(&speed, mask)| {
-                    if !should_drift(step, speed) {
-                        *mask = false;
-                    }
-                })
-        }
-        // !negative_drift_possible => drifted positively or not moved
-        if !negative_drift_possible {
-            self.nebula_tile_drift_speed
-                .iter_unmasked_options_mut_mask()
-                .for_each(|(&speed, mask)| {
-                    if should_negative_drift(step, speed) {
-                        *mask = false;
-                    }
-                })
-        }
-        // !positive_drift_possible => drifted negatively or not moved
-        if !positive_drift_possible {
-            self.nebula_tile_drift_speed
-                .iter_unmasked_options_mut_mask()
-                .for_each(|(&speed, mask)| {
-                    if should_positive_drift(step, speed) {
-                        *mask = false;
-                    }
-                })
-        }
-
+        update_nebula_tile_drift_speed(
+            &mut self.nebula_tile_drift_speed,
+            !not_drifting_possible,
+            !negative_drift_possible,
+            !positive_drift_possible,
+            step,
+        );
         match u8::from(not_drifting_possible)
             + u8::from(negative_drift_possible)
             + u8::from(positive_drift_possible)
@@ -288,6 +264,50 @@ fn should_positive_drift(step: u32, speed: f32) -> bool {
     speed > 0.0 && should_drift(step, speed)
 }
 
+fn update_nebula_tile_drift_speed(
+    nebula_tile_drift_speed: &mut MaskedPossibilities<f32>,
+    not_drifting_impossible: bool,
+    negative_drift_impossible: bool,
+    positive_drift_impossible: bool,
+    step: u32,
+) {
+    // not_drifting_impossible => objects have definitely drifted
+    if not_drifting_impossible {
+        nebula_tile_drift_speed
+            .iter_unmasked_options_mut_mask()
+            .for_each(|(&speed, mask)| {
+                if !should_drift(step, speed) {
+                    *mask = false;
+                }
+            })
+    }
+    // negative_drift_impossible => drifted positively or not moved
+    if negative_drift_impossible {
+        nebula_tile_drift_speed
+            .iter_unmasked_options_mut_mask()
+            .for_each(|(&speed, mask)| {
+                if should_negative_drift(step, speed) {
+                    *mask = false;
+                }
+            })
+    }
+    // positive_drift_impossible => drifted negatively or not moved
+    if positive_drift_impossible {
+        nebula_tile_drift_speed
+            .iter_unmasked_options_mut_mask()
+            .for_each(|(&speed, mask)| {
+                if should_positive_drift(step, speed) {
+                    *mask = false;
+                }
+            })
+    }
+
+    if nebula_tile_drift_speed.all_masked() {
+        // TODO: For game-time build, don't panic and instead just fail to update mask
+        panic!("nebula_tile_drift_speed mask is all false")
+    }
+}
+
 fn apply_drift<T>(arr: &mut Array2<T>, drift: [isize; 2])
 where
     T: Clone,
@@ -317,6 +337,60 @@ mod tests {
             .nebula_tile_drift_speed
             .iter()
             .all(|&s| (1. / s) % 20. == 0.))
+    }
+
+    #[rstest]
+    // Basic single impossible option cases
+    #[case(false, false, false, 20, [true, true, true, true])]
+    #[case(true, false, false, 20, [true, false, false, true])]
+    #[case(true, false, false, 40, [true, true, true, true])]
+    #[case(false, true, false, 20, [false, true, true, true])]
+    #[case(false, true, false, 40, [false, false, true, true])]
+    #[case(false, false, true, 20, [true, true, true, false])]
+    #[case(false, false, true, 40, [true, true, false, false])]
+    // Multiple impossible options
+    #[case(true, true, false, 20, [false, false, false, true])]
+    #[case(true, false, true, 20, [true, false, false, false])]
+    #[case(false, true, true, 20, [false, true, true, false])]
+    fn test_update_nebula_tile_drift_speed(
+        #[case] not_drifting_impossible: bool,
+        #[case] negative_drift_impossible: bool,
+        #[case] positive_drift_impossible: bool,
+        #[case] step: u32,
+        #[case] expected_mask: [bool; 4],
+    ) {
+        let mut possibilities =
+            MaskedPossibilities::from_options(vec![-0.05, -0.025, 0.025, 0.05]);
+        update_nebula_tile_drift_speed(
+            &mut possibilities,
+            not_drifting_impossible,
+            negative_drift_impossible,
+            positive_drift_impossible,
+            step,
+        );
+        assert_eq!(possibilities.mask, expected_mask);
+    }
+
+    #[rstest]
+    #[case([true, true, true, true])]
+    #[should_panic(expected = "nebula_tile_drift_speed mask is all false")]
+    #[case([true, true, true, false])]
+    fn test_update_nebula_tile_drift_speed_panics(#[case] mask: [bool; 4]) {
+        let mut possibilities = MaskedPossibilities::new(
+            vec![-0.05, -0.025, 0.025, 0.05],
+            mask.to_vec(),
+        );
+        let not_drifting_impossible = true;
+        let negative_drift_impossible = true;
+        let positive_drift_impossible = false;
+        let step = 20;
+        update_nebula_tile_drift_speed(
+            &mut possibilities,
+            not_drifting_impossible,
+            negative_drift_impossible,
+            positive_drift_impossible,
+            step,
+        );
     }
 
     #[rstest]

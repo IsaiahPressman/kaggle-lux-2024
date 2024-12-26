@@ -521,13 +521,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![true, true, true])]
+    #[case([true, true, true])]
     #[should_panic(expected = "nebula_tile_vision_reduction mask is all false")]
-    #[case(vec![true, true, false])]
+    #[case([true, true, false])]
     fn test_determine_nebula_tile_vision_reduction_panics(
-        #[case] mask: Vec<bool>,
+        #[case] mask: [bool; 3],
     ) {
-        let mut possibilities = MaskedPossibilities::new(vec![0, 1, 2], mask);
+        let mut possibilities =
+            MaskedPossibilities::new(vec![0, 1, 2], mask.to_vec());
         let map_size = [3, 3];
         let unit_sensor_range = 1;
 
