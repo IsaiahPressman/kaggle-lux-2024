@@ -16,6 +16,7 @@ OBSERVATION_1_FILENAME = "observations_1.json"
 @dataclass
 class UserArgs:
     path: Path
+    include_observations: bool
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
@@ -24,6 +25,7 @@ class UserArgs:
             "and observation information"
         )
         parser.add_argument("path", type=Path)
+        parser.add_argument("--include-observations", action="store_true")
         args = parser.parse_args()
         return UserArgs(**vars(args))
 
@@ -34,9 +36,10 @@ def main() -> None:
         replay = json.load(f)
 
     observations: list[dict[str, Any]] = []
-    for filename in (OBSERVATION_0_FILENAME, OBSERVATION_1_FILENAME):
-        with open(args.path / filename) as f:
-            observations.append(json.load(f))
+    if args.include_observations:
+        for filename in (OBSERVATION_0_FILENAME, OBSERVATION_1_FILENAME):
+            with open(args.path / filename) as f:
+                observations.append(json.load(f))
 
     seed = replay["metadata"]["seed"]
     env = LuxAIS3Env()
@@ -46,7 +49,7 @@ def main() -> None:
     validate_seed(state, replay)
 
     replay["energy_node_fns"] = state.energy_node_fns[state.energy_nodes_mask].tolist()
-    replay["player_observations"] = observations
+    replay["player_observations"] = observations or None
     output_path = args.path / f"processed_replay_{seed}.json"
     with open(output_path, "w") as f:
         json.dump(replay, f)

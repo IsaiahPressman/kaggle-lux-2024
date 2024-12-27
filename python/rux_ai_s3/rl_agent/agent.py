@@ -18,6 +18,7 @@ TRAIN_CONFIG_FILE = Path(__file__).parent / "train_config.yaml"
 
 
 class AgentConfig(BaseModel):
+    # TODO: Temperature param for random sampling
     sample_main_actions: bool
     sample_sap_actions: bool
 
