@@ -26,3 +26,9 @@ default = ["extension-module"]
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+
+# TODO: Enable these options to slow compile time down further in
+#  order to speed up the produced binary
+#[profile.release]
+#lto = true
+#codegen-units = 1
