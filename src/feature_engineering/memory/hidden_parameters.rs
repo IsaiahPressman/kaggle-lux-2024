@@ -341,7 +341,7 @@ fn determine_unit_sap_dropoff_factor(
                             last_action.as_move_delta().unwrap_or([0, 0]),
                             fixed_params.map_size,
                         )
-                        .unwrap();
+                        .expect("One of my units took an illegal move action");
                     !ENERGY_VOID_DELTAS
                         .contains(&opp_unit_now.pos.subtract(new_pos))
                 })
