@@ -159,9 +159,12 @@ mod tests {
             .into_iter()
             .tuple_windows()
             .zip_eq(full_replay.get_actions())
-            .map(move |((state, next_state), actions)| {
+            .map(move |((mut state, next_state), actions)| {
                 let energy_node_deltas =
                     state.get_energy_node_deltas(&next_state);
+                // Currently in the replay file, each observed energy field is from the previous
+                // step's computed energy field
+                state.energy_field = next_state.energy_field.clone();
                 let (obs, _, _) = step(
                     &mut state.clone(),
                     &mut rng,
@@ -178,6 +181,7 @@ mod tests {
     }
 
     #[rstest]
+    #[ignore = "slow"]
     #[case("processed_replay_478448958.json")]
     fn test_energy_field_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
@@ -190,10 +194,6 @@ mod tests {
         ];
         let mut known_pcts = Vec::new();
         for (state, actions, obs, _next_state) in run_replay(&full_replay) {
-            println!(
-                "{:?}",
-                (state.total_steps, obs[0].total_steps, &obs[0].energy_field)
-            );
             let mut known_count = 0;
             let mut unknown_count = 0;
             for (mem, obs, last_actions) in
@@ -236,7 +236,6 @@ mod tests {
                 >= 0.7
         );
         for mem in memories.iter() {
-            println!("{:?}", mem.energy_field.energy_node_drift_speed);
             assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
         }
     }

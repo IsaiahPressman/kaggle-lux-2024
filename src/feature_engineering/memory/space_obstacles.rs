@@ -58,7 +58,7 @@ impl SpaceObstacleMemory {
     }
 
     pub fn update(&mut self, obs: &Observation, params: &KnownVariableParams) {
-        let update_step = obs.total_steps - 1;
+        let update_step = obs.total_steps.saturating_sub(1);
         if self.space_obstacles_could_move(update_step) {
             let mut fresh_memory = Self::new_empty_space_obstacles(
                 self.nebula_tile_drift_speed.clone(),

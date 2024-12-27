@@ -57,10 +57,9 @@ impl EnergyFieldMemory {
             // result, don't update the drift speed in the negative case (i.e.
             // no movement when we would have expected some)
             //
-            // Subtract 3: 1 for the delay in the observed energy field, 1
+            // Subtract 2: 1 for the delay in the observed energy field and 1
             // because the energy field is moved before step is incremented
-            // when creating the observation, and 1 for ???
-            println!("{}", obs.total_steps);
+            // when creating the observation
             update_energy_node_drift_speed(
                 &mut self.energy_node_drift_speed,
                 obs.total_steps.saturating_sub(2),
