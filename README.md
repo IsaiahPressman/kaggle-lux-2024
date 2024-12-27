@@ -19,7 +19,7 @@ There should preferably be at least one test case per possible node count value.
 - Full game test cases can be generated individually by running
 `JAX_PLATFORMS=cpu luxai-s3 python/test_agent/main.py python/test_agent/main.py 
 --output replay.json --replay.no-compressed-obs`
-followed by `process_replay_for_tests.py` on the generated replay.json, observations_0.json, and observations_1.json files.
+followed by `process_replay_for_tests.py --include_observations` on the generated replay.json, observations_0.json, and observations_1.json files.
 
 
 ### Playing a game with the local agent

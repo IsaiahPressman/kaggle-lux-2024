@@ -25,7 +25,7 @@ class UserArgs:
             "and observation information"
         )
         parser.add_argument("path", type=Path)
-        parser.add_argument("--include-observations", action="store_true")
+        parser.add_argument("--include_observations", action="store_true")
         args = parser.parse_args()
         return UserArgs(**vars(args))
 
