@@ -17,7 +17,8 @@ pub struct FullReplay {
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
-    player_observations: [Vec<LuxPlayerObservation>; P],
+    #[serde(default)]
+    player_observations: Option<[Vec<LuxPlayerObservation>; P]>,
 }
 
 impl FullReplay {
@@ -68,7 +69,7 @@ impl FullReplay {
     }
 
     pub fn get_player_observations(&self) -> Vec<[Observation; P]> {
-        let [p1_obs, p2_obs] = &self.player_observations;
+        let [p1_obs, p2_obs] = self.player_observations.clone().unwrap();
         p1_obs
             .iter()
             .zip_eq(p2_obs)

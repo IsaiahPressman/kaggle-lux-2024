@@ -378,22 +378,18 @@ impl EnvData {
         }
     }
 
-    #[inline(always)]
     fn terminate(&mut self) {
         self.state.done = true;
     }
 
-    #[inline(always)]
     fn done(&self) -> bool {
         self.state.done
     }
 
-    #[inline(always)]
     fn is_new_match(&self) -> bool {
         self.state.match_steps == 0
     }
 
-    #[inline(always)]
     fn is_new_game(&self) -> bool {
         self.state.total_steps == 0
     }

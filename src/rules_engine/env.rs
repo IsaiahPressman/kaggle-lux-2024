@@ -2020,10 +2020,11 @@ mod tests {
         assert_eq!(player_reset_obs, player_observations[0]);
         // Run the whole game checking the simulation matches on each step
         for (
-            ((s_next_s, actions), vision_power_map),
+            (((mut state, mut next_state), actions), vision_power_map),
             expected_player_observations,
         ) in all_states
-            .windows(2)
+            .into_iter()
+            .tuple_windows()
             .zip_eq(full_replay.get_actions().iter())
             .zip_eq(all_vision_power_maps[1..].iter())
             .zip_eq(
@@ -2033,18 +2034,13 @@ mod tests {
                     .chain(once(None)),
             )
         {
-            let [state, next_state] = s_next_s else {
-                panic!()
-            };
-            let mut state = state.clone();
-            let mut next_state = next_state.clone();
             // Currently in the replay file, each observed energy field is from the previous
             // step's computed energy field
             state.energy_field = get_energy_field(
                 &state.energy_nodes,
                 &full_replay.params.fixed,
             );
-            assert_eq!(state.energy_field, next_state.energy_field,);
+            assert_eq!(state.energy_field, next_state.energy_field);
 
             let energy_node_deltas = state.get_energy_node_deltas(&next_state);
             let ([mut p1_obs, mut p2_obs], game_result, _) = step(

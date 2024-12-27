@@ -1,5 +1,8 @@
 use crate::feature_engineering::memory::Memory;
-use crate::rules_engine::params::FIXED_PARAMS;
+use crate::rules_engine::param_ranges::{
+    PARAM_RANGES, UNIT_SAP_COST_MAX, UNIT_SAP_COST_MIN,
+};
+use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
@@ -31,18 +34,25 @@ enum SpatialFeature {
 
 #[derive(Debug, Clone, Copy, EnumIter)]
 enum GlobalFeature {
+    // Visible features
     MyTeamId = 0,
     MyTeamPoints = 2,
     OppTeamPoints = 3,
     MyTeamWins = 4,
     OppTeamWins = 7,
     MatchSteps = 10,
-    UnitSapDropoffFactor = 11,
-    NebulaTileVisionReduction = 14,
-    NebulaTileEnergyReduction = 18,
-    NebulaTileDriftSpeed = 21,
-    EnergyNodeDriftSpeed = 25,
-    End = 30,
+    // Known parameters
+    UnitMoveCost = 11,
+    UnitSapCost = 16,
+    UnitSapRange = 17,
+    UnitSensorRange = 22,
+    // Estimated / inferred features
+    UnitSapDropoffFactor = 25,
+    NebulaTileVisionReduction = 28,
+    NebulaTileEnergyReduction = 32,
+    NebulaTileDriftSpeed = 35,
+    EnergyNodeDriftSpeed = 39,
+    End = 44,
 }
 
 // Normalizing constants
@@ -58,6 +68,7 @@ pub fn write_obs_arrays(
     mut global_out: ArrayViewMut2<f32>,
     observations: &[Observation],
     memories: &[Memory],
+    params: &KnownVariableParams,
 ) {
     for (((obs, mem), team_spatial_out), team_global_out) in observations
         .iter()
@@ -65,7 +76,7 @@ pub fn write_obs_arrays(
         .zip_eq(spatial_out.outer_iter_mut())
         .zip_eq(global_out.outer_iter_mut())
     {
-        write_team_obs(team_spatial_out, team_global_out, obs, mem);
+        write_team_obs(team_spatial_out, team_global_out, obs, mem, params);
     }
 }
 
@@ -82,6 +93,7 @@ fn write_team_obs(
     mut global_out: ArrayViewMut1<f32>,
     obs: &Observation,
     mem: &Memory,
+    params: &KnownVariableParams,
 ) {
     use GlobalFeature::*;
     use SpatialFeature::*;
@@ -194,6 +206,35 @@ fn write_team_obs(
                 global_result[gf as usize] = obs.match_steps as f32
                     / FIXED_PARAMS.max_steps_in_match as f32;
             },
+            UnitMoveCost => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &one_hot_encode_param_range(
+                        params.unit_move_cost,
+                        &PARAM_RANGES.unit_move_cost,
+                    ),
+                );
+            },
+            UnitSapCost => {
+                global_result[gf as usize] =
+                    (params.unit_sap_cost - *UNIT_SAP_COST_MIN) as f32
+                        / (*UNIT_SAP_COST_MAX - *UNIT_SAP_COST_MIN) as f32;
+            },
+            UnitSapRange => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &one_hot_encode_param_range(
+                        params.unit_sap_range,
+                        &PARAM_RANGES.unit_sap_range,
+                    ),
+                );
+            },
+            UnitSensorRange => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &one_hot_encode_param_range(
+                        params.unit_sensor_range,
+                        &PARAM_RANGES.unit_sensor_range,
+                    ),
+                );
+            },
             UnitSapDropoffFactor => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
                     &mem.get_unit_sap_dropoff_factor_weights(),
@@ -271,6 +312,15 @@ fn discretize_team_wins(wins: u32) -> [f32; 3] {
     }
 }
 
+fn one_hot_encode_param_range<T>(val: T, range: &[T]) -> Vec<f32>
+where
+    T: Copy + Eq,
+{
+    let mut encoded = vec![0.0; range.len()];
+    encoded[range.iter().position(|&v| v == val).unwrap()] = 1.0;
+    encoded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +340,42 @@ mod tests {
                 },
                 MyTeamWins | OppTeamWins => {
                     let option_count = discretize_team_wins(0).len();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
+                    );
+                },
+                UnitMoveCost => {
+                    let option_count = PARAM_RANGES
+                        .unit_move_cost
+                        .iter()
+                        .sorted()
+                        .dedup()
+                        .count();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
+                    );
+                },
+                UnitSapRange => {
+                    let option_count = PARAM_RANGES
+                        .unit_sap_range
+                        .iter()
+                        .sorted()
+                        .dedup()
+                        .count();
+                    assert_eq!(
+                        next_feature as isize - feature as isize,
+                        option_count as isize
+                    );
+                },
+                UnitSensorRange => {
+                    let option_count = PARAM_RANGES
+                        .unit_sensor_range
+                        .iter()
+                        .sorted()
+                        .dedup()
+                        .count();
                     assert_eq!(
                         next_feature as isize - feature as isize,
                         option_count as isize

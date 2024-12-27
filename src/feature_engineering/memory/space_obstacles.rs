@@ -249,17 +249,14 @@ impl SpaceObstacleMemory {
     }
 }
 
-#[inline(always)]
 fn should_drift(step: u32, speed: f32) -> bool {
     step as f32 * speed % 1.0 == 0.0
 }
 
-#[inline(always)]
 fn should_negative_drift(step: u32, speed: f32) -> bool {
     speed < 0.0 && should_drift(step, speed)
 }
 
-#[inline(always)]
 fn should_positive_drift(step: u32, speed: f32) -> bool {
     speed > 0.0 && should_drift(step, speed)
 }
