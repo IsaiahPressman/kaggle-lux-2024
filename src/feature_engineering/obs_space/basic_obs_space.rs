@@ -16,6 +16,9 @@ enum SpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
+    // Dead units still provide vision
+    MyDeadUnitCount,
+    OppDeadUnitCount,
     MyUnitEnergy,
     OppUnitEnergy,
     MyUnitEnergyMin,
@@ -112,6 +115,12 @@ fn write_team_obs(
             },
             OppUnitCount => {
                 write_unit_counts(slice, obs.get_opp_units());
+            },
+            MyDeadUnitCount => {
+                write_dead_unit_counts(slice, obs.get_my_units());
+            },
+            OppDeadUnitCount => {
+                write_dead_unit_counts(slice, obs.get_opp_units());
             },
             MyUnitEnergy => {
                 write_unit_energies(slice, obs.get_my_units());
@@ -275,6 +284,13 @@ fn write_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     units
         .iter()
         .filter(|u| u.alive())
+        .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
+}
+
+fn write_dead_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
+    units
+        .iter()
+        .filter(|u| !u.alive())
         .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
 }
 
