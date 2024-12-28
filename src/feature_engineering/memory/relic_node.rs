@@ -152,6 +152,13 @@ impl RelicNodeMemory {
 }
 
 #[cfg(test)]
+impl RelicNodeMemory {
+    pub fn get_all_nodes_registered(&self) -> bool {
+        self.all_nodes_registered
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::rules_engine::state::Unit;
