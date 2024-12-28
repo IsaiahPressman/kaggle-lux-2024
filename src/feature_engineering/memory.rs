@@ -17,7 +17,6 @@ use numpy::ndarray::{Array2, Zip};
 use relic_node::RelicNodeMemory;
 
 pub struct Memory {
-    // TODO: Test various memory modules against ground truth
     energy_field: EnergyFieldMemory,
     hidden_parameter: HiddenParameterMemory,
     relic_node: RelicNodeMemory,
@@ -167,12 +166,9 @@ mod tests {
             .into_iter()
             .tuple_windows()
             .zip_eq(full_replay.get_actions())
-            .map(move |((mut state, next_state), actions)| {
+            .map(move |((state, next_state), actions)| {
                 let energy_node_deltas =
                     state.get_energy_node_deltas(&next_state);
-                // Currently in the replay file, each observed energy field is from the previous
-                // step's computed energy field
-                state.energy_field = next_state.energy_field.clone();
                 let (obs, _, _) = step(
                     &mut state.clone(),
                     &mut rng,
@@ -188,6 +184,7 @@ mod tests {
             })
     }
 
+    // TODO: Test symmetries in memory
     #[rstest]
     #[ignore = "slow"]
     #[case("processed_replay_478448958.json")]
@@ -357,6 +354,49 @@ mod tests {
                     FIXED_PARAMS.max_relic_nodes
                 );
             }
+
+            if full_replay.get_relic_nodes().len() == FIXED_PARAMS.max_relic_nodes {
+                assert!(mem.relic_node.get_all_nodes_registered());
+            }
+        }
+    }
+
+    #[rstest]
+    #[ignore = "slow"]
+    #[case("processed_replay_478448958.json")]
+    fn test_space_obstacle_memory(#[case] file_name: &str) {
+        let full_replay = load_replay(file_name);
+        let variable_params = &full_replay.params.variable;
+        let known_params = KnownVariableParams::from(variable_params.clone());
+
+        let mut memories = [
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+        ];
+        for (_state, actions, obs, next_state) in run_replay(&full_replay) {
+            for (mem, obs, last_actions) in
+                izip_eq!(memories.iter_mut(), obs, actions)
+            {
+                mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
+                for (pos, explored) in mem.space_obstacle.explored_tiles.indexed_iter().map(|((x, y), explored)| (Pos::new(x, y), *explored)) {
+                    if explored {
+                        assert_eq!(mem.space_obstacle.known_asteroids[pos.as_index()], next_state.asteroids.contains(&pos));
+                        assert_eq!(mem.space_obstacle.known_nebulae[pos.as_index()], next_state.nebulae.contains(&pos));
+                    } else {
+                        assert!(!obs.sensor_mask[pos.as_index()]);
+                    }
+                }
+                assert!(mem
+                    .space_obstacle
+                    .nebula_tile_drift_speed
+                    .iter_unmasked_options()
+                    .any(|&speed| speed
+                        == variable_params.nebula_tile_drift_speed));
+            }
+        }
+        for mem in memories.iter() {
+            assert!(mem.space_obstacle.explored_tiles.iter().all(|et| *et));
+            assert!(!mem.space_obstacle.nebula_tile_drift_speed.still_unsolved());
         }
     }
 }

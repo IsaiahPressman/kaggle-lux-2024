@@ -2034,13 +2034,11 @@ mod tests {
                     .chain(once(None)),
             )
         {
-            // Currently in the replay file, each observed energy field is from the previous
-            // step's computed energy field
-            state.energy_field = get_energy_field(
+            let energy_field = get_energy_field(
                 &state.energy_nodes,
                 &full_replay.params.fixed,
             );
-            assert_eq!(state.energy_field, next_state.energy_field);
+            assert_eq!(energy_field, state.energy_field);
 
             let energy_node_deltas = state.get_energy_node_deltas(&next_state);
             let ([mut p1_obs, mut p2_obs], game_result, _) = step(
@@ -2068,10 +2066,7 @@ mod tests {
                 assert_eq!([p1_obs, p2_obs], [p1_expected, p2_expected]);
             }
 
-            state.energy_field = Array2::zeros(state.energy_field.dim());
             state.sort();
-            next_state.energy_field =
-                Array2::zeros(next_state.energy_field.dim());
             next_state.sort();
             assert_eq!(state, next_state);
 

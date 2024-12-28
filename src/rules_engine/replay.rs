@@ -31,7 +31,7 @@ impl FullReplay {
     }
 
     pub fn get_states(&self) -> Vec<State> {
-        let mut result = Vec::with_capacity(self.observations.len());
+        let mut result: Vec<State> = Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
             let game_over = obs.team_wins.iter().sum::<u32>()
                 >= self.params.fixed.match_count_per_episode;
@@ -63,6 +63,11 @@ impl FullReplay {
                 self.get_relic_config_size(),
             );
             state.sort();
+            // In the replay file, each observed energy field is from the previous
+            // step's computed energy field
+            if let Some(last_state) = result.last_mut() {
+                last_state.energy_field = state.energy_field.clone();
+            }
             result.push(state);
         }
         result
@@ -114,6 +119,15 @@ impl FullReplay {
         self.actions
             .iter()
             .map(|acts| acts.clone().into_actions())
+            .collect()
+    }
+
+    pub fn get_relic_nodes(&self) -> Vec<Pos> {
+        let obs = self.observations.first().unwrap();
+        obs.relic_nodes
+            .iter()
+            .copied()
+            .map(|pos| Pos::try_from(pos).unwrap())
             .collect()
     }
 }
