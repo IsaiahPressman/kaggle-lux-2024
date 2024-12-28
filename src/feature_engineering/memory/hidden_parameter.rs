@@ -12,7 +12,7 @@ use numpy::ndarray::{Array2, Zip};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
-pub struct HiddenParametersMemory {
+pub struct HiddenParameterMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
     pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
     pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
@@ -20,7 +20,7 @@ pub struct HiddenParametersMemory {
     last_obs_data: LastObservationData,
 }
 
-impl HiddenParametersMemory {
+impl HiddenParameterMemory {
     pub fn new(param_ranges: &ParamRanges) -> Self {
         let nebula_tile_vision_reduction = MaskedPossibilities::from_options(
             param_ranges
@@ -151,7 +151,11 @@ fn determine_nebula_tile_vision_reduction(
         unit_sensor_range,
     );
     if !nebulae_could_have_moved {
-        for expected_vision in obs.nebulae.iter().map(|n| expected_vision_power_map[n.as_index()]) {
+        for expected_vision in obs
+            .nebulae
+            .iter()
+            .map(|n| expected_vision_power_map[n.as_index()])
+        {
             nebula_tile_vision_reduction_options
                 .iter_unmasked_options_mut_mask()
                 .for_each(|(vision_reduction, mask)| {

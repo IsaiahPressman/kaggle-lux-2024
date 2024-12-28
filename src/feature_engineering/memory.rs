@@ -1,40 +1,40 @@
 mod energy_field;
-mod hidden_parameters;
+mod hidden_parameter;
 mod masked_possibilities;
 #[allow(dead_code)]
 pub mod probabilities;
-mod relic_nodes;
-mod space_obstacles;
+mod relic_node;
+mod space_obstacle;
 
-use crate::feature_engineering::memory::space_obstacles::SpaceObstacleMemory;
+use crate::feature_engineering::memory::space_obstacle::SpaceObstacleMemory;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos};
 use energy_field::EnergyFieldMemory;
-use hidden_parameters::HiddenParametersMemory;
+use hidden_parameter::HiddenParameterMemory;
 use numpy::ndarray::{Array2, Zip};
-use relic_nodes::RelicNodeMemory;
+use relic_node::RelicNodeMemory;
 
 pub struct Memory {
     // TODO: Test various memory modules against ground truth
     energy_field: EnergyFieldMemory,
-    hidden_parameters: HiddenParametersMemory,
-    relic_nodes: RelicNodeMemory,
-    space_obstacles: SpaceObstacleMemory,
+    hidden_parameter: HiddenParameterMemory,
+    relic_node: RelicNodeMemory,
+    space_obstacle: SpaceObstacleMemory,
 }
 
 impl Memory {
     pub fn new(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
         let energy_field = EnergyFieldMemory::new(param_ranges, map_size);
-        let hidden_parameters = HiddenParametersMemory::new(param_ranges);
+        let hidden_parameters = HiddenParameterMemory::new(param_ranges);
         let relic_nodes = RelicNodeMemory::new(map_size);
         let space_obstacles = SpaceObstacleMemory::new(param_ranges, map_size);
         Self {
             energy_field,
-            hidden_parameters,
-            relic_nodes,
-            space_obstacles,
+            hidden_parameter: hidden_parameters,
+            relic_node: relic_nodes,
+            space_obstacle: space_obstacles,
         }
     }
 
@@ -46,11 +46,18 @@ impl Memory {
         params: &KnownVariableParams,
     ) {
         self.energy_field.update(obs);
-        self.space_obstacles.update(obs, params);
-        let nebulae_could_have_moved = self.space_obstacles.space_obstacles_could_have_just_moved(obs.total_steps);
-        self.hidden_parameters
-            .update(obs, last_actions, fixed_params, params, nebulae_could_have_moved);
-        self.relic_nodes.update(obs);
+        self.space_obstacle.update(obs, params);
+        let nebulae_could_have_moved = self
+            .space_obstacle
+            .space_obstacles_could_have_just_moved(obs.total_steps);
+        self.hidden_parameter.update(
+            obs,
+            last_actions,
+            fixed_params,
+            params,
+            nebulae_could_have_moved,
+        );
+        self.relic_node.update(obs);
     }
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
@@ -64,59 +71,59 @@ impl Memory {
     }
 
     pub fn get_nebula_tile_vision_reduction_weights(&self) -> Vec<f32> {
-        self.hidden_parameters
+        self.hidden_parameter
             .nebula_tile_vision_reduction
             .get_weighted_possibilities()
     }
 
     pub fn get_nebula_tile_energy_reduction_weights(&self) -> Vec<f32> {
-        self.hidden_parameters
+        self.hidden_parameter
             .nebula_tile_energy_reduction
             .get_weighted_possibilities()
     }
 
     pub fn get_unit_sap_dropoff_factor_weights(&self) -> Vec<f32> {
-        self.hidden_parameters
+        self.hidden_parameter
             .unit_sap_dropoff_factor
             .get_weighted_possibilities()
     }
 
     pub fn get_relic_nodes(&self) -> &[Pos] {
-        &self.relic_nodes.relic_nodes
+        &self.relic_node.relic_nodes
     }
 
     pub fn get_explored_relic_nodes_map(&self) -> &Array2<bool> {
-        &self.relic_nodes.explored_nodes_map
+        &self.relic_node.explored_nodes_map
     }
 
     pub fn get_relic_points_map(&self) -> &Array2<f32> {
-        &self.relic_nodes.points_map
+        &self.relic_node.points_map
     }
 
     pub fn get_known_relic_points_map(&self) -> &Array2<bool> {
-        &self.relic_nodes.known_points_map
+        &self.relic_node.known_points_map
     }
 
     pub fn get_known_valuable_relic_points_map(&self) -> Array2<bool> {
-        Zip::from(&self.relic_nodes.points_map)
-            .and(&self.relic_nodes.known_points_map)
+        Zip::from(&self.relic_node.points_map)
+            .and(&self.relic_node.known_points_map)
             .map_collect(|&value, &known| known && value >= 0.99)
     }
 
     pub fn get_known_asteroids_map(&self) -> &Array2<bool> {
-        &self.space_obstacles.known_asteroids
+        &self.space_obstacle.known_asteroids
     }
 
     pub fn get_known_nebulae_map(&self) -> &Array2<bool> {
-        &self.space_obstacles.known_nebulae
+        &self.space_obstacle.known_nebulae
     }
 
     pub fn get_explored_tiles_map(&self) -> &Array2<bool> {
-        &self.space_obstacles.explored_tiles
+        &self.space_obstacle.explored_tiles
     }
 
     pub fn get_nebula_tile_drift_speed_weights(&self) -> Vec<f32> {
-        self.space_obstacles
+        self.space_obstacle
             .nebula_tile_drift_speed
             .get_weighted_possibilities()
     }
@@ -244,7 +251,7 @@ mod tests {
     #[rstest]
     #[ignore = "slow"]
     #[case("processed_replay_478448958.json")]
-    fn test_hidden_parameters_memory(#[case] file_name: &str) {
+    fn test_hidden_parameter_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
         let variable_params = &full_replay.params.variable;
         let known_params = KnownVariableParams::from(variable_params.clone());
@@ -259,17 +266,19 @@ mod tests {
             {
                 mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
                 assert!(mem
-                    .hidden_parameters
+                    .hidden_parameter
                     .nebula_tile_vision_reduction
                     .iter_unmasked_options()
-                    .any(|&vr| vr == variable_params.nebula_tile_vision_reduction));
+                    .any(|&vr| vr
+                        == variable_params.nebula_tile_vision_reduction));
                 assert!(mem
-                    .hidden_parameters
+                    .hidden_parameter
                     .nebula_tile_energy_reduction
                     .iter_unmasked_options()
-                    .any(|&er| er == variable_params.nebula_tile_energy_reduction));
+                    .any(|&er| er
+                        == variable_params.nebula_tile_energy_reduction));
                 assert!(mem
-                    .hidden_parameters
+                    .hidden_parameter
                     .unit_sap_dropoff_factor
                     .iter_unmasked_options()
                     .any(|&sd| sd == variable_params.unit_sap_dropoff_factor));
@@ -277,9 +286,77 @@ mod tests {
         }
 
         for mem in memories.iter() {
-            assert!(!mem.hidden_parameters.nebula_tile_vision_reduction.still_unsolved());
-            assert!(!mem.hidden_parameters.nebula_tile_energy_reduction.still_unsolved());
-            assert!(!mem.hidden_parameters.unit_sap_dropoff_factor.still_unsolved());
+            assert!(!mem
+                .hidden_parameter
+                .nebula_tile_vision_reduction
+                .still_unsolved());
+            assert!(!mem
+                .hidden_parameter
+                .nebula_tile_energy_reduction
+                .still_unsolved());
+            assert!(!mem
+                .hidden_parameter
+                .unit_sap_dropoff_factor
+                .still_unsolved());
+        }
+    }
+
+    #[rstest]
+    #[ignore = "slow"]
+    #[case("processed_replay_478448958.json")]
+    fn test_relic_node_memory(#[case] file_name: &str) {
+        let full_replay = load_replay(file_name);
+        let variable_params = &full_replay.params.variable;
+        let known_params = KnownVariableParams::from(variable_params.clone());
+
+        let mut memories = [
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+        ];
+        for (state, actions, obs, _next_state) in run_replay(&full_replay) {
+            for (mem, obs, last_actions) in
+                izip_eq!(memories.iter_mut(), obs, actions)
+            {
+                mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
+                Zip::from(&state.relic_node_points_map)
+                    .and(&mem.relic_node.points_map)
+                    .and(&mem.relic_node.known_points_map)
+                    .for_each(|&actual_point, &mem_point, &mem_point_known| {
+                        if mem_point_known {
+                            assert_eq!(
+                                if actual_point { 1.0 } else { 0.0 },
+                                mem_point
+                            );
+                        }
+                    });
+
+                for explored_pos in
+                    mem.relic_node.explored_nodes_map.indexed_iter().filter_map(
+                        |((x, y), explored)| explored.then_some(Pos::new(x, y)),
+                    )
+                {
+                    assert_eq!(
+                        state.relic_node_locations.contains(&explored_pos),
+                        mem.relic_node.relic_nodes.contains(&explored_pos)
+                    );
+                }
+            }
+        }
+        for mem in memories.iter() {
+            let explored_pct = mem
+                .relic_node
+                .explored_nodes_map
+                .mapv(|ex| if ex { 1.0 } else { 0.0 })
+                .mean()
+                .unwrap();
+            assert!(explored_pct >= 0.9);
+            if mem.relic_node.get_all_nodes_registered() {
+                assert_eq!(explored_pct, 1.0);
+                assert_eq!(
+                    mem.relic_node.relic_nodes.len(),
+                    FIXED_PARAMS.max_relic_nodes
+                );
+            }
         }
     }
 }
