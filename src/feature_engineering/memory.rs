@@ -182,6 +182,7 @@ mod tests {
 
     #[rstest]
     #[ignore = "slow"]
+    // TODO: Figure out how to generate these replay files
     #[case("processed_replay_478448958.json")]
     fn test_energy_field_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
@@ -239,4 +240,6 @@ mod tests {
             assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
         }
     }
+
+    // TODO: Test other memory modules
 }
