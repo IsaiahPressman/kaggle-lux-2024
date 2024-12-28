@@ -142,6 +142,7 @@ mod tests {
     use numpy::ndarray::ArrayView2;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
+    use rstest_reuse::{self, *};
     use std::fs;
     use std::path::Path;
 
@@ -201,10 +202,13 @@ mod tests {
         true
     }
 
+    #[template]
     #[rstest]
-    #[ignore = "slow"]
-    // TODO: Figure out how to generate these replay files
     #[case("processed_replay_478448958.json")]
+    #[ignore = "slow"]
+    fn memory_replay_files(#[case] file_name: &str) {}
+
+    #[apply(memory_replay_files)]
     fn test_energy_field_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
         let variable_params = &full_replay.params.variable;
@@ -264,9 +268,7 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[ignore = "slow"]
-    #[case("processed_replay_478448958.json")]
+    #[apply(memory_replay_files)]
     fn test_hidden_parameter_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
         let variable_params = &full_replay.params.variable;
@@ -317,9 +319,7 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[ignore = "slow"]
-    #[case("processed_replay_478448958.json")]
+    #[apply(memory_replay_files)]
     fn test_relic_node_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
         let variable_params = &full_replay.params.variable;
@@ -394,9 +394,7 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[ignore = "slow"]
-    #[case("processed_replay_478448958.json")]
+    #[apply(memory_replay_files)]
     fn test_space_obstacle_memory(#[case] file_name: &str) {
         let full_replay = load_replay(file_name);
         let variable_params = &full_replay.params.variable;

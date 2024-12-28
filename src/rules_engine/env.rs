@@ -1988,14 +1988,12 @@ mod tests {
 
     #[rstest]
     // Two energy nodes
-    #[ignore = "slow"]
     #[case("processed_replay_6155879.json")]
     // Four energy nodes
-    #[ignore = "slow"]
     #[case("processed_replay_4086850.json")]
     // Six energy nodes
-    #[ignore = "slow"]
     #[case("processed_replay_2462211601.json")]
+    #[ignore = "slow"]
     fn test_full_game(#[case] file_name: &str) {
         let path = Path::new(file!())
             .parent()
