@@ -139,6 +139,7 @@ mod tests {
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::State;
     use itertools::Itertools;
+    use numpy::ndarray::ArrayView2;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use std::fs;
@@ -184,7 +185,22 @@ mod tests {
             })
     }
 
-    // TODO: Test symmetries in memory
+    fn is_symmetrical<T>(arr: ArrayView2<T>) -> bool
+    where
+        T: Copy + PartialEq,
+    {
+        let (width, height) = arr.dim();
+        let map_size = [width, height];
+        for (pos, &v) in
+            arr.indexed_iter().map(|((x, y), v)| (Pos::new(x, y), v))
+        {
+            if arr[pos.reflect(map_size).as_index()] != v {
+                return false;
+            }
+        }
+        true
+    }
+
     #[rstest]
     #[ignore = "slow"]
     // TODO: Figure out how to generate these replay files
@@ -226,6 +242,8 @@ mod tests {
                     .iter_unmasked_options()
                     .any(|&speed| speed
                         == variable_params.energy_node_drift_speed));
+
+                assert!(is_symmetrical(mem.energy_field.energy_field.view()));
             }
             known_pcts.push(
                 known_count as f32 / (known_count + unknown_count) as f32,
@@ -338,6 +356,18 @@ mod tests {
                         mem.relic_node.relic_nodes.contains(&explored_pos)
                     );
                 }
+
+                for rn in &mem.relic_node.relic_nodes {
+                    assert!(mem
+                        .relic_node
+                        .relic_nodes
+                        .contains(&rn.reflect(FIXED_PARAMS.map_size)));
+                }
+                assert!(is_symmetrical(
+                    mem.relic_node.explored_nodes_map.view()
+                ));
+                assert!(is_symmetrical(mem.relic_node.points_map.view()));
+                assert!(is_symmetrical(mem.relic_node.known_points_map.view()));
             }
         }
         for mem in memories.iter() {
@@ -406,6 +436,16 @@ mod tests {
                     .iter_unmasked_options()
                     .any(|&speed| speed
                         == variable_params.nebula_tile_drift_speed));
+
+                assert!(is_symmetrical(
+                    mem.space_obstacle.known_asteroids.view()
+                ));
+                assert!(is_symmetrical(
+                    mem.space_obstacle.known_nebulae.view()
+                ));
+                assert!(is_symmetrical(
+                    mem.space_obstacle.explored_tiles.view()
+                ));
             }
         }
         for mem in memories.iter() {

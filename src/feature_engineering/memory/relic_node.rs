@@ -97,13 +97,19 @@ impl RelicNodeMemory {
                 .count();
         if unaccounted_new_points == 0 {
             frontier_locations.into_iter().for_each(|pos| {
+                let reflected = pos.reflect(self.map_size);
                 self.known_points_map[pos.as_index()] = true;
+                self.known_points_map[reflected.as_index()] = true;
                 self.points_map[pos.as_index()] = 0.0;
+                self.points_map[reflected.as_index()] = 0.0;
             });
         } else if unaccounted_new_points == frontier_locations.len() {
             frontier_locations.into_iter().for_each(|pos| {
+                let reflected = pos.reflect(self.map_size);
                 self.known_points_map[pos.as_index()] = true;
+                self.known_points_map[reflected.as_index()] = true;
                 self.points_map[pos.as_index()] = 1.0;
+                self.points_map[reflected.as_index()] = 1.0;
             });
         } else if unaccounted_new_points > frontier_locations.len() {
             panic!(
@@ -115,11 +121,17 @@ impl RelicNodeMemory {
             let mean_points =
                 unaccounted_new_points as f32 / frontier_locations.len() as f32;
             frontier_locations.into_iter().for_each(|pos| {
-                let idx = pos.as_index();
-                self.points_sum_map[idx] += mean_points;
-                self.points_count_map[idx] += 1;
-                self.points_map[pos.as_index()] = self.points_sum_map[idx]
-                    / self.points_count_map[idx] as f32;
+                let reflected = pos.reflect(self.map_size);
+                self.points_sum_map[pos.as_index()] += mean_points;
+                self.points_sum_map[reflected.as_index()] += mean_points;
+                self.points_count_map[pos.as_index()] += 1;
+                self.points_count_map[reflected.as_index()] += 1;
+                self.points_map[pos.as_index()] = self.points_sum_map
+                    [pos.as_index()]
+                    / self.points_count_map[pos.as_index()] as f32;
+                self.points_map[reflected.as_index()] = self.points_sum_map
+                    [reflected.as_index()]
+                    / self.points_count_map[reflected.as_index()] as f32;
             });
         }
     }
@@ -258,7 +270,9 @@ mod tests {
             team_points: [1, 0],
             ..Default::default()
         };
-        memory.known_points_map[[0, 0]] = true;
+        let pos = Pos::new(0, 0);
+        memory.known_points_map[pos.as_index()] = true;
+        memory.known_points_map[pos.reflect(map_size).as_index()] = true;
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 1);
         assert_eq!(
@@ -266,8 +280,8 @@ mod tests {
             arr2(&[
                 [true, true, false, false],
                 [false, false, false, false],
-                [false, false, false, false],
-                [false, false, false, false]
+                [false, false, false, true],
+                [false, false, false, true]
             ])
         );
         assert_eq!(
@@ -275,7 +289,7 @@ mod tests {
             arr2(&[
                 [0., 1., 0., 0.],
                 [0., 0., 0., 0.],
-                [0., 0., 0., 0.],
+                [0., 0., 0., 1.],
                 [0., 0., 0., 0.]
             ])
         );
@@ -299,8 +313,8 @@ mod tests {
             arr2(&[
                 [true, true, false, false],
                 [true, true, false, false],
-                [false, false, false, false],
-                [false, false, false, false]
+                [false, false, true, true],
+                [false, false, true, true]
             ])
         );
         assert_eq!(
@@ -308,8 +322,8 @@ mod tests {
             arr2(&[
                 [0., 1., 0., 0.],
                 [1., 1., 0., 0.],
-                [0., 0., 0., 0.],
-                [0., 0., 0., 0.]
+                [0., 0., 1., 1.],
+                [0., 0., 1., 0.]
             ])
         );
 
@@ -333,8 +347,8 @@ mod tests {
             arr2(&[
                 [true, true, false, false],
                 [true, true, false, false],
-                [false, false, false, false],
-                [false, false, false, false]
+                [false, false, true, true],
+                [false, false, true, true]
             ])
         );
         assert_eq!(
@@ -342,8 +356,8 @@ mod tests {
             arr2(&[
                 [0., 1., 0., 0.],
                 [1., 1., 0., 0.],
-                [0.5, 0.5, 0., 0.],
-                [0., 0., 0., 0.]
+                [0.5, 0.5, 1., 1.],
+                [0., 0.5, 1., 0.]
             ])
         );
     }
