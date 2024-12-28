@@ -253,7 +253,8 @@ mod tests {
                 known_count as f32 / (known_count + unknown_count) as f32,
             );
         }
-        let mean_known_pct = known_pcts.iter().sum::<f32>() / known_pcts.len() as f32;
+        let mean_known_pct =
+            known_pcts.iter().sum::<f32>() / known_pcts.len() as f32;
         let max_known_pct = *known_pcts
             .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -271,11 +272,14 @@ mod tests {
                 assert!(mean_known_pct >= 0.5);
                 assert!(max_known_pct >= 0.7);
             },
-            n => panic!("Unrecognized unit_sensor_range {}", n)
+            n => panic!("Unrecognized unit_sensor_range {}", n),
         }
         for mem in memories.iter() {
             if variable_params.energy_node_drift_speed > 0.03 {
-                assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
+                assert!(!mem
+                    .energy_field
+                    .energy_node_drift_speed
+                    .still_unsolved());
             }
         }
     }
@@ -393,14 +397,15 @@ mod tests {
                 2 => assert!(explored_pct >= 0.65),
                 3 => assert!(explored_pct >= 0.7),
                 4 => assert!(explored_pct >= 0.8),
-                n => panic!("Unrecognized unit_sensor_range {}", n)
+                n => panic!("Unrecognized unit_sensor_range {}", n),
             }
             if mem.relic_node.get_all_nodes_registered() {
                 assert_eq!(explored_pct, 1.0);
             }
 
             if full_replay.get_relic_nodes().len()
-                == FIXED_PARAMS.max_relic_nodes && variable_params.unit_sensor_range > 2
+                == FIXED_PARAMS.max_relic_nodes
+                && variable_params.unit_sensor_range > 2
             {
                 assert!(mem.relic_node.get_all_nodes_registered());
             }
@@ -460,7 +465,12 @@ mod tests {
             }
         }
         for mem in memories.iter() {
-            let explored_pct = mem.space_obstacle.explored_tiles.mapv(|ex| if ex { 1.0 } else { 0.0 }).mean().unwrap();
+            let explored_pct = mem
+                .space_obstacle
+                .explored_tiles
+                .mapv(|ex| if ex { 1.0 } else { 0.0 })
+                .mean()
+                .unwrap();
             assert!(explored_pct >= 0.9);
             assert!(!mem
                 .space_obstacle
