@@ -50,7 +50,7 @@ class Agent:
         is_new_match = obs["match_steps"] == 0
         self.fe_env.step(raw_obs, self.last_actions, is_new_match=is_new_match)
         self.last_actions = self.get_new_actions()
-        # TODO: Log memory statuses and log value
+        # TODO: Log memory statuses and estimated value
         return self.last_actions
 
     def get_new_actions(self) -> ActionArray:
