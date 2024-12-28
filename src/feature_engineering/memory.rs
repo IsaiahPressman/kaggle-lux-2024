@@ -46,10 +46,11 @@ impl Memory {
         params: &KnownVariableParams,
     ) {
         self.energy_field.update(obs);
-        self.hidden_parameters
-            .update(obs, last_actions, fixed_params, params);
-        self.relic_nodes.update(obs);
         self.space_obstacles.update(obs, params);
+        let nebulae_could_have_moved = self.space_obstacles.space_obstacles_could_have_just_moved(obs.total_steps);
+        self.hidden_parameters
+            .update(obs, last_actions, fixed_params, params, nebulae_could_have_moved);
+        self.relic_nodes.update(obs);
     }
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
@@ -237,6 +238,48 @@ mod tests {
         );
         for mem in memories.iter() {
             assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
+        }
+    }
+
+    #[rstest]
+    #[ignore = "slow"]
+    #[case("processed_replay_478448958.json")]
+    fn test_hidden_parameters_memory(#[case] file_name: &str) {
+        let full_replay = load_replay(file_name);
+        let variable_params = &full_replay.params.variable;
+        let known_params = KnownVariableParams::from(variable_params.clone());
+
+        let mut memories = [
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+            Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
+        ];
+        for (_state, actions, obs, _next_state) in run_replay(&full_replay) {
+            for (mem, obs, last_actions) in
+                izip_eq!(memories.iter_mut(), obs, actions)
+            {
+                mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
+                assert!(mem
+                    .hidden_parameters
+                    .nebula_tile_vision_reduction
+                    .iter_unmasked_options()
+                    .any(|&vr| vr == variable_params.nebula_tile_vision_reduction));
+                assert!(mem
+                    .hidden_parameters
+                    .nebula_tile_energy_reduction
+                    .iter_unmasked_options()
+                    .any(|&er| er == variable_params.nebula_tile_energy_reduction));
+                assert!(mem
+                    .hidden_parameters
+                    .unit_sap_dropoff_factor
+                    .iter_unmasked_options()
+                    .any(|&sd| sd == variable_params.unit_sap_dropoff_factor));
+            }
+        }
+
+        for mem in memories.iter() {
+            assert!(!mem.hidden_parameters.nebula_tile_vision_reduction.still_unsolved());
+            assert!(!mem.hidden_parameters.nebula_tile_energy_reduction.still_unsolved());
+            assert!(!mem.hidden_parameters.unit_sap_dropoff_factor.still_unsolved());
         }
     }
 }

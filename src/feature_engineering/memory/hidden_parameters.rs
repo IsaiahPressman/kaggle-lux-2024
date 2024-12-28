@@ -73,6 +73,7 @@ impl HiddenParametersMemory {
         last_actions: &[Action],
         fixed_params: &FixedParams,
         variable_params: &KnownVariableParams,
+        nebulae_could_have_moved: bool,
     ) {
         if self.nebula_tile_vision_reduction.still_unsolved() {
             determine_nebula_tile_vision_reduction(
@@ -80,6 +81,7 @@ impl HiddenParametersMemory {
                 obs,
                 fixed_params.map_size,
                 variable_params.unit_sensor_range,
+                nebulae_could_have_moved,
             );
         }
         let new_match_just_started = obs.match_steps == 1;
@@ -141,12 +143,25 @@ fn determine_nebula_tile_vision_reduction(
     obs: &Observation,
     map_size: [usize; 2],
     unit_sensor_range: usize,
+    nebulae_could_have_moved: bool,
 ) {
     let expected_vision_power_map = estimate_vision_power_map(
         obs.get_my_units(),
         map_size,
         unit_sensor_range,
     );
+    if !nebulae_could_have_moved {
+        for expected_vision in obs.nebulae.iter().map(|n| expected_vision_power_map[n.as_index()]) {
+            nebula_tile_vision_reduction_options
+                .iter_unmasked_options_mut_mask()
+                .for_each(|(vision_reduction, mask)| {
+                    if *vision_reduction >= expected_vision {
+                        *mask = false
+                    }
+                });
+        }
+    }
+
     Zip::from(&expected_vision_power_map)
         .and(&obs.sensor_mask)
         .for_each(|expected_vision, can_see| {
@@ -508,6 +523,7 @@ mod tests {
                 [true, true, true],
             ]),
             units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
+            nebulae: vec![Pos::new(0, 0)],
             ..Default::default()
         };
 
@@ -516,8 +532,9 @@ mod tests {
             &obs,
             map_size,
             unit_sensor_range,
+            false,
         );
-        assert_eq!(possibilities.get_mask(), vec![false, true, true]);
+        assert_eq!(possibilities.get_mask(), vec![false, true, false]);
     }
 
     #[rstest]
@@ -547,6 +564,7 @@ mod tests {
             &obs,
             map_size,
             unit_sensor_range,
+            false,
         );
     }
 
