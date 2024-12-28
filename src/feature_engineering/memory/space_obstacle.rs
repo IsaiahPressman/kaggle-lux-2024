@@ -76,11 +76,9 @@ impl SpaceObstacleMemory {
     }
 
     fn space_obstacles_could_move(&self, step: u32) -> bool {
-        step > 0
-            && self
-                .nebula_tile_drift_speed
-                .iter_unmasked_options()
-                .any(|&speed| step as f32 * speed % 1.0 == 0.0)
+        self.nebula_tile_drift_speed
+            .iter_unmasked_options()
+            .any(|&speed| step as f32 * speed % 1.0 == 0.0)
     }
 
     pub fn space_obstacles_could_have_just_moved(&self, step: u32) -> bool {
