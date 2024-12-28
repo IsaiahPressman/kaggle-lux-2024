@@ -31,7 +31,8 @@ impl FullReplay {
     }
 
     pub fn get_states(&self) -> Vec<State> {
-        let mut result: Vec<State> = Vec::with_capacity(self.observations.len());
+        let mut result: Vec<State> =
+            Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
             let game_over = obs.team_wins.iter().sum::<u32>()
                 >= self.params.fixed.match_count_per_episode;

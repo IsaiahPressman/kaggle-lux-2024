@@ -355,7 +355,9 @@ mod tests {
                 );
             }
 
-            if full_replay.get_relic_nodes().len() == FIXED_PARAMS.max_relic_nodes {
+            if full_replay.get_relic_nodes().len()
+                == FIXED_PARAMS.max_relic_nodes
+            {
                 assert!(mem.relic_node.get_all_nodes_registered());
             }
         }
@@ -378,10 +380,21 @@ mod tests {
                 izip_eq!(memories.iter_mut(), obs, actions)
             {
                 mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
-                for (pos, explored) in mem.space_obstacle.explored_tiles.indexed_iter().map(|((x, y), explored)| (Pos::new(x, y), *explored)) {
+                for (pos, explored) in mem
+                    .space_obstacle
+                    .explored_tiles
+                    .indexed_iter()
+                    .map(|((x, y), explored)| (Pos::new(x, y), *explored))
+                {
                     if explored {
-                        assert_eq!(mem.space_obstacle.known_asteroids[pos.as_index()], next_state.asteroids.contains(&pos));
-                        assert_eq!(mem.space_obstacle.known_nebulae[pos.as_index()], next_state.nebulae.contains(&pos));
+                        assert_eq!(
+                            mem.space_obstacle.known_asteroids[pos.as_index()],
+                            next_state.asteroids.contains(&pos)
+                        );
+                        assert_eq!(
+                            mem.space_obstacle.known_nebulae[pos.as_index()],
+                            next_state.nebulae.contains(&pos)
+                        );
                     } else {
                         assert!(!obs.sensor_mask[pos.as_index()]);
                     }
@@ -396,7 +409,10 @@ mod tests {
         }
         for mem in memories.iter() {
             assert!(mem.space_obstacle.explored_tiles.iter().all(|et| *et));
-            assert!(!mem.space_obstacle.nebula_tile_drift_speed.still_unsolved());
+            assert!(!mem
+                .space_obstacle
+                .nebula_tile_drift_speed
+                .still_unsolved());
         }
     }
 }
