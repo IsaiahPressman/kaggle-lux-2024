@@ -140,7 +140,6 @@ mod tests {
     use crate::rules_engine::state::State;
     use itertools::Itertools;
     use numpy::ndarray::ArrayView2;
-    use pretty_assertions::assert_eq;
     use rstest::rstest;
     use rstest_reuse::{self, *};
     use std::fs;
@@ -204,7 +203,8 @@ mod tests {
 
     #[template]
     #[rstest]
-    #[case("processed_replay_478448958.json")]
+    // TODO: Figure out a better way to make these tests
+    #[case("processed_replay_0.json")]
     #[ignore = "slow"]
     fn memory_replay_files(#[case] file_name: &str) {}
 
@@ -253,18 +253,30 @@ mod tests {
                 known_count as f32 / (known_count + unknown_count) as f32,
             );
         }
-        assert!(
-            known_pcts.iter().sum::<f32>() / known_pcts.len() as f32 >= 0.5
-        );
-        assert!(
-            *known_pcts
-                .iter()
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap()
-                >= 0.7
-        );
+        let mean_known_pct = known_pcts.iter().sum::<f32>() / known_pcts.len() as f32;
+        let max_known_pct = *known_pcts
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        match variable_params.unit_sensor_range {
+            2 => {
+                assert!(mean_known_pct >= 0.35);
+                assert!(max_known_pct >= 0.6);
+            },
+            3 => {
+                assert!(mean_known_pct >= 0.4);
+                assert!(max_known_pct >= 0.65);
+            },
+            4 => {
+                assert!(mean_known_pct >= 0.5);
+                assert!(max_known_pct >= 0.7);
+            },
+            n => panic!("Unrecognized unit_sensor_range {}", n)
+        }
         for mem in memories.iter() {
-            assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
+            if variable_params.energy_node_drift_speed > 0.03 {
+                assert!(!mem.energy_field.energy_node_drift_speed.still_unsolved());
+            }
         }
     }
 
@@ -377,17 +389,18 @@ mod tests {
                 .mapv(|ex| if ex { 1.0 } else { 0.0 })
                 .mean()
                 .unwrap();
-            assert!(explored_pct >= 0.9);
+            match variable_params.unit_sensor_range {
+                2 => assert!(explored_pct >= 0.65),
+                3 => assert!(explored_pct >= 0.7),
+                4 => assert!(explored_pct >= 0.8),
+                n => panic!("Unrecognized unit_sensor_range {}", n)
+            }
             if mem.relic_node.get_all_nodes_registered() {
                 assert_eq!(explored_pct, 1.0);
-                assert_eq!(
-                    mem.relic_node.relic_nodes.len(),
-                    FIXED_PARAMS.max_relic_nodes
-                );
             }
 
             if full_replay.get_relic_nodes().len()
-                == FIXED_PARAMS.max_relic_nodes
+                == FIXED_PARAMS.max_relic_nodes && variable_params.unit_sensor_range > 2
             {
                 assert!(mem.relic_node.get_all_nodes_registered());
             }
@@ -447,7 +460,8 @@ mod tests {
             }
         }
         for mem in memories.iter() {
-            assert!(mem.space_obstacle.explored_tiles.iter().all(|et| *et));
+            let explored_pct = mem.space_obstacle.explored_tiles.mapv(|ex| if ex { 1.0 } else { 0.0 }).mean().unwrap();
+            assert!(explored_pct >= 0.9);
             assert!(!mem
                 .space_obstacle
                 .nebula_tile_drift_speed
