@@ -22,9 +22,8 @@ RUN curl -sSf https://rye.astral.sh/get | RYE_VERSION="0.41.0" RYE_INSTALL_OPTIO
 RUN rye install maturin
 # Install packages
 RUN rye sync
-# Activate venv, generate test cases, and run make prepare
+# Activate venv and run make prepare
 ENV PATH=/home/rux_ai_s3/.venv/bin/:$PATH
-RUN bash ./generate_full_game_test_cases.sh
 RUN make prepare-agent
 # Tar compiled submission for export
 RUN tar --exclude="*__pycache__*" --transform "s,^python/,," -czvf submission.tar.gz python/main.py python/rux_ai_s3

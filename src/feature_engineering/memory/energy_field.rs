@@ -100,10 +100,20 @@ fn update_energy_node_drift_speed(
     energy_node_drift_speed: &mut MaskedPossibilities<f32>,
     step: u32,
 ) {
+    // Sometimes the step where the energy field moved is missed by a couple steps.
+    // In this case, omit updating energy_node_drift_speed
+    if !energy_node_drift_speed
+        .get_options()
+        .iter()
+        .any(|&speed| should_drift(step, speed))
+    {
+        return;
+    }
+
     for (&candidate_speed, mask) in
         energy_node_drift_speed.iter_unmasked_options_mut_mask()
     {
-        if step as f32 * candidate_speed % 1.0 != 0.0 {
+        if !should_drift(step, candidate_speed) {
             *mask = false;
         }
     }
@@ -112,6 +122,10 @@ fn update_energy_node_drift_speed(
         // TODO: For game-time build, don't panic and instead just fail to update mask
         panic!("energy_node_drift_speed mask is all false")
     }
+}
+
+fn should_drift(step: u32, speed: f32) -> bool {
+    step as f32 * speed % 1.0 == 0.0
 }
 
 #[cfg(test)]

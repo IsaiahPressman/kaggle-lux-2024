@@ -32,6 +32,7 @@ build-release:
 test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format check test
+prepare-rl: prepare build-release
 # TODO: build-release for agent once sure that there aren't bugs
 prepare-agent: prepare py-test-agent
 
