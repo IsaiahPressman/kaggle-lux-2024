@@ -50,6 +50,7 @@ pub fn update_memories_and_write_output_arrays(
         obs_slice.global_obs.view_mut(),
         observations,
         memories,
+        params,
     );
     let known_valuable_points_maps = memories
         .iter()

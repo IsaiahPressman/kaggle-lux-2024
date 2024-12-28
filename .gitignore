@@ -1,5 +1,7 @@
 *.lock
+replay.json
 wandb/
+
 # Submission files
 *.tar.gz
 

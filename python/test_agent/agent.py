@@ -18,7 +18,7 @@ class Agent:
         self.opp_player = "player_1" if self.player == "player_0" else "player_0"
         self.team_id = 0 if self.player == "player_0" else 1
         self.opp_team_id = 1 if self.team_id == 0 else 0
-        np.random.seed(0)
+        self.rng = np.random.default_rng(seed=self.team_id)
         self.env_cfg = env_cfg
 
         self.relic_node_positions: list[npt.NDArray[np.int_]] = []
@@ -127,7 +127,7 @@ class Agent:
             # if close to the relic node we want to hover around it and hope to
             # gain points
             if manhattan_distance <= 4:
-                random_direction = np.random.randint(0, 5)
+                random_direction = self.rng.integers(0, 5)
                 return [random_direction, 0, 0]
 
             # otherwise we want to move towards the relic node
@@ -141,8 +141,8 @@ class Agent:
         # there for about 20 steps
         if step % 20 == 0 or unit_id not in self.unit_explore_locations:
             rand_loc = (
-                np.random.randint(0, self.env_cfg["map_width"]),
-                np.random.randint(0, self.env_cfg["map_height"]),
+                self.rng.integers(0, self.env_cfg["map_width"]),
+                self.rng.integers(0, self.env_cfg["map_height"]),
             )
             self.unit_explore_locations[unit_id] = rand_loc
 

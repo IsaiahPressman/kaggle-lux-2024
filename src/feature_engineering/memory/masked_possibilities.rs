@@ -29,12 +29,12 @@ impl<T> MaskedPossibilities<T> {
             .collect()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn still_unsolved(&self) -> bool {
         self.mask.iter().filter(|mask| **mask).count() > 1
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn iter_unmasked_options_mut_mask(
         &mut self,
     ) -> impl Iterator<Item = (&T, &mut bool)> {
@@ -44,7 +44,7 @@ impl<T> MaskedPossibilities<T> {
             .filter(|(_, mask)| **mask)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn iter_unmasked_options(&self) -> impl Iterator<Item = &T> {
         self.options
             .iter()
@@ -52,17 +52,14 @@ impl<T> MaskedPossibilities<T> {
             .filter_map(|(opt, mask)| mask.then_some(opt))
     }
 
-    #[inline(always)]
     pub fn all_masked(&self) -> bool {
         self.mask.iter().all(|mask| !mask)
     }
 
-    #[inline(always)]
     pub fn get_options(&self) -> &[T] {
         &self.options
     }
 
-    #[inline(always)]
     pub fn get_mask(&self) -> &[bool] {
         &self.mask
     }

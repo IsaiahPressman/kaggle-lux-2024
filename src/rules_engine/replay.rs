@@ -17,7 +17,8 @@ pub struct FullReplay {
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
-    player_observations: [Vec<LuxPlayerObservation>; P],
+    #[serde(default)]
+    player_observations: Option<[Vec<LuxPlayerObservation>; P]>,
 }
 
 impl FullReplay {
@@ -30,7 +31,8 @@ impl FullReplay {
     }
 
     pub fn get_states(&self) -> Vec<State> {
-        let mut result = Vec::with_capacity(self.observations.len());
+        let mut result: Vec<State> =
+            Vec::with_capacity(self.observations.len());
         for obs in &self.observations {
             let game_over = obs.team_wins.iter().sum::<u32>()
                 >= self.params.fixed.match_count_per_episode;
@@ -62,13 +64,18 @@ impl FullReplay {
                 self.get_relic_config_size(),
             );
             state.sort();
+            // In the replay file, each observed energy field is from the previous
+            // step's computed energy field
+            if let Some(last_state) = result.last_mut() {
+                last_state.energy_field = state.energy_field.clone();
+            }
             result.push(state);
         }
         result
     }
 
     pub fn get_player_observations(&self) -> Vec<[Observation; P]> {
-        let [p1_obs, p2_obs] = &self.player_observations;
+        let [p1_obs, p2_obs] = self.player_observations.clone().unwrap();
         p1_obs
             .iter()
             .zip_eq(p2_obs)
@@ -113,6 +120,15 @@ impl FullReplay {
         self.actions
             .iter()
             .map(|acts| acts.clone().into_actions())
+            .collect()
+    }
+
+    pub fn get_relic_nodes(&self) -> Vec<Pos> {
+        let obs = self.observations.first().unwrap();
+        obs.relic_nodes
+            .iter()
+            .copied()
+            .map(|pos| Pos::try_from(pos).unwrap())
             .collect()
     }
 }

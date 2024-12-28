@@ -173,7 +173,6 @@ fn get_sap_targets_map(
     sap_targets
 }
 
-#[inline(always)]
 fn might_have_sap_target(
     xy: [usize; 2],
     sensor_mask: &Array2<bool>,

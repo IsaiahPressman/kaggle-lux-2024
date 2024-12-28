@@ -241,7 +241,7 @@ class TestFeatureEngineeringEnv:
         team_id = 1
         lux_env = LuxAIS3GymEnv(numpy_output=True)
         lux_obs, info = lux_env.reset(seed=42)
-        fe_env = FeatureEngineeringEnv(0, env_params=info["params"])
+        fe_env = FeatureEngineeringEnv(team_id=team_id, env_params=info["params"])
 
         actions = np.zeros((16, 3), dtype=int)
         fe_out = FeatureEngineeringOut.from_raw(

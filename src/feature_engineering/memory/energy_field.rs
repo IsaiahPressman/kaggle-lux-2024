@@ -84,7 +84,8 @@ fn update_energy_field(
 }
 
 fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
-    let map_size = [energy_field.nrows(), energy_field.ncols()];
+    let (w, h) = energy_field.dim();
+    let map_size = [w, h];
     for pos in (0..energy_field.nrows())
         .cartesian_product(0..energy_field.ncols())
         .map(|(x, y)| Pos::new(x, y))
@@ -99,7 +100,6 @@ fn update_energy_node_drift_speed(
     energy_node_drift_speed: &mut MaskedPossibilities<f32>,
     step: u32,
 ) {
-    let possibilities_before_update = energy_node_drift_speed.clone();
     for (&candidate_speed, mask) in
         energy_node_drift_speed.iter_unmasked_options_mut_mask()
     {
@@ -109,9 +109,8 @@ fn update_energy_node_drift_speed(
     }
 
     if energy_node_drift_speed.all_masked() {
-        // In edge cases, such as where we miss the step when things actually updated,
-        // reset the memory to what it was before this turn
-        *energy_node_drift_speed = possibilities_before_update;
+        // TODO: For game-time build, don't panic and instead just fail to update mask
+        panic!("energy_node_drift_speed mask is all false")
     }
 }
 
@@ -276,14 +275,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_update_energy_node_drift_speed_resets() {
+    #[rstest]
+    #[case([true, true, true, true, true])]
+    #[should_panic(expected = "energy_node_drift_speed mask is all false")]
+    #[case([true, true, true, true, false])]
+    fn test_update_energy_node_drift_speed_panics(#[case] mask: [bool; 5]) {
         let mut energy_node_drift_speed =
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
-        let mask_before_update = vec![false, true, false, true, true];
-        energy_node_drift_speed.mask = mask_before_update.clone();
-        update_energy_node_drift_speed(&mut energy_node_drift_speed, 11);
-        assert_eq!(energy_node_drift_speed.mask, mask_before_update);
+        energy_node_drift_speed.mask = mask.to_vec();
+        update_energy_node_drift_speed(&mut energy_node_drift_speed, 20);
     }
 }

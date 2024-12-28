@@ -58,14 +58,18 @@ impl SpaceObstacleMemory {
     }
 
     pub fn update(&mut self, obs: &Observation, params: &KnownVariableParams) {
-        let update_step = obs.total_steps - 1;
-        if self.space_obstacles_could_move(update_step) {
+        if obs.total_steps > 0
+            && self.space_obstacles_could_move(obs.total_steps - 1)
+        {
             let mut fresh_memory = Self::new_empty_space_obstacles(
                 self.nebula_tile_drift_speed.clone(),
                 self.map_size,
             );
             fresh_memory.update_explored_obstacles(obs, params);
-            self.handle_space_object_movement(fresh_memory, update_step);
+            self.handle_space_object_movement(
+                fresh_memory,
+                obs.total_steps - 1,
+            );
         }
 
         self.update_explored_obstacles(obs, params);
@@ -75,6 +79,10 @@ impl SpaceObstacleMemory {
         self.nebula_tile_drift_speed
             .iter_unmasked_options()
             .any(|&speed| step as f32 * speed % 1.0 == 0.0)
+    }
+
+    pub fn space_obstacles_could_have_just_moved(&self, step: u32) -> bool {
+        step > 0 && self.space_obstacles_could_move(step - 1)
     }
 
     fn update_explored_obstacles(
@@ -249,17 +257,14 @@ impl SpaceObstacleMemory {
     }
 }
 
-#[inline(always)]
 fn should_drift(step: u32, speed: f32) -> bool {
     step as f32 * speed % 1.0 == 0.0
 }
 
-#[inline(always)]
 fn should_negative_drift(step: u32, speed: f32) -> bool {
     speed < 0.0 && should_drift(step, speed)
 }
 
-#[inline(always)]
 fn should_positive_drift(step: u32, speed: f32) -> bool {
     speed > 0.0 && should_drift(step, speed)
 }

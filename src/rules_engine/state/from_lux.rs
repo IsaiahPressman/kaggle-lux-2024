@@ -5,13 +5,13 @@ use itertools::Itertools;
 use numpy::ndarray::{Array2, Zip};
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LuxMapFeatures {
     pub energy: Vec<Vec<i32>>,
     pub tile_type: Vec<Vec<i32>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LuxPlayerObservation {
     units: LuxPlayerObservationUnits,
     units_mask: [Vec<bool>; P],
@@ -100,7 +100,7 @@ impl LuxPlayerObservation {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LuxPlayerObservationUnits {
     position: [Vec<[isize; 2]>; 2],
     energy: [Vec<i32>; 2],

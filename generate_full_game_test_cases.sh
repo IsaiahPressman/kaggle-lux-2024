@@ -7,7 +7,7 @@ do
   echo "Running seed: $seed"
   JAX_PLATFORMS=cpu luxai-s3 python/test_agent/main.py python/test_agent/main.py \
     --output replay.json --replay.no-compressed-obs --seed "$seed" &&
-    python python/scripts/process_replay_for_tests.py ./ ||
+    python python/scripts/process_replay_for_tests.py ./ --include_observations ||
     exit 1
 done
 

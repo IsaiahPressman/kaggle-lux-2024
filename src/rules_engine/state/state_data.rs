@@ -83,7 +83,7 @@ impl Pos {
         self.wrapped_translate([-dx, -dy], map_size)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn subtract(self, target: Self) -> [isize; 2] {
         [
             self.x as isize - target.x as isize,
@@ -91,7 +91,7 @@ impl Pos {
         ]
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn reflect(self, map_size: [usize; 2]) -> Self {
         let [width, height] = map_size;
         Pos {
@@ -100,7 +100,7 @@ impl Pos {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn as_index(&self) -> [usize; 2] {
         [self.x, self.y]
     }
@@ -154,7 +154,7 @@ impl Unit {
         Unit { pos, energy, id }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn alive(&self) -> bool {
         self.energy >= 0
     }
@@ -364,27 +364,27 @@ impl Observation {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn opp_team_id(&self) -> usize {
         1 - self.team_id
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn is_new_match(&self) -> bool {
         self.match_steps == 0
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_my_units(&self) -> &[Unit] {
         &self.units[self.team_id]
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_opp_units(&self) -> &[Unit] {
         &self.units[self.opp_team_id()]
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_my_points(&self) -> u32 {
         self.team_points[self.team_id]
     }
