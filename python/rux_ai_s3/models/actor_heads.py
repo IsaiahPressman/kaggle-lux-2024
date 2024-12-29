@@ -5,6 +5,7 @@ from torch import nn
 from rux_ai_s3.types import Action
 
 from .types import ActivationFactory, TorchActionInfo
+from .utils import get_unit_slices
 
 
 class BasicActorHead(nn.Module):
@@ -38,31 +39,17 @@ class BasicActorHead(nn.Module):
         random_sample_sap_actions: bool,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        x: shape (batch, d_model, w, h) \
-        unit_indices: shape (batch, units, 2) \
-        unit_energies: shape (batch, units)
+        x: shape (batch, d_model, w, h)
 
-        Returns: (main_log_probs, sap_log_probs)
+        Returns: (main_log_probs, sap_log_probs, main_actions, sap_actions)
         main_log_probs: shape (batch, units, actions)
         sap_log_probs: shape (batch, units, w * h)
         main_actions: shape (batch, units)
         sap_actions: shape (batch, units)
         """
         x = self.activation(self.conv(x))
-        batch_size, unit_count, _ = action_info.unit_indices.shape
-        batch_indices = (
-            torch.arange(batch_size).view(batch_size, 1).expand(-1, unit_count)
-        )
-        unit_slices = x[
-            batch_indices,
-            :,
-            action_info.unit_indices[..., 0],
-            action_info.unit_indices[..., 1],
-        ]
-        # unit_slices has shape (batch, units, d_model)
-        unit_slices = torch.cat(
-            [unit_slices, action_info.unit_energies.unsqueeze(-1)], dim=-1
-        )
+        unit_slices = get_unit_slices(x, action_info)
+        unit_count = unit_slices.shape[1]
         main_logits = self.main_actor(unit_slices)
         sap_logits = torch.flatten(
             self.sap_actor(x).expand(-1, unit_count, -1, -1), start_dim=-2, end_dim=-1

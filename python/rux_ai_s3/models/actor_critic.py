@@ -1,25 +1,29 @@
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from pydantic import BaseModel
 from torch import nn
+from typing_extensions import assert_never
 
 from rux_ai_s3.lowlevel import RewardSpace
 from rux_ai_s3.rl_training.constants import MAP_SIZE
 from rux_ai_s3.types import Action
 
 from .actor_heads import BasicActorHead
+from .build import CriticBuilder, build_critic_head, build_factorized_critic_head
 from .conv_blocks import ResidualBlock
 from .types import ActivationFactory, TorchActionInfo, TorchObs
-from .utils import build_critic_head
+
+CriticMode = Literal["standard", "unit_factorized"]
 
 
 class ActorCriticConfig(BaseModel):
     d_model: int
     n_blocks: int
     kernel_size: int = 3
+    critic_mode: CriticMode = "standard"
 
 
 class ActorCriticOut(NamedTuple):
@@ -35,6 +39,7 @@ class ActorCriticOut(NamedTuple):
     """shape (batch, [players,] units)"""
     sap_actions: torch.Tensor
     """shape (batch, [players,] units)"""
+    # TODO: This one value tensor can't hold both regular and unit_factorized values
     value: torch.Tensor
     """shape (batch, [players,])"""
 
@@ -77,7 +82,7 @@ class ActorCriticOut(NamedTuple):
             *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
         )
 
-    def compute_joint_log_probs(self) -> torch.Tensor:
+    def get_unit_log_probs(self) -> torch.Tensor:
         main_log_probs = self.main_log_probs.gather(
             dim=-1, index=self.main_actions.unsqueeze(-1)
         ).squeeze(-1)
@@ -90,7 +95,10 @@ class ActorCriticOut(NamedTuple):
             torch.zeros_like(sap_log_probs),
         )
         assert log_probs.ndim == 2
-        return log_probs.sum(dim=-1)
+        return log_probs
+
+    def compute_joint_log_probs(self) -> torch.Tensor:
+        return self.get_unit_log_probs().sum(dim=-1)
 
     @staticmethod
     def _extract_env_actions(
@@ -120,6 +128,7 @@ class ActorCritic(nn.Module):
         d_model: int,
         n_blocks: int,
         reward_space: RewardSpace,
+        critic_builder: CriticBuilder,
         kernel_size: int = 3,
         activation: ActivationFactory = nn.GELU,
     ) -> None:
@@ -145,10 +154,10 @@ class ActorCritic(nn.Module):
             d_model,
             activation=activation,
         )
-        self.critic_head = build_critic_head(
+        self.critic_head = critic_builder(
             reward_space,
             d_model,
-            activation=activation,
+            activation,
         )
 
     def forward(
@@ -175,7 +184,7 @@ class ActorCritic(nn.Module):
             random_sample_main_actions=random_sample_main_actions,
             random_sample_sap_actions=random_sample_sap_actions,
         )
-        value = self.critic_head(x)
+        value = self.critic_head(x, action_info)
         return ActorCriticOut(
             main_log_probs=main_log_probs,
             sap_log_probs=sap_log_probs,
@@ -192,12 +201,21 @@ class ActorCritic(nn.Module):
         reward_space: RewardSpace,
         config: ActorCriticConfig,
     ) -> "ActorCritic":
+        match config.critic_mode:
+            case "standard":
+                critic_builder = build_critic_head
+            case "unit_factorized":
+                critic_builder = build_factorized_critic_head
+            case _:
+                assert_never(config.critic_mode)
+
         return ActorCritic(
             spatial_in_channels=spatial_in_channels,
             global_in_channels=global_in_channels,
             d_model=config.d_model,
             n_blocks=config.n_blocks,
             reward_space=reward_space,
+            critic_builder=critic_builder,
             kernel_size=config.kernel_size,
         )
 
