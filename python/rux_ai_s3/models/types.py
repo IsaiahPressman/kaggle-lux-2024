@@ -1,4 +1,5 @@
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 import torch
 from torch import nn

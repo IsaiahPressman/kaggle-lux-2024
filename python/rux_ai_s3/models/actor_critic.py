@@ -1,29 +1,23 @@
-from typing import Literal, NamedTuple
+from collections.abc import Callable
+from typing import Final, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 import torch
-from pydantic import BaseModel
 from torch import nn
-from typing_extensions import assert_never
 
-from rux_ai_s3.lowlevel import RewardSpace
 from rux_ai_s3.rl_training.constants import MAP_SIZE
 from rux_ai_s3.types import Action
 
-from .actor_heads import BasicActorHead
-from .build import CriticBuilder, build_critic_head, build_factorized_critic_head
+from .actor_heads import ActionConfig, BasicActorHead
 from .conv_blocks import ResidualBlock
+from .critic_heads import BaseCriticHead, BaseFactorizedCriticHead
 from .types import ActivationFactory, TorchActionInfo, TorchObs
 
-CriticMode = Literal["standard", "unit_factorized"]
-
-
-class ActorCriticConfig(BaseModel):
-    d_model: int
-    n_blocks: int
-    kernel_size: int = 3
-    critic_mode: CriticMode = "standard"
+DEFAULT_ACTION_CONFIG: Final[ActionConfig] = ActionConfig(
+    random_sample_main_actions=True,
+    random_sample_sap_actions=True,
+)
 
 
 class ActorCriticOut(NamedTuple):
@@ -39,7 +33,6 @@ class ActorCriticOut(NamedTuple):
     """shape (batch, [players,] units)"""
     sap_actions: torch.Tensor
     """shape (batch, [players,] units)"""
-    # TODO: This one value tensor can't hold both regular and unit_factorized values
     value: torch.Tensor
     """shape (batch, [players,])"""
 
@@ -120,17 +113,30 @@ class ActorCriticOut(NamedTuple):
         return t.view(batch // 2, 2, *shape)
 
 
-class ActorCritic(nn.Module):
+class FactorizedActorCriticOut(NamedTuple):
+    main_log_probs: torch.Tensor
+    """shape (batch, [players,] units, actions)"""
+    sap_log_probs: torch.Tensor
+    """shape (batch, [players,] units, w * h)"""
+    main_actions: torch.Tensor
+    """shape (batch, [players,] units)"""
+    sap_actions: torch.Tensor
+    """shape (batch, [players,] units)"""
+    baseline_value: torch.Tensor
+    """shape (batch, [players,])"""
+    factorized_value: torch.Tensor
+    """shape (batch, [players,] units)"""
+
+
+class ActorCriticBase(nn.Module):
     def __init__(
         self,
         spatial_in_channels: int,
         global_in_channels: int,
         d_model: int,
         n_blocks: int,
-        reward_space: RewardSpace,
-        critic_builder: CriticBuilder,
-        kernel_size: int = 3,
-        activation: ActivationFactory = nn.GELU,
+        kernel_size: int,
+        activation: ActivationFactory,
     ) -> None:
         super().__init__()
         self.spatial_in = self._build_spatial_in(
@@ -150,74 +156,16 @@ class ActorCritic(nn.Module):
             activation=activation,
             kernel_size=kernel_size,
         )
-        self.actor_head = BasicActorHead(
-            d_model,
-            activation=activation,
-        )
-        self.critic_head = critic_builder(
-            reward_space,
-            d_model,
-            activation,
-        )
 
     def forward(
         self,
         obs: TorchObs,
-        action_info: TorchActionInfo,
-        random_sample_main_actions: bool = True,
-        random_sample_sap_actions: bool = True,
-    ) -> ActorCriticOut:
-        """
-        spatial_obs: shape (batch, s_features, w, h) \
-        global_obs: shape (batch, g_features) \
-        unit_indices: shape (batch, units, 2) \
-        unit_energies: shape (batch, units)
-        """
+    ) -> torch.Tensor:
         x = (
             self.spatial_in(obs.spatial_obs)
             + self.global_in(obs.global_obs)[..., None, None]
         )
-        x = self.base(x)
-        main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
-            x,
-            action_info,
-            random_sample_main_actions=random_sample_main_actions,
-            random_sample_sap_actions=random_sample_sap_actions,
-        )
-        value = self.critic_head(x, action_info)
-        return ActorCriticOut(
-            main_log_probs=main_log_probs,
-            sap_log_probs=sap_log_probs,
-            main_actions=main_actions,
-            sap_actions=sap_actions,
-            value=value,
-        )
-
-    @classmethod
-    def from_config(
-        cls,
-        spatial_in_channels: int,
-        global_in_channels: int,
-        reward_space: RewardSpace,
-        config: ActorCriticConfig,
-    ) -> "ActorCritic":
-        match config.critic_mode:
-            case "standard":
-                critic_builder = build_critic_head
-            case "unit_factorized":
-                critic_builder = build_factorized_critic_head
-            case _:
-                assert_never(config.critic_mode)
-
-        return ActorCritic(
-            spatial_in_channels=spatial_in_channels,
-            global_in_channels=global_in_channels,
-            d_model=config.d_model,
-            n_blocks=config.n_blocks,
-            reward_space=reward_space,
-            critic_builder=critic_builder,
-            kernel_size=config.kernel_size,
-        )
+        return self.base(x)
 
     @classmethod
     def _build_spatial_in(
@@ -278,4 +226,77 @@ class ActorCritic(nn.Module):
                 )
                 for _ in range(n_blocks)
             )
+        )
+
+
+class ActorCritic(nn.Module):
+    __call__: Callable[..., ActorCriticOut]
+
+    def __init__(
+        self,
+        base: ActorCriticBase,
+        actor_head: BasicActorHead,
+        critic_head: BaseCriticHead,
+    ) -> None:
+        super().__init__()
+        self.base = base
+        self.actor_head = actor_head
+        self.critic_head = critic_head
+
+    def forward(
+        self,
+        obs: TorchObs,
+        action_info: TorchActionInfo,
+        action_config: ActionConfig = DEFAULT_ACTION_CONFIG,
+    ) -> ActorCriticOut:
+        x = self.base(obs)
+        main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
+            x,
+            action_info,
+            action_config,
+        )
+        value = self.critic_head(x, action_info)
+        return ActorCriticOut(
+            main_log_probs=main_log_probs,
+            sap_log_probs=sap_log_probs,
+            main_actions=main_actions,
+            sap_actions=sap_actions,
+            value=value,
+        )
+
+
+class FactorizedActorCritic(nn.Module):
+    __call__: Callable[..., FactorizedActorCriticOut]
+
+    def __init__(
+        self,
+        base: ActorCriticBase,
+        actor_head: BasicActorHead,
+        critic_head: BaseFactorizedCriticHead,
+    ) -> None:
+        super().__init__()
+        self.base = base
+        self.actor_head = actor_head
+        self.critic_head = critic_head
+
+    def forward(
+        self,
+        obs: TorchObs,
+        action_info: TorchActionInfo,
+        action_config: ActionConfig = DEFAULT_ACTION_CONFIG,
+    ) -> FactorizedActorCriticOut:
+        x = self.base(obs)
+        main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
+            x,
+            action_info,
+            action_config,
+        )
+        baseline_value, factorized_value = self.critic_head(x, action_info)
+        return FactorizedActorCriticOut(
+            main_log_probs=main_log_probs,
+            sap_log_probs=sap_log_probs,
+            main_actions=main_actions,
+            sap_actions=sap_actions,
+            baseline_value=baseline_value,
+            factorized_value=factorized_value,
         )

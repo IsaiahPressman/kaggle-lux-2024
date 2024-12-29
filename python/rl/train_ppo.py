@@ -18,7 +18,8 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
-from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticConfig, ActorCriticOut
+from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
+from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
@@ -214,7 +215,7 @@ def main() -> None:
     init_logger(logger=logger)
     init_train_dir(cfg)
     env = ParallelEnv.from_config(cfg.env_config)
-    model: ActorCritic = build_model(env, cfg).to(cfg.device).train()
+    model = build_model(env, cfg).to(cfg.device).train()
     logger.info(
         "Training model with %s parameters", f"{count_trainable_params(model):,d}"
     )
@@ -273,11 +274,12 @@ def build_model(
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
     global_in_channels = example_obs.global_obs.shape[2]
-    return ActorCritic.from_config(
+    return build_actor_critic(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
         reward_space=env.reward_space,
         config=cfg.rl_model_config,
+        model_type=ActorCritic,
     )
 
 
@@ -329,7 +331,7 @@ def collect_trajectories(
         last_out = env.last_out
         stacked_obs = TorchObs.from_numpy(env.get_frame_stacked_obs(), cfg.device)
         action_info = TorchActionInfo.from_numpy(last_out.action_info, cfg.device)
-        model_out: ActorCriticOut = model(
+        model_out = model(
             obs=stacked_obs.flatten(start_dim=0, end_dim=1),
             action_info=action_info.flatten(start_dim=0, end_dim=1),
         )
@@ -422,7 +424,7 @@ def update_model_on_batch(
     with torch.autocast(
         device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
     ):
-        new_out: ActorCriticOut = train_state.model(
+        new_out = train_state.model(
             obs=experience.obs,
             action_info=experience.action_info,
         )._replace(

@@ -88,17 +88,13 @@ class ZeroSumCriticHead(BaseCriticHead):
         return F.softmax(x.view(-1, 2), dim=-1).view(-1) * 2.0 - 1.0
 
 
-class BoundedFactorizedCriticHead(nn.Module):
+class BaseFactorizedCriticHead(nn.Module, ABC):
     def __init__(
         self,
-        reward_min: float,
-        reward_max: float,
         d_model: int,
         activation: ActivationFactory,
     ) -> None:
         super().__init__()
-        self.reward_min = reward_min
-        self.reward_max = reward_max
         self.conv = nn.Conv2d(
             in_channels=d_model,
             out_channels=d_model,
@@ -128,9 +124,28 @@ class BoundedFactorizedCriticHead(nn.Module):
         )
         # unit_slices shape (batch, units, d_model + 1)
         unit_slices = get_unit_slices(x, action_info)
-        # per_unit_value shape (batch, units)
-        per_unit_value = self.units_linear(unit_slices).squeeze(dim=-1)
-        return self._bound_value(baseline_value), self._bound_value(per_unit_value)
+        # factorized_value shape (batch, units)
+        factorized_value = self.units_linear(unit_slices).squeeze(dim=-1)
+        return self.postprocess_value(baseline_value), self.postprocess_value(
+            factorized_value
+        )
 
-    def _bound_value(self, x: torch.Tensor) -> torch.Tensor:
+    @abstractmethod
+    def postprocess_value(self, x: torch.Tensor) -> torch.Tensor:
+        """Expects and returns a tensor of shape (batch,)"""
+
+
+class BoundedFactorizedCriticHead(BaseFactorizedCriticHead):
+    def __init__(
+        self,
+        reward_min: float,
+        reward_max: float,
+        d_model: int,
+        activation: ActivationFactory,
+    ) -> None:
+        super().__init__(d_model, activation)
+        self.reward_min = reward_min
+        self.reward_max = reward_max
+
+    def postprocess_value(self, x: torch.Tensor) -> torch.Tensor:
         return F.sigmoid(x) * (self.reward_max - self.reward_min) + self.reward_min

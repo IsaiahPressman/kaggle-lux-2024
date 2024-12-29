@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -6,6 +8,11 @@ from rux_ai_s3.types import Action
 
 from .types import ActivationFactory, TorchActionInfo
 from .utils import get_unit_slices
+
+
+class ActionConfig(NamedTuple):
+    random_sample_main_actions: bool
+    random_sample_sap_actions: bool
 
 
 class BasicActorHead(nn.Module):
@@ -35,8 +42,7 @@ class BasicActorHead(nn.Module):
         self,
         x: torch.Tensor,
         action_info: TorchActionInfo,
-        random_sample_main_actions: bool,
-        random_sample_sap_actions: bool,
+        action_config: ActionConfig,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         x: shape (batch, d_model, w, h)
@@ -70,7 +76,7 @@ class BasicActorHead(nn.Module):
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
         main_actions = self.log_probs_to_actions(
-            main_log_probs, random_sample_main_actions
+            main_log_probs, action_config.random_sample_main_actions
         )
         main_actions = torch.where(
             action_info.units_mask,
@@ -78,7 +84,7 @@ class BasicActorHead(nn.Module):
             torch.zeros_like(main_actions),
         )
         sap_actions = self.log_probs_to_actions(
-            sap_log_probs, random_sample_sap_actions
+            sap_log_probs, action_config.random_sample_sap_actions
         )
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
@@ -111,7 +117,7 @@ class BasicActorHead(nn.Module):
         Returns action tensor of shape (*,).
         """
         if not random_sample_actions:
-            return log_probs.argsort(dim=-1, descending=True)[..., 0]
+            return log_probs.argmax(dim=-1)
 
         probs = log_probs.exp().view(-1, log_probs.shape[-1])
         actions = torch.multinomial(
