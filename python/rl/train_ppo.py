@@ -429,11 +429,10 @@ def update_model_on_batch(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,
         )
-        log_action_probability_ratio = (
+        action_probability_ratio = (
             new_out.compute_joint_log_probs()
             - experience.model_out.compute_joint_log_probs()
-        )
-        action_probability_ratio = log_action_probability_ratio.exp()
+        ).exp()
         clip_fraction: float = (
             ((action_probability_ratio - 1.0).abs() > cfg.clip_coefficient)
             .float()

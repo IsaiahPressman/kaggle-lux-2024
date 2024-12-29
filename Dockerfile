@@ -1,3 +1,4 @@
+# TODO: Try using gcr.io/kaggle-images/python:v155
 FROM gcr.io/kaggle-images/python:v154
 
 #RUN apt update && apt upgrade -y

@@ -1,6 +1,6 @@
 max_updates: null
 optimizer_kwargs:
-  lr: 5e-5
+  lr: 1e-4
   eps: 0.000_3
 steps_per_update: 32
 epochs_per_update: 1
@@ -8,7 +8,7 @@ train_batch_size: 128
 use_mixed_precision: true
 
 gamma: 0.9999
-gae_lambda: 0.95
+gae_lambda: 0.8
 clip_coefficient: 0.2
 loss_coefficients:
   policy: 1.0
