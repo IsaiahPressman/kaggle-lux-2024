@@ -19,8 +19,8 @@ import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from rux_ai_s3.models.actor_critic import (
-    ActorCriticOut,
     FactorizedActorCritic,
+    FactorizedActorCriticOut,
 )
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
@@ -137,7 +137,7 @@ class TrainState:
 class ExperienceBatch:
     obs: TorchObs
     action_info: TorchActionInfo
-    model_out: ActorCriticOut
+    model_out: FactorizedActorCriticOut
     reward: npt.NDArray[np.float32]
     done: npt.NDArray[np.bool_]
 
@@ -151,7 +151,7 @@ class ExperienceBatch:
     def trim(self) -> "ExperienceBatch":
         obs = TorchObs(*(t[:-1] for t in self.obs))
         action_info = TorchActionInfo(*(t[:-1] for t in self.action_info))
-        model_out = ActorCriticOut(*(t[:-1] for t in self.model_out))
+        model_out = FactorizedActorCriticOut(*(t[:-1] for t in self.model_out))
         return ExperienceBatch(
             obs=obs,
             action_info=action_info,
@@ -172,7 +172,7 @@ class ExperienceBatch:
     def index(self, ix: npt.NDArray[np.int_]) -> "ExperienceBatch":
         obs = TorchObs(*(t[ix] for t in self.obs))
         action_info = TorchActionInfo(*(t[ix] for t in self.action_info))
-        model_out = ActorCriticOut(*(t[ix] for t in self.model_out))
+        model_out = FactorizedActorCriticOut(*(t[ix] for t in self.model_out))
         return ExperienceBatch(
             obs=obs,
             action_info=action_info,
@@ -195,7 +195,7 @@ class ExperienceBatch:
         cls,
         obs: list[TorchObs],
         action_info: list[TorchActionInfo],
-        model_out: list[ActorCriticOut],
+        model_out: list[FactorizedActorCriticOut],
         reward: list[npt.NDArray[np.float32]],
         done: list[npt.NDArray[np.bool_]],
     ) -> "ExperienceBatch":
@@ -204,7 +204,7 @@ class ExperienceBatch:
             action_info=TorchActionInfo(
                 *(torch.stack(ai_batch) for ai_batch in zip(*action_info))
             ),
-            model_out=ActorCriticOut(
+            model_out=FactorizedActorCriticOut(
                 *(torch.stack(m_out) for m_out in zip(*model_out))
             ),
             reward=np.stack(reward),
