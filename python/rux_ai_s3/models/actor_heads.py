@@ -35,8 +35,8 @@ class BasicActorHead(nn.Module):
         self,
         x: torch.Tensor,
         action_info: TorchActionInfo,
-        random_sample_main_actions: bool,
-        random_sample_sap_actions: bool,
+        main_action_temperature: float | None,
+        sap_action_temperature: float | None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         x: shape (batch, d_model, w, h)
@@ -70,7 +70,7 @@ class BasicActorHead(nn.Module):
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
         main_actions = self.log_probs_to_actions(
-            main_log_probs, random_sample_main_actions
+            main_log_probs, main_action_temperature
         )
         main_actions = torch.where(
             action_info.units_mask,
@@ -78,7 +78,7 @@ class BasicActorHead(nn.Module):
             torch.zeros_like(main_actions),
         )
         sap_actions = self.log_probs_to_actions(
-            sap_log_probs, random_sample_sap_actions
+            sap_log_probs, sap_action_temperature
         )
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
@@ -104,18 +104,30 @@ class BasicActorHead(nn.Module):
     @torch.no_grad()
     def log_probs_to_actions(
         log_probs: torch.Tensor,
-        random_sample_actions: bool,
+        temperature: float | None,
     ) -> torch.Tensor:
         """
         Expects logits to be of shape (*, n_actions).
         Returns action tensor of shape (*,).
         """
-        if not random_sample_actions:
+        if temperature is None:
+            probs = log_probs.exp().view(-1, log_probs.shape[-1])
+            actions = torch.multinomial(
+                probs,
+                num_samples=1,
+            )
+            return actions.view(*log_probs.shape[:-1])
+
+        if temperature < 0.0:
+            raise ValueError(f"Invalid temperature {temperature} < 0")
+
+        if temperature == 0.0:
             return log_probs.argsort(dim=-1, descending=True)[..., 0]
 
-        probs = log_probs.exp().view(-1, log_probs.shape[-1])
+        probs = F.softmax(log_probs / temperature, dim=-1).view(-1, log_probs.shape[-1])
         actions = torch.multinomial(
             probs,
             num_samples=1,
         )
         return actions.view(*log_probs.shape[:-1])
+

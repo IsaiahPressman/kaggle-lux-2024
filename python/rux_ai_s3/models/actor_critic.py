@@ -164,8 +164,8 @@ class ActorCritic(nn.Module):
         self,
         obs: TorchObs,
         action_info: TorchActionInfo,
-        random_sample_main_actions: bool = True,
-        random_sample_sap_actions: bool = True,
+        main_action_temperature: float | None = None,
+        sap_action_temperature: float | None = None,
     ) -> ActorCriticOut:
         """
         spatial_obs: shape (batch, s_features, w, h) \
@@ -181,8 +181,8 @@ class ActorCritic(nn.Module):
         main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
             x,
             action_info,
-            random_sample_main_actions=random_sample_main_actions,
-            random_sample_sap_actions=random_sample_sap_actions,
+            main_action_temperature=main_action_temperature,
+            sap_action_temperature=sap_action_temperature,
         )
         value = self.critic_head(x, action_info)
         return ActorCriticOut(
