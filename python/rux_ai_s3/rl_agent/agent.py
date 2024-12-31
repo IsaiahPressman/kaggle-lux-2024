@@ -11,6 +11,7 @@ from rux_ai_s3.models.actor_critic import (
     ActorCritic,
     FactorizedActorCritic,
 )
+from rux_ai_s3.models.actor_heads import ActionConfig
 from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.rl_training.train_config import TrainConfig
@@ -47,6 +48,13 @@ class Agent:
         self.device = self.get_device()
         self.model = self.build_model()
 
+    @property
+    def action_config(self) -> ActionConfig:
+        return ActionConfig(
+            main_action_temperature=self.train_config.main_action_temperature,
+            sap_action_temperature=self.train_config.sap_action_temperature,
+        )
+
     def act(
         self, _step: int, obs: dict[str, Any], _remaining_overage_time: int
     ) -> ActionArray:
@@ -66,8 +74,7 @@ class Agent:
         model_out = self.model(
             obs=obs,
             action_info=torch_action_info,
-            main_action_temperature=self.agent_config.main_action_temperature,
-            sap_action_temperature=self.agent_config.sap_action_temperature,
+            action_config=self.action_config,
         )
         return model_out.to_env_actions(action_info.unit_indices).squeeze(axis=0)
 
