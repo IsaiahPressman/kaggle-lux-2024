@@ -23,9 +23,8 @@ ModelTypes = ActorCritic | FactorizedActorCritic
 
 
 class AgentConfig(BaseModel):
-    # TODO: Temperature param for random sampling
-    sample_main_actions: bool
-    sample_sap_actions: bool
+    main_action_temperature: float
+    sap_action_temperature: float
 
 
 class Agent:
@@ -67,8 +66,8 @@ class Agent:
         model_out = self.model(
             obs=obs,
             action_info=torch_action_info,
-            random_sample_main_actions=self.agent_config.sample_main_actions,
-            random_sample_sap_actions=self.agent_config.sample_sap_actions,
+            main_action_temperature=self.agent_config.main_action_temperature,
+            sap_action_temperature=self.agent_config.sap_action_temperature,
         )
         return model_out.to_env_actions(action_info.unit_indices).squeeze(axis=0)
 

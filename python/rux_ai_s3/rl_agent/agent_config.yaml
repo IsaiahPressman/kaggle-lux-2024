@@ -1,2 +1,6 @@
-sample_main_actions: True
-sample_sap_actions: True
+# Temperature controls the action distribution:
+# - temp < 1.0 -> Lower entropy distribution
+# - temp == 1.0 -> Use original action distribution
+# - temp > 1.0 -> Higher entropy distribution
+main_action_temperature: 0.4
+sap_action_temperature: 0.4

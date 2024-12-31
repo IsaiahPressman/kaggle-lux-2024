@@ -12,8 +12,8 @@ from rux_ai_s3.models.types import ActivationFactory, TorchActionInfo, TorchObs
 from .out import ActorCriticOut, FactorizedActorCriticOut
 
 DEFAULT_ACTION_CONFIG: Final[ActionConfig] = ActionConfig(
-    random_sample_main_actions=True,
-    random_sample_sap_actions=True,
+    main_action_temperature=None,
+    sap_action_temperature=None,
 )
 
 
