@@ -77,9 +77,7 @@ class BasicActorHead(nn.Module):
             main_actions,
             torch.zeros_like(main_actions),
         )
-        sap_actions = self.log_probs_to_actions(
-            sap_log_probs, sap_action_temperature
-        )
+        sap_actions = self.log_probs_to_actions(sap_log_probs, sap_action_temperature)
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
     @staticmethod
@@ -130,4 +128,3 @@ class BasicActorHead(nn.Module):
             num_samples=1,
         )
         return actions.view(*log_probs.shape[:-1])
-
