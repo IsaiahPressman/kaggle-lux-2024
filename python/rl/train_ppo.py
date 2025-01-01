@@ -57,7 +57,7 @@ class UserArgs(BaseModel):
         if checkpoint is None:
             return None
 
-        checkpoint_path = Path(checkpoint)
+        checkpoint_path = Path(checkpoint).absolute()
         if not checkpoint_path.is_file():
             raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
 
@@ -608,17 +608,17 @@ def load_checkpoint(
     train_state: TrainState, checkpoint: Path, init_wandb: bool
 ) -> None:
     logger.info("Loading checkpoint from %s", checkpoint)
-    state = torch.load(checkpoint)
-    train_state.model.load_state_dict(state["model"])
-    train_state.optimizer.load_state_dict(state["optimizer"])
-    train_state.scaler.load_state_dict(state["scaler"])
-    train_state.step = state["step"]
-    run_id: str | None = state["run_id"]
+    checkpoint_state = torch.load(checkpoint, map_location=CPU, weights_only=True)
+    train_state.model.load_state_dict(checkpoint_state["model"])
+    train_state.optimizer.load_state_dict(checkpoint_state["optimizer"])
+    train_state.scaler.load_state_dict(checkpoint_state["scaler"])
+    train_state.step = checkpoint_state["step"]
+    run_id: str | None = checkpoint_state["run_id"]
     if init_wandb and run_id:
         wandb.init(
             project=PROJECT_NAME,
             group=NAME,
-            id=state["run_id"],
+            id=run_id,
         )
 
 
