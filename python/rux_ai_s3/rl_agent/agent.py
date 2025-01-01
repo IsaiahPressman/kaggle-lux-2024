@@ -51,8 +51,8 @@ class Agent:
     @property
     def action_config(self) -> ActionConfig:
         return ActionConfig(
-            main_action_temperature=self.train_config.main_action_temperature,
-            sap_action_temperature=self.train_config.sap_action_temperature,
+            main_action_temperature=self.agent_config.main_action_temperature,
+            sap_action_temperature=self.agent_config.sap_action_temperature,
         )
 
     def act(

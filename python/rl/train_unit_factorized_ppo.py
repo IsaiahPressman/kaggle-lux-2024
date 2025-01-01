@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# TODO: Re-enable mypy
 import argparse
 import collections
 import datetime
@@ -18,6 +20,7 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import (
     FactorizedActorCritic,
     FactorizedActorCriticOut,
@@ -214,6 +217,9 @@ class ExperienceBatch:
 
 def main() -> None:
     args = UserArgs.from_argparse()
+    if args.release:
+        assert_release_build()
+
     cfg = load_from_yaml(UnitFactorizedPPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
     init_train_dir(cfg)

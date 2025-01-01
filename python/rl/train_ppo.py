@@ -18,6 +18,7 @@ import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
@@ -44,15 +45,34 @@ logger = logging.getLogger(NAME.upper())
 
 class UserArgs(BaseModel):
     debug: bool
+    checkpoint: Path | None
 
     @property
     def release(self) -> bool:
         return not self.debug
 
+    @field_validator("checkpoint")
+    @classmethod
+    def _validate_checkpoint(cls, checkpoint: str | None) -> Path | None:
+        if checkpoint is None:
+            return None
+
+        checkpoint_path = Path(checkpoint)
+        if not checkpoint_path.is_file():
+            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
+
+        return checkpoint_path
+
     @classmethod
     def from_argparse(cls) -> "UserArgs":
         parser = argparse.ArgumentParser()
         parser.add_argument("--debug", action="store_true")
+        parser.add_argument(
+            "--checkpoint",
+            type=str,
+            default=None,
+            help="Checkpoint to load model, optimizer, and other weights from",
+        )
         args = parser.parse_args()
         return UserArgs(**vars(args))
 
@@ -128,6 +148,7 @@ class TrainState:
     model: ActorCritic
     optimizer: optim.Optimizer
     scaler: GradScaler
+    step: int = 0
 
 
 @dataclass(frozen=True)
@@ -211,6 +232,9 @@ class ExperienceBatch:
 
 def main() -> None:
     args = UserArgs.from_argparse()
+    if args.release:
+        assert_release_build()
+
     cfg = load_from_yaml(PPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
     init_train_dir(cfg)
@@ -229,7 +253,14 @@ def main() -> None:
         optimizer=optimizer,
         scaler=scaler,
     )
-    if args.release:
+    if args.checkpoint:
+        load_checkpoint(
+            train_state,
+            args.checkpoint,
+            init_wandb=args.release,
+        )
+
+    if args.release and wandb.run is None:
         wandb.init(
             project=PROJECT_NAME,
             group=NAME,
@@ -238,9 +269,8 @@ def main() -> None:
 
     last_checkpoint = datetime.datetime.now()
     try:
-        for step in cfg.iter_updates():
+        for _ in cfg.iter_updates():
             train_step(
-                step=step,
                 env=env,
                 train_state=train_state,
                 args=args,
@@ -248,9 +278,10 @@ def main() -> None:
             )
             if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
                 last_checkpoint = now
-                checkpoint(step, train_state)
+                save_checkpoint(train_state)
     finally:
-        checkpoint(step + 1, train_state)
+        train_state.step += 1
+        save_checkpoint(train_state)
 
 
 def init_train_dir(cfg: PPOConfig) -> None:
@@ -284,7 +315,6 @@ def build_model(
 
 
 def train_step(
-    step: int,
     env: ParallelEnv,
     train_state: TrainState,
     args: UserArgs,
@@ -300,7 +330,7 @@ def train_step(
 
     time_elapsed = time.perf_counter() - step_start_time
     batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
-    scalar_stats["game_steps"] = step * cfg.game_steps_per_update
+    scalar_stats["game_steps"] = train_state.step * cfg.game_steps_per_update
     scalar_stats["updates_per_second"] = (
         batches_per_epoch * cfg.epochs_per_update / time_elapsed
     )
@@ -308,11 +338,12 @@ def train_step(
         cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
     )
     log_results(
-        step,
+        train_state.step,
         scalar_stats,
         array_stats,
         wandb_log=args.release,
     )
+    train_state.step += 1
 
 
 @torch.no_grad()
@@ -543,16 +574,17 @@ def log_results(
 
     histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
     combined_stats = dict(**scalar_stats, **histograms)
-    wandb.log(combined_stats)
+    wandb.log(combined_stats, step=step)
 
 
-def checkpoint(step: int, train_state: TrainState) -> None:
-    checkpoint_name = f"checkpoint_{str(step).zfill(6)}"
+def save_checkpoint(train_state: TrainState) -> None:
+    checkpoint_name = f"checkpoint_{str(train_state.step).zfill(6)}"
     full_path = f"{checkpoint_name}.pt"
     weights_path = f"{checkpoint_name}_weights.pt"
     torch.save(
         {
-            "step": step,
+            "step": train_state.step,
+            "run_id": wandb.run.id if wandb.run else None,
             "model": train_state.model.state_dict(),
             "optimizer": train_state.optimizer.state_dict(),
             "scaler": train_state.scaler.state_dict(),
@@ -570,6 +602,24 @@ def checkpoint(step: int, train_state: TrainState) -> None:
         full_path,
         weights_path,
     )
+
+
+def load_checkpoint(
+    train_state: TrainState, checkpoint: Path, init_wandb: bool
+) -> None:
+    logger.info("Loading checkpoint from %s", checkpoint)
+    state = torch.load(checkpoint)
+    train_state.model.load_state_dict(state["model"])
+    train_state.optimizer.load_state_dict(state["optimizer"])
+    train_state.scaler.load_state_dict(state["scaler"])
+    train_state.step = state["step"]
+    run_id: str | None = state["run_id"]
+    if init_wandb and run_id:
+        wandb.init(
+            project=PROJECT_NAME,
+            group=NAME,
+            id=state["run_id"],
+        )
 
 
 if __name__ == "__main__":
