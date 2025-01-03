@@ -66,4 +66,4 @@ class TestActorCriticOut:
     def test_sap_action_projection(self, index: tuple[int], expected: int) -> None:
         action_tensor = torch.zeros((24, 24))
         action_tensor[index] = 1
-        assert torch.argmax(torch.flatten(action_tensor)) == expected
+        assert torch.argmax(action_tensor.flatten()) == expected

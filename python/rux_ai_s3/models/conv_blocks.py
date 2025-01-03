@@ -16,7 +16,7 @@ class SELayer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, c, _, _ = x.shape
-        y = torch.flatten(x, start_dim=-2, end_dim=-1).mean(dim=-1)
+        y = x.flatten(start_dim=-2, end_dim=-1).mean(dim=-1)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
 

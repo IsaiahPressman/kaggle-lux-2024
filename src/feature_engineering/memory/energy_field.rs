@@ -119,8 +119,11 @@ fn update_energy_node_drift_speed(
     }
 
     if energy_node_drift_speed.all_masked() {
-        // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!("energy_node_drift_speed mask is all false")
+        // Reset the energy_node_drift_speed mask and retry in the failure case
+        *energy_node_drift_speed = MaskedPossibilities::from_options(
+            energy_node_drift_speed.get_options().to_vec(),
+        );
+        update_energy_node_drift_speed(energy_node_drift_speed, step);
     }
 }
 
@@ -291,13 +294,16 @@ mod tests {
 
     #[rstest]
     #[case([true, true, true, true, true])]
-    #[should_panic(expected = "energy_node_drift_speed mask is all false")]
     #[case([true, true, true, true, false])]
-    fn test_update_energy_node_drift_speed_panics(#[case] mask: [bool; 5]) {
+    fn test_update_energy_node_drift_speed_resets(#[case] mask: [bool; 5]) {
         let mut energy_node_drift_speed =
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
         energy_node_drift_speed.mask = mask.to_vec();
-        update_energy_node_drift_speed(&mut energy_node_drift_speed, 20);
+        update_energy_node_drift_speed(&mut energy_node_drift_speed, 120);
+        assert_eq!(
+            energy_node_drift_speed.mask,
+            vec![false, false, false, false, true]
+        );
     }
 }

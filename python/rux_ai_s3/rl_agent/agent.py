@@ -7,7 +7,12 @@ import torch
 from pydantic import BaseModel
 
 from rux_ai_s3.feature_engineering_env import FeatureEngineeringEnv
-from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
+from rux_ai_s3.models.actor_critic import (
+    ActorCritic,
+    FactorizedActorCritic,
+)
+from rux_ai_s3.models.actor_heads import ActionConfig
+from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.types import ActionArray
@@ -15,12 +20,12 @@ from rux_ai_s3.utils import load_from_yaml, to_json
 
 AGENT_CONFIG_FILE = Path(__file__).parent / "agent_config.yaml"
 TRAIN_CONFIG_FILE = Path(__file__).parent / "train_config.yaml"
+ModelTypes = ActorCritic | FactorizedActorCritic
 
 
 class AgentConfig(BaseModel):
-    # TODO: Temperature param for random sampling
-    sample_main_actions: bool
-    sample_sap_actions: bool
+    main_action_temperature: float
+    sap_action_temperature: float
 
 
 class Agent:
@@ -43,6 +48,13 @@ class Agent:
         self.device = self.get_device()
         self.model = self.build_model()
 
+    @property
+    def action_config(self) -> ActionConfig:
+        return ActionConfig(
+            main_action_temperature=self.agent_config.main_action_temperature,
+            sap_action_temperature=self.agent_config.sap_action_temperature,
+        )
+
     def act(
         self, _step: int, obs: dict[str, Any], _remaining_overage_time: int
     ) -> ActionArray:
@@ -59,24 +71,23 @@ class Agent:
         )
         action_info = self.fe_env.last_out.action_info
         torch_action_info = TorchActionInfo.from_numpy(action_info, device=self.device)
-        model_out: ActorCriticOut = self.model(
+        model_out = self.model(
             obs=obs,
             action_info=torch_action_info,
-            random_sample_main_actions=self.agent_config.sample_main_actions,
-            random_sample_sap_actions=self.agent_config.sample_sap_actions,
+            action_config=self.action_config,
         )
         return model_out.to_env_actions(action_info.unit_indices).squeeze(axis=0)
 
-    def build_model(self) -> ActorCritic:
+    def build_model(self) -> ModelTypes:
         example_obs = self.fe_env.get_frame_stacked_obs()
         spatial_in_channels = example_obs.spatial_obs.shape[1]
         global_in_channels = example_obs.global_obs.shape[1]
-        model = ActorCritic.from_config(
+        model: ModelTypes = build_actor_critic(
             spatial_in_channels=spatial_in_channels,
             global_in_channels=global_in_channels,
             reward_space=self.train_config.env_config.reward_space,
             config=self.train_config.rl_model_config,
-        ).eval()
+        )
 
         state_dict = torch.load(
             self.get_model_checkpoint_path(),
@@ -87,7 +98,7 @@ class Agent:
             self.remove_compile_prefix(key): value for key, value in state_dict.items()
         }
         model.load_state_dict(state_dict)
-        return model.to(self.device)
+        return model.to(self.device).eval()
 
     @staticmethod
     def get_team_id(player: str) -> int:

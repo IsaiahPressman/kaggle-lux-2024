@@ -28,6 +28,11 @@ fn hello_numpy_world(py: Python<'_>) -> PyResult<Bound<'_, PyArray2<f32>>> {
     Ok(arr.into_pyarray_bound(py))
 }
 
+#[pyfunction]
+fn assert_release_build() {
+    debug_assert!(false, "Running debug build")
+}
+
 #[pyfunction(name = "get_spatial_feature_count")]
 fn get_spatial_feature_count_py() -> usize {
     get_spatial_feature_count()
@@ -47,6 +52,7 @@ fn lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RewardSpace>()?;
     m.add_class::<ParallelEnv>()?;
     m.add_class::<FeatureEngineeringEnv>()?;
+    m.add_function(wrap_pyfunction!(assert_release_build, m)?)?;
     m.add_function(wrap_pyfunction!(get_spatial_feature_count_py, m)?)?;
     m.add_function(wrap_pyfunction!(get_global_feature_count_py, m)?)?;
     Ok(())

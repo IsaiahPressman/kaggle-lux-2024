@@ -1,4 +1,5 @@
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 import torch
 from torch import nn
@@ -14,7 +15,7 @@ class TorchObs(NamedTuple):
 
     def flatten(self, start_dim: int, end_dim: int) -> "TorchObs":
         return TorchObs(
-            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+            *(t.flatten(start_dim=start_dim, end_dim=end_dim) for t in self)
         )
 
     def to_device(self, device: torch.device) -> "TorchObs":
@@ -39,7 +40,7 @@ class TorchActionInfo(NamedTuple):
 
     def flatten(self, start_dim: int, end_dim: int) -> "TorchActionInfo":
         return TorchActionInfo(
-            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+            *(t.flatten(start_dim=start_dim, end_dim=end_dim) for t in self)
         )
 
     def to_device(self, device: torch.device) -> "TorchActionInfo":

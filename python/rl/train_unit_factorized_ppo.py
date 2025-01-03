@@ -16,11 +16,14 @@ import torch
 import wandb
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from rux_ai_s3.lowlevel import assert_release_build
-from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
+from rux_ai_s3.models.actor_critic import (
+    FactorizedActorCritic,
+    FactorizedActorCriticOut,
+)
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
-from rux_ai_s3.rl_training.constants import PROJECT_NAME
+from rux_ai_s3.rl_training.constants import MAX_UNITS, PROJECT_NAME
 from rux_ai_s3.rl_training.ppo import (
     TrainState,
     bootstrap_value,
@@ -44,9 +47,9 @@ from rux_ai_s3.utils import load_from_yaml
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
 
-TrainStateT = TrainState[ActorCritic]
+TrainStateT = TrainState[FactorizedActorCritic]
 FILE: Final[Path] = Path(__file__)
-NAME: Final[str] = "ppo"
+NAME: Final[str] = "unit_factorized_ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
 CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=10)
 CPU: Final[torch.device] = torch.device("cpu")
@@ -93,7 +96,8 @@ class UserArgs(BaseModel):
 
 class LossCoefficients(BaseModel):
     policy: float
-    value: float
+    unit_value: float
+    baseline_value: float
     entropy: float
 
     model_config = ConfigDict(
@@ -103,7 +107,7 @@ class LossCoefficients(BaseModel):
     )
 
 
-class PPOConfig(TrainConfig):
+class UnitFactorizedPPOConfig(TrainConfig):
     # Training config
     max_updates: int | None
     optimizer_kwargs: dict[str, float]
@@ -162,7 +166,7 @@ class PPOConfig(TrainConfig):
 class ExperienceBatch:
     obs: TorchObs
     action_info: TorchActionInfo
-    model_out: ActorCriticOut
+    model_out: FactorizedActorCriticOut
     reward: npt.NDArray[np.float32]
     done: npt.NDArray[np.bool_]
 
@@ -176,7 +180,7 @@ class ExperienceBatch:
     def trim(self) -> "ExperienceBatch":
         obs = TorchObs(*(t[:-1] for t in self.obs))
         action_info = TorchActionInfo(*(t[:-1] for t in self.action_info))
-        model_out = ActorCriticOut(*(t[:-1] for t in self.model_out))
+        model_out = FactorizedActorCriticOut(*(t[:-1] for t in self.model_out))
         return ExperienceBatch(
             obs=obs,
             action_info=action_info,
@@ -197,7 +201,7 @@ class ExperienceBatch:
     def index(self, ix: npt.NDArray[np.int_]) -> "ExperienceBatch":
         obs = TorchObs(*(t[ix] for t in self.obs))
         action_info = TorchActionInfo(*(t[ix] for t in self.action_info))
-        model_out = ActorCriticOut(*(t[ix] for t in self.model_out))
+        model_out = FactorizedActorCriticOut(*(t[ix] for t in self.model_out))
         return ExperienceBatch(
             obs=obs,
             action_info=action_info,
@@ -220,7 +224,7 @@ class ExperienceBatch:
         cls,
         obs: list[TorchObs],
         action_info: list[TorchActionInfo],
-        model_out: list[ActorCriticOut],
+        model_out: list[FactorizedActorCriticOut],
         reward: list[npt.NDArray[np.float32]],
         done: list[npt.NDArray[np.bool_]],
     ) -> "ExperienceBatch":
@@ -229,7 +233,7 @@ class ExperienceBatch:
             action_info=TorchActionInfo(
                 *(torch.stack(ai_batch) for ai_batch in zip(*action_info))
             ),
-            model_out=ActorCriticOut(
+            model_out=FactorizedActorCriticOut(
                 *(torch.stack(m_out) for m_out in zip(*model_out))
             ),
             reward=np.stack(reward),
@@ -242,7 +246,7 @@ def main() -> None:
     if args.release:
         assert_release_build()
 
-    cfg = load_from_yaml(PPOConfig, CONFIG_FILE)
+    cfg = load_from_yaml(UnitFactorizedPPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
     init_train_dir(NAME, cfg.model_dump())
     env = ParallelEnv.from_config(cfg.env_config)
@@ -292,10 +296,7 @@ def main() -> None:
             )
             if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
                 last_checkpoint = now
-                save_checkpoint(
-                    train_state,
-                    logger,
-                )
+                save_checkpoint(train_state, logger)
     finally:
         train_state.step += 1
         save_checkpoint(train_state, logger)
@@ -303,8 +304,8 @@ def main() -> None:
 
 def build_model(
     env: ParallelEnv,
-    cfg: PPOConfig,
-) -> ActorCritic:
+    cfg: UnitFactorizedPPOConfig,
+) -> FactorizedActorCritic:
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
     global_in_channels = example_obs.global_obs.shape[2]
@@ -313,14 +314,14 @@ def build_model(
         global_in_channels=global_in_channels,
         reward_space=env.reward_space,
         config=cfg.rl_model_config,
-        model_type=ActorCritic,
+        model_type=FactorizedActorCritic,
     )
 
 
 def train_step(
     env: ParallelEnv,
     train_state: TrainStateT,
-    cfg: PPOConfig,
+    cfg: UnitFactorizedPPOConfig,
 ) -> None:
     step_start_time = time.perf_counter()
     experience, stats = collect_trajectories(env, train_state.model, cfg)
@@ -355,8 +356,8 @@ def train_step(
 @torch.no_grad()
 def collect_trajectories(
     env: ParallelEnv,
-    model: ActorCritic,
-    cfg: PPOConfig,
+    model: FactorizedActorCritic,
+    cfg: UnitFactorizedPPOConfig,
 ) -> tuple[ExperienceBatch, Stats | None]:
     batch_obs = []
     batch_action_info = []
@@ -395,22 +396,38 @@ def collect_trajectories(
 def update_model(
     experience: ExperienceBatch,
     train_state: TrainStateT,
-    cfg: PPOConfig,
+    cfg: UnitFactorizedPPOConfig,
 ) -> dict[str, float]:
-    advantages_np, returns_np = bootstrap_value(
-        value_estimate=experience.model_out.value.cpu().numpy(),
+    unit_value_estimate = experience.model_out.compute_unit_value(
+        experience.action_info.units_mask
+    )
+    unit_advantages_np, unit_returns_np = boostrap_unit_factorized_value(
+        value_estimate=unit_value_estimate.cpu().numpy(),
+        reward=experience.reward,
+        done=experience.done,
+        units_died=torch.logical_not(experience.action_info.units_mask).cpu().numpy(),
+        gamma=cfg.gamma,
+        gae_lambda=cfg.gae_lambda,
+    )
+    agent_value_estimate = experience.model_out.compute_agent_value(
+        experience.action_info.units_mask
+    )
+    _, agent_returns_np = bootstrap_value(
+        value_estimate=agent_value_estimate.cpu().numpy(),
         reward=experience.reward,
         done=experience.done,
         gamma=cfg.gamma,
         gae_lambda=cfg.gae_lambda,
     )
-    advantages = torch.from_numpy(advantages_np)
-    returns = torch.from_numpy(returns_np)
+    unit_advantages = torch.from_numpy(unit_advantages_np)
+    unit_returns = torch.from_numpy(unit_returns_np)
+    agent_returns = torch.from_numpy(agent_returns_np)
     experience.validate()
     # Combine batch/player dims for experience batch, advantages, and returns
     experience = experience.trim().flatten(end_dim=2)
-    advantages = advantages.flatten(start_dim=0, end_dim=2)
-    returns = returns.flatten(start_dim=0, end_dim=2)
+    unit_advantages = unit_advantages.flatten(start_dim=0, end_dim=2)
+    unit_returns = unit_returns.flatten(start_dim=0, end_dim=2)
+    agent_returns = agent_returns.flatten(start_dim=0, end_dim=2)
     aggregated_stats = collections.defaultdict(list)
     for _ in range(cfg.epochs_per_update):
         assert experience.done.shape[0] == cfg.full_batch_size
@@ -421,8 +438,9 @@ def update_model(
             batch_stats = update_model_on_batch(
                 train_state=train_state,
                 experience=experience.index(minibatch_indices).to_device(cfg.device),
-                advantages=advantages[minibatch_indices].to(cfg.device),
-                returns=returns[minibatch_indices].to(cfg.device),
+                unit_advantages=unit_advantages[minibatch_indices].to(cfg.device),
+                unit_returns=unit_returns[minibatch_indices].to(cfg.device),
+                agent_returns=agent_returns[minibatch_indices].to(cfg.device),
                 cfg=cfg,
             )
             for k, v in batch_stats.items():
@@ -431,12 +449,40 @@ def update_model(
     return {key: np.mean(val).item() for key, val in aggregated_stats.items()}
 
 
+def boostrap_unit_factorized_value(
+    value_estimate: npt.NDArray[np.float32],
+    reward: npt.NDArray[np.float32],
+    done: npt.NDArray[np.bool],
+    units_died: npt.NDArray[np.bool],
+    gamma: float,
+    gae_lambda: float,
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    steps_plus_one, envs, players = reward.shape
+    unit_advantages: npt.NDArray[np.float32] = np.zeros(
+        (steps_plus_one - 1, envs, players, MAX_UNITS), dtype=np.float32
+    )
+    last_unit_gae_lambda = np.zeros((envs, players, MAX_UNITS), dtype=np.float32)
+    for t, last_value in reversed(list(enumerate(value_estimate))[:-1]):
+        step_reward = reward[t + 1, ..., None]
+        step_done = done[t + 1, ..., None] | units_died[t + 1]
+        next_value = value_estimate[t + 1]
+        delta = step_reward + gamma * next_value * (1.0 - step_done) - last_value
+        last_unit_gae_lambda = (
+            delta + gamma * gae_lambda * (1.0 - step_done) * last_unit_gae_lambda
+        )
+        unit_advantages[t] = last_unit_gae_lambda
+
+    unit_returns: npt.NDArray[np.float32] = unit_advantages + value_estimate[:-1]
+    return unit_advantages, unit_returns
+
+
 def update_model_on_batch(
     train_state: TrainStateT,
     experience: ExperienceBatch,
-    advantages: torch.Tensor,
-    returns: torch.Tensor,
-    cfg: PPOConfig,
+    unit_advantages: torch.Tensor,
+    unit_returns: torch.Tensor,
+    agent_returns: torch.Tensor,
+    cfg: UnitFactorizedPPOConfig,
 ) -> dict[str, float]:
     # NB: Batch of observations is random, with no association between
     # trajectories, games, and players
@@ -451,8 +497,7 @@ def update_model_on_batch(
             sap_actions=experience.model_out.sap_actions,
         )
         action_probability_ratio = (
-            new_out.compute_joint_log_probs()
-            - experience.model_out.compute_joint_log_probs()
+            new_out.get_unit_log_probs() - experience.model_out.get_unit_log_probs()
         ).exp()
         clip_fraction: float = (
             ((action_probability_ratio - 1.0).abs() > cfg.clip_coefficient)
@@ -462,31 +507,41 @@ def update_model_on_batch(
         )
         policy_loss = (
             compute_pg_loss(
-                advantages,
+                unit_advantages,
                 action_probability_ratio,
                 cfg.clip_coefficient,
             )
             * cfg.loss_coefficients.policy
         )
-        value_loss = (
+        unit_value_loss = (
             compute_value_loss(
-                new_out.value,
-                returns,
+                new_out.factorized_value[experience.action_info.units_mask],
+                unit_returns[experience.action_info.units_mask],
             )
-            * cfg.loss_coefficients.value
+            * cfg.loss_coefficients.unit_value
+        )
+        baseline_value_loss = (
+            compute_value_loss(
+                new_out.compute_agent_value(
+                    units_mask=experience.action_info.units_mask
+                ),
+                agent_returns,
+            )
+            * cfg.loss_coefficients.baseline_value
         )
         negative_entropy = compute_entropy_loss(
             new_out.main_log_probs,
             new_out.sap_log_probs,
         )
         entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
-        total_loss = policy_loss + value_loss + entropy_loss
+        total_loss = policy_loss + unit_value_loss + baseline_value_loss + entropy_loss
 
     step_optimizer(train_state, total_loss, cfg)
     return {
         "total_loss": total_loss.item(),
         "policy_loss": policy_loss.item(),
-        "value_loss": value_loss.item(),
+        "unit_value_loss": unit_value_loss.item(),
+        "baseline_value_loss": baseline_value_loss.item(),
         "entropy_loss": entropy_loss.item(),
         "clip_fraction": clip_fraction,
         "entropy": -negative_entropy.item(),
@@ -496,7 +551,7 @@ def update_model_on_batch(
 def step_optimizer(
     train_state: TrainStateT,
     total_loss: torch.Tensor,
-    cfg: PPOConfig,
+    cfg: UnitFactorizedPPOConfig,
 ) -> None:
     train_state.optimizer.zero_grad()
     if not cfg.use_mixed_precision:

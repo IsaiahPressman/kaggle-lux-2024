@@ -12,7 +12,8 @@ gae_lambda: 0.8
 clip_coefficient: 0.2
 loss_coefficients:
   policy: 1.0
-  value: 0.5
+  unit_value: 0.5
+  baseline_value: 0.5
   entropy: 1e-4
 
 env_config:
@@ -25,6 +26,7 @@ env_config:
 rl_model_config:
   d_model: 64
   n_blocks: 4
+  critic_mode: unit_factorized
 
 device: cuda:0
 log_histograms: false

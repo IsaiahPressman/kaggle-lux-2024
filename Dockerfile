@@ -1,4 +1,4 @@
-FROM gcr.io/kaggle-images/python:v154
+FROM gcr.io/kaggle-images/python:v155
 
 #RUN apt update && apt upgrade -y
 #RUN apt install curl -y

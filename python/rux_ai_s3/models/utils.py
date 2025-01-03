@@ -1,41 +1,20 @@
-from torch import nn
-from typing_extensions import assert_never
+import torch
 
-from rux_ai_s3.lowlevel import RewardSpace
-
-from .critic_heads import (
-    BoundedCriticHead,
-    PositiveUnboundedCriticHead,
-)
-from .types import ActivationFactory
+from .types import TorchActionInfo
 
 
-def build_critic_head(
-    reward_space: RewardSpace,
-    d_model: int,
-    activation: ActivationFactory,
-) -> nn.Module:
-    if reward_space == RewardSpace.FINAL_WINNER:
-        return BoundedCriticHead(
-            reward_min=-1,
-            reward_max=1,
-            d_model=d_model,
-            activation=activation,
-        )
+def get_unit_slices(x: torch.Tensor, action_info: TorchActionInfo) -> torch.Tensor:
+    """
+    x: shape (batch, d_model, w, h)
 
-    if reward_space == RewardSpace.MATCH_WINNER:
-        return BoundedCriticHead(
-            reward_min=-5,
-            reward_max=5,
-            d_model=d_model,
-            activation=activation,
-        )
-
-    if reward_space == RewardSpace.POINTS_SCORED:
-        return PositiveUnboundedCriticHead(
-            reward_min=0,
-            d_model=d_model,
-            activation=activation,
-        )
-
-    assert_never(reward_space)
+    Returns: unit_slices of shape (batch, units, d_model + 1 [unit energy])
+    """
+    batch_size, unit_count, _ = action_info.unit_indices.shape
+    batch_indices = torch.arange(batch_size).view(batch_size, 1).expand(-1, unit_count)
+    unit_slices = x[
+        batch_indices,
+        :,
+        action_info.unit_indices[..., 0],
+        action_info.unit_indices[..., 1],
+    ]
+    return torch.cat([unit_slices, action_info.unit_energies.unsqueeze(-1)], dim=-1)
