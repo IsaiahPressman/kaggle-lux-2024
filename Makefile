@@ -27,8 +27,7 @@ build:
 	maturin develop
 
 build-release:
-	# TODO: build-release target native CPU
-	maturin develop --release
+	RUSTFLAGS="-C target-cpu=native" maturin develop --release
 
 test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static

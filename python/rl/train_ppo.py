@@ -14,7 +14,13 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import wandb
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationInfo,
+    field_serializer,
+    field_validator,
+)
 from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
@@ -34,10 +40,14 @@ from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import (
     WandbInitConfig,
     count_trainable_params,
+    get_config_path_from_checkpoint,
     init_logger,
     init_train_dir,
     load_checkpoint,
+    load_model_weights,
     save_checkpoint,
+    validate_full_checkpoint_path,
+    validate_weights_checkpoint_path,
 )
 from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
@@ -60,22 +70,33 @@ logger = logging.getLogger(NAME.upper())
 class UserArgs(BaseModel):
     debug: bool
     checkpoint: Path | None
+    model_weights: Path | None
+
+    _validate_checkpoint = field_validator("checkpoint")(validate_full_checkpoint_path)
 
     @property
     def release(self) -> bool:
         return not self.debug
 
-    @field_validator("checkpoint")
+    @property
+    def config_file(self) -> Path:
+        if self.checkpoint is None:
+            return CONFIG_FILE
+
+        return get_config_path_from_checkpoint(self.checkpoint)
+
+    @field_validator("model_weights")
     @classmethod
-    def _validate_checkpoint(cls, checkpoint: str | None) -> Path | None:
-        if checkpoint is None:
+    def _validate_model_weights(
+        cls, model_weights: Path | None, info: ValidationInfo
+    ) -> Path | None:
+        if model_weights is None:
             return None
 
-        checkpoint_path = Path(checkpoint).absolute()
-        if not checkpoint_path.is_file():
-            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
+        if info.data["checkpoint"] is not None:
+            raise ValueError("checkpoint and model_weights are mutually exclusive")
 
-        return checkpoint_path
+        return validate_weights_checkpoint_path(model_weights)
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
@@ -83,9 +104,15 @@ class UserArgs(BaseModel):
         parser.add_argument("--debug", action="store_true")
         parser.add_argument(
             "--checkpoint",
-            type=str,
+            type=Path,
             default=None,
-            help="Checkpoint to load model, optimizer, and other weights from",
+            help="Checkpoint to resume training from",
+        )
+        parser.add_argument(
+            "--model_weights",
+            type=Path,
+            default=None,
+            help="Path to load model weights from",
         )
         args = parser.parse_args()
         return UserArgs(**vars(args))
@@ -242,8 +269,9 @@ def main() -> None:
     if args.release:
         assert_release_build()
 
-    cfg = load_from_yaml(PPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
+    logger.info("Loading config from %s", args.config_file)
+    cfg = load_from_yaml(PPOConfig, args.config_file)
     init_train_dir(NAME, cfg.model_dump())
     env = ParallelEnv.from_config(cfg.env_config)
     model = build_model(env, cfg).to(cfg.device).train()
@@ -272,6 +300,13 @@ def main() -> None:
             train_state,
             args.checkpoint,
             wandb_init_config=wandb_init_config,
+            logger=logger,
+        )
+
+    if args.model_weights:
+        load_model_weights(
+            train_state,
+            args.model_weights,
             logger=logger,
         )
 

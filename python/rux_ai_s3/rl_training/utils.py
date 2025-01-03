@@ -11,7 +11,7 @@ import wandb
 import yaml
 from torch import nn
 
-from rux_ai_s3.rl_training.constants import TRAIN_OUTPUTS_DIR
+from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME, TRAIN_OUTPUTS_DIR
 from rux_ai_s3.rl_training.ppo import TrainState
 
 
@@ -40,7 +40,7 @@ def init_train_dir(
     )
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
-    with open("train_config.yaml", "w") as f:
+    with open(TRAIN_CONFIG_FILE_NAME, "w") as f:
         yaml.dump(cfg_dict, f, sort_keys=False)
 
 
@@ -101,3 +101,42 @@ def load_checkpoint(
             group=wandb_init_config.group,
             id=run_id,
         )
+
+
+def load_model_weights(
+    train_state: TrainState[Any],
+    weights_path: Path,
+    logger: logging.Logger,
+) -> None:
+    logger.info("Loading model weights from %s", weights_path)
+    checkpoint_state = torch.load(
+        weights_path, map_location=torch.device("cpu"), weights_only=True
+    )
+    train_state.model.load_state_dict(checkpoint_state["model"])
+
+
+def get_config_path_from_checkpoint(checkpoint: Path) -> Path:
+    return checkpoint.parent / TRAIN_CONFIG_FILE_NAME
+
+
+def validate_weights_checkpoint_path(checkpoint: Path | None) -> Path | None:
+    if checkpoint is None:
+        return None
+
+    checkpoint_path = Path(checkpoint).absolute()
+    if not checkpoint_path.is_file():
+        raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
+
+    return checkpoint_path
+
+
+def validate_full_checkpoint_path(checkpoint: Path | None) -> Path | None:
+    checkpoint = validate_weights_checkpoint_path(checkpoint)
+    if checkpoint is None:
+        return None
+
+    config_path = get_config_path_from_checkpoint(checkpoint)
+    if not config_path.is_file():
+        raise ValueError(f"Invalid checkpoint config path: {config_path}")
+
+    return checkpoint

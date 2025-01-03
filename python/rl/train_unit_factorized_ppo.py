@@ -37,10 +37,12 @@ from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import (
     WandbInitConfig,
     count_trainable_params,
+    get_config_path_from_checkpoint,
     init_logger,
     init_train_dir,
     load_checkpoint,
     save_checkpoint,
+    validate_full_checkpoint_path,
 )
 from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
@@ -64,21 +66,18 @@ class UserArgs(BaseModel):
     debug: bool
     checkpoint: Path | None
 
+    _validate_checkpoint = field_validator("checkpoint")(validate_full_checkpoint_path)
+
     @property
     def release(self) -> bool:
         return not self.debug
 
-    @field_validator("checkpoint")
-    @classmethod
-    def _validate_checkpoint(cls, checkpoint: str | None) -> Path | None:
-        if checkpoint is None:
-            return None
+    @property
+    def config_file(self) -> Path:
+        if self.checkpoint is None:
+            return CONFIG_FILE
 
-        checkpoint_path = Path(checkpoint).absolute()
-        if not checkpoint_path.is_file():
-            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
-
-        return checkpoint_path
+        return get_config_path_from_checkpoint(self.checkpoint)
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
@@ -88,7 +87,7 @@ class UserArgs(BaseModel):
             "--checkpoint",
             type=str,
             default=None,
-            help="Checkpoint to load model, optimizer, and other weights from",
+            help="Checkpoint to resume training from",
         )
         args = parser.parse_args()
         return UserArgs(**vars(args))
@@ -246,8 +245,9 @@ def main() -> None:
     if args.release:
         assert_release_build()
 
-    cfg = load_from_yaml(UnitFactorizedPPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
+    logger.info("Loading config from %s", args.config_file)
+    cfg = load_from_yaml(UnitFactorizedPPOConfig, args.config_file)
     init_train_dir(NAME, cfg.model_dump())
     env = ParallelEnv.from_config(cfg.env_config)
     model = build_model(env, cfg).to(cfg.device).train()

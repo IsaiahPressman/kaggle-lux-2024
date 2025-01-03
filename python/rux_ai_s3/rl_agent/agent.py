@@ -14,12 +14,13 @@ from rux_ai_s3.models.actor_critic import (
 from rux_ai_s3.models.actor_heads import ActionConfig
 from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
+from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.types import ActionArray
 from rux_ai_s3.utils import load_from_yaml, to_json
 
 AGENT_CONFIG_FILE = Path(__file__).parent / "agent_config.yaml"
-TRAIN_CONFIG_FILE = Path(__file__).parent / "train_config.yaml"
+TRAIN_CONFIG_FILE = Path(__file__).parent / TRAIN_CONFIG_FILE_NAME
 ModelTypes = ActorCritic | FactorizedActorCritic
 
 
