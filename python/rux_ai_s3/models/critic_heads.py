@@ -30,7 +30,8 @@ class BaseCriticHead(nn.Module, ABC):
     def forward(self, x: torch.Tensor, _action_info: TorchActionInfo) -> torch.Tensor:
         x = self.activation(self.conv_base(x))
         x = (
-            torch.flatten(self.conv_value(x), start_dim=-2, end_dim=-1)
+            self.conv_value(x)
+            .flatten(start_dim=-2, end_dim=-1)
             .mean(dim=-1)
             .squeeze(dim=-1)
         )
@@ -118,7 +119,8 @@ class BaseFactorizedCriticHead(nn.Module, ABC):
         x = self.activation(self.conv(x))
         # baseline value shape (batch,)
         baseline_value = (
-            torch.flatten(self.baseline_conv(x), start_dim=-2, end_dim=-1)
+            self.baseline_conv(x)
+            .flatten(start_dim=-2, end_dim=-1)
             .mean(dim=-1)
             .squeeze(dim=-1)
         )

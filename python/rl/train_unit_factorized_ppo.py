@@ -1,12 +1,9 @@
-# mypy: ignore-errors
-# TODO: Re-enable mypy
 import argparse
 import collections
 import datetime
 import itertools
 import logging
 import math
-import os
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -16,7 +13,6 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import torch
-import torch.nn.functional as F
 import wandb
 import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
@@ -28,14 +24,29 @@ from rux_ai_s3.models.actor_critic import (
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
-from rux_ai_s3.rl_training.constants import PROJECT_NAME, TRAIN_OUTPUTS_DIR
+from rux_ai_s3.rl_training.constants import MAX_UNITS, PROJECT_NAME
+from rux_ai_s3.rl_training.ppo import (
+    TrainState,
+    bootstrap_value,
+    compute_entropy_loss,
+    compute_pg_loss,
+    compute_value_loss,
+)
 from rux_ai_s3.rl_training.train_config import TrainConfig
-from rux_ai_s3.rl_training.utils import count_trainable_params, init_logger
-from rux_ai_s3.types import Action, Stats
+from rux_ai_s3.rl_training.utils import (
+    WandbInitConfig,
+    count_trainable_params,
+    init_logger,
+    init_train_dir,
+    load_checkpoint,
+    save_checkpoint,
+)
+from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
 
+TrainStateT = TrainState[FactorizedActorCritic]
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "unit_factorized_ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
@@ -50,22 +61,42 @@ logger = logging.getLogger(NAME.upper())
 
 class UserArgs(BaseModel):
     debug: bool
+    checkpoint: Path | None
 
     @property
     def release(self) -> bool:
         return not self.debug
 
+    @field_validator("checkpoint")
+    @classmethod
+    def _validate_checkpoint(cls, checkpoint: str | None) -> Path | None:
+        if checkpoint is None:
+            return None
+
+        checkpoint_path = Path(checkpoint).absolute()
+        if not checkpoint_path.is_file():
+            raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
+
+        return checkpoint_path
+
     @classmethod
     def from_argparse(cls) -> "UserArgs":
         parser = argparse.ArgumentParser()
         parser.add_argument("--debug", action="store_true")
+        parser.add_argument(
+            "--checkpoint",
+            type=str,
+            default=None,
+            help="Checkpoint to load model, optimizer, and other weights from",
+        )
         args = parser.parse_args()
         return UserArgs(**vars(args))
 
 
 class LossCoefficients(BaseModel):
     policy: float
-    value: float
+    unit_value: float
+    baseline_value: float
     entropy: float
 
     model_config = ConfigDict(
@@ -127,13 +158,6 @@ class UnitFactorizedPPOConfig(TrainConfig):
     @field_serializer("device")
     def serialize_device(self, device: torch.device) -> str:
         return str(device)
-
-
-@dataclass
-class TrainState:
-    model: FactorizedActorCritic
-    optimizer: optim.Optimizer
-    scaler: GradScaler
 
 
 @dataclass(frozen=True)
@@ -222,7 +246,7 @@ def main() -> None:
 
     cfg = load_from_yaml(UnitFactorizedPPOConfig, CONFIG_FILE)
     init_logger(logger=logger)
-    init_train_dir(cfg)
+    init_train_dir(NAME, cfg.model_dump())
     env = ParallelEnv.from_config(cfg.env_config)
     model = build_model(env, cfg).to(cfg.device).train()
     logger.info(
@@ -232,13 +256,28 @@ def main() -> None:
         model = torch.compile(model)  # type: ignore[assignment]
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer_kwargs)  # type: ignore[arg-type]
-    scaler = GradScaler("cuda")
     train_state = TrainState(
         model=model,
         optimizer=optimizer,
-        scaler=scaler,
+        scaler=GradScaler("cuda"),
     )
-    if args.release:
+    if args.checkpoint:
+        wandb_init_config = (
+            WandbInitConfig(
+                project=PROJECT_NAME,
+                group=NAME,
+            )
+            if args.release
+            else None
+        )
+        load_checkpoint(
+            train_state,
+            args.checkpoint,
+            wandb_init_config=wandb_init_config,
+            logger=logger,
+        )
+
+    if args.release and wandb.run is None:
         wandb.init(
             project=PROJECT_NAME,
             group=NAME,
@@ -247,9 +286,8 @@ def main() -> None:
 
     last_checkpoint = datetime.datetime.now()
     try:
-        for step in cfg.iter_updates():
+        for _ in cfg.iter_updates():
             train_step(
-                step=step,
                 env=env,
                 train_state=train_state,
                 args=args,
@@ -257,23 +295,10 @@ def main() -> None:
             )
             if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
                 last_checkpoint = now
-                checkpoint(step, train_state)
+                save_checkpoint(train_state, logger)
     finally:
-        checkpoint(step + 1, train_state)
-
-
-def init_train_dir(cfg: UnitFactorizedPPOConfig) -> None:
-    start_time = datetime.datetime.now()
-    train_dir = (
-        TRAIN_OUTPUTS_DIR
-        / NAME
-        / start_time.strftime("%Y_%m_%d")
-        / start_time.strftime("%H_%M")
-    )
-    train_dir.mkdir(parents=True, exist_ok=True)
-    os.chdir(train_dir)
-    with open("train_config.yaml", "w") as f:
-        yaml.dump(cfg.model_dump(), f, sort_keys=False)
+        train_state.step += 1
+        save_checkpoint(train_state, logger)
 
 
 def build_model(
@@ -293,9 +318,8 @@ def build_model(
 
 
 def train_step(
-    step: int,
     env: ParallelEnv,
-    train_state: TrainState,
+    train_state: TrainStateT,
     args: UserArgs,
     cfg: UnitFactorizedPPOConfig,
 ) -> None:
@@ -309,7 +333,7 @@ def train_step(
 
     time_elapsed = time.perf_counter() - step_start_time
     batches_per_epoch = math.ceil(cfg.full_batch_size / cfg.train_batch_size)
-    scalar_stats["game_steps"] = step * cfg.game_steps_per_update
+    scalar_stats["game_steps"] = train_state.step * cfg.game_steps_per_update
     scalar_stats["updates_per_second"] = (
         batches_per_epoch * cfg.epochs_per_update / time_elapsed
     )
@@ -317,11 +341,12 @@ def train_step(
         cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
     )
     log_results(
-        step,
+        train_state.step,
         scalar_stats,
         array_stats,
         wandb_log=args.release,
     )
+    train_state.step += 1
 
 
 @torch.no_grad()
@@ -366,17 +391,31 @@ def collect_trajectories(
 
 def update_model(
     experience: ExperienceBatch,
-    train_state: TrainState,
+    train_state: TrainStateT,
     cfg: UnitFactorizedPPOConfig,
 ) -> dict[str, float]:
-    advantages_np, returns_np = bootstrap_value(experience, cfg)
-    advantages = torch.from_numpy(advantages_np)
-    returns = torch.from_numpy(returns_np)
+    unit_advantages_np, unit_returns_np = boostrap_unit_factorized_value(
+        experience, cfg
+    )
+    agent_value_estimate = experience.model_out.compute_agent_value(
+        experience.action_info.units_mask
+    )
+    _, agent_returns_np = bootstrap_value(
+        value_estimate=agent_value_estimate.cpu().numpy(),
+        reward=experience.reward,
+        done=experience.done,
+        gamma=cfg.gamma,
+        gae_lambda=cfg.gae_lambda,
+    )
+    unit_advantages = torch.from_numpy(unit_advantages_np)
+    unit_returns = torch.from_numpy(unit_returns_np)
+    agent_returns = torch.from_numpy(agent_returns_np)
     experience.validate()
     # Combine batch/player dims for experience batch, advantages, and returns
     experience = experience.trim().flatten(end_dim=2)
-    advantages = torch.flatten(advantages, start_dim=0, end_dim=2)
-    returns = torch.flatten(returns, start_dim=0, end_dim=2)
+    unit_advantages = unit_advantages.flatten(start_dim=0, end_dim=2)
+    unit_returns = unit_returns.flatten(start_dim=0, end_dim=2)
+    agent_returns = agent_returns.flatten(start_dim=0, end_dim=2)
     aggregated_stats = collections.defaultdict(list)
     for _ in range(cfg.epochs_per_update):
         assert experience.done.shape[0] == cfg.full_batch_size
@@ -387,8 +426,9 @@ def update_model(
             batch_stats = update_model_on_batch(
                 train_state=train_state,
                 experience=experience.index(minibatch_indices).to_device(cfg.device),
-                advantages=advantages[minibatch_indices].to(cfg.device),
-                returns=returns[minibatch_indices].to(cfg.device),
+                unit_advantages=unit_advantages[minibatch_indices].to(cfg.device),
+                unit_returns=unit_returns[minibatch_indices].to(cfg.device),
+                agent_returns=agent_returns[minibatch_indices].to(cfg.device),
                 cfg=cfg,
             )
             for k, v in batch_stats.items():
@@ -397,35 +437,41 @@ def update_model(
     return {key: np.mean(val).item() for key, val in aggregated_stats.items()}
 
 
-def bootstrap_value(
+def boostrap_unit_factorized_value(
     experience: ExperienceBatch,
     cfg: UnitFactorizedPPOConfig,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     steps_plus_one, envs, players = experience.reward.shape
-    advantages: npt.NDArray[np.float32] = np.zeros(
-        (steps_plus_one - 1, envs, players), dtype=np.float32
+    unit_advantages: npt.NDArray[np.float32] = np.zeros(
+        (steps_plus_one - 1, envs, players, MAX_UNITS), dtype=np.float32
     )
-    last_gae_lambda = np.zeros((envs, players), dtype=np.float32)
-    agent_value_out: npt.NDArray[np.float32] = experience.model_out.value.cpu().numpy()
-    for t, last_value in reversed(list(enumerate(agent_value_out))[:-1]):
-        reward = experience.reward[t + 1]
-        done = experience.done[t + 1]
-        next_value = agent_value_out[t + 1]
+    last_unit_gae_lambda = np.zeros((envs, players, MAX_UNITS), dtype=np.float32)
+    unit_value_out: npt.NDArray[np.float32] = (
+        experience.model_out.get_unit_value(experience.action_info.units_mask)
+        .cpu()
+        .numpy()
+    )
+    units_died = torch.logical_not(experience.action_info.units_mask).cpu().numpy()
+    for t, last_value in reversed(list(enumerate(unit_value_out))[:-1]):
+        reward = experience.reward[t + 1, ..., None]
+        done = experience.done[t + 1, ..., None] | units_died[t + 1]
+        next_value = unit_value_out[t + 1]
         delta = reward + cfg.gamma * next_value * (1.0 - done) - last_value
-        last_gae_lambda = (
-            delta + cfg.gamma * cfg.gae_lambda * (1.0 - done) * last_gae_lambda
+        last_unit_gae_lambda = (
+            delta + cfg.gamma * cfg.gae_lambda * (1.0 - done) * last_unit_gae_lambda
         )
-        advantages[t] = last_gae_lambda
+        unit_advantages[t] = last_unit_gae_lambda
 
-    returns: npt.NDArray[np.float32] = advantages + agent_value_out[:-1]
-    return advantages, returns
+    unit_returns: npt.NDArray[np.float32] = unit_advantages + unit_value_out[:-1]
+    return unit_advantages, unit_returns
 
 
 def update_model_on_batch(
-    train_state: TrainState,
+    train_state: TrainStateT,
     experience: ExperienceBatch,
-    advantages: torch.Tensor,
-    returns: torch.Tensor,
+    unit_advantages: torch.Tensor,
+    unit_returns: torch.Tensor,
+    agent_returns: torch.Tensor,
     cfg: UnitFactorizedPPOConfig,
 ) -> dict[str, float]:
     # NB: Batch of observations is random, with no association between
@@ -440,7 +486,6 @@ def update_model_on_batch(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,
         )
-        # TODO: Left off here
         action_probability_ratio = (
             new_out.get_unit_log_probs() - experience.model_out.get_unit_log_probs()
         ).exp()
@@ -452,80 +497,47 @@ def update_model_on_batch(
         )
         policy_loss = (
             compute_pg_loss(
-                advantages,
+                unit_advantages,
                 action_probability_ratio,
                 cfg.clip_coefficient,
             )
             * cfg.loss_coefficients.policy
         )
-        value_loss = (
+        unit_value_loss = (
             compute_value_loss(
-                new_out.value,
-                returns,
+                new_out.get_unit_value(experience.action_info.units_mask),
+                unit_returns,
             )
-            * cfg.loss_coefficients.value
+            * cfg.loss_coefficients.unit_value
         )
-        entropy_loss = (
-            compute_entropy_loss(
-                new_out.main_log_probs,
-                new_out.sap_log_probs,
+        baseline_value_loss = (
+            compute_value_loss(
+                new_out.baseline_value,
+                agent_returns,
             )
-            * cfg.loss_coefficients.entropy
+            * cfg.loss_coefficients.baseline_value
         )
-        total_loss = policy_loss + value_loss + entropy_loss
+        negative_entropy = compute_entropy_loss(
+            new_out.main_log_probs,
+            new_out.sap_log_probs,
+        )
+        entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
+        total_loss = policy_loss + unit_value_loss + baseline_value_loss + entropy_loss
 
     step_optimizer(train_state, total_loss, cfg)
     return {
         "total_loss": total_loss.item(),
         "policy_loss": policy_loss.item(),
-        "value_loss": value_loss.item(),
+        "unit_value_loss": unit_value_loss.item(),
+        "baseline_value_loss": baseline_value_loss.item(),
         "entropy_loss": entropy_loss.item(),
+        "entropy": -negative_entropy.item(),
         "clip_fraction": clip_fraction,
     }
 
 
-def compute_pg_loss(
-    advantages: torch.Tensor,
-    action_probability_ratio: torch.Tensor,
-    clip_coefficient: float,
-) -> torch.Tensor:
-    pg_loss_1 = -advantages * action_probability_ratio
-    pg_loss_2 = -advantages * torch.clamp(
-        action_probability_ratio,
-        1.0 - clip_coefficient,
-        1.0 + clip_coefficient,
-    )
-    return torch.maximum(pg_loss_1, pg_loss_2).mean()
-
-
-def compute_value_loss(
-    new_value_estimate: torch.Tensor,
-    returns: torch.Tensor,
-) -> torch.Tensor:
-    return F.huber_loss(new_value_estimate, returns)
-
-
-def compute_entropy_loss(
-    main_log_probs: torch.Tensor,
-    sap_log_probs: torch.Tensor,
-) -> torch.Tensor:
-    assert main_log_probs.shape[-1] - 1 == Action.SAP.value
-    log_policy = torch.cat(
-        [main_log_probs[..., :-1], main_log_probs[..., -1:] + sap_log_probs],
-        dim=-1,
-    )
-    policy = log_policy.exp()
-    log_policy_masked_zeroed = torch.where(
-        log_policy.isneginf(),
-        torch.zeros_like(log_policy),
-        log_policy,
-    )
-    entropies = (policy * log_policy_masked_zeroed).sum(dim=-1)
-    return entropies.mean()
-
-
 def step_optimizer(
-    train_state: TrainState,
+    train_state: TrainStateT,
     total_loss: torch.Tensor,
     cfg: UnitFactorizedPPOConfig,
 ) -> None:
@@ -553,32 +565,6 @@ def log_results(
     histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
     combined_stats = dict(**scalar_stats, **histograms)
     wandb.log(combined_stats)
-
-
-def checkpoint(step: int, train_state: TrainState) -> None:
-    checkpoint_name = f"checkpoint_{str(step).zfill(6)}"
-    full_path = f"{checkpoint_name}.pt"
-    weights_path = f"{checkpoint_name}_weights.pt"
-    torch.save(
-        {
-            "step": step,
-            "model": train_state.model.state_dict(),
-            "optimizer": train_state.optimizer.state_dict(),
-            "scaler": train_state.scaler.state_dict(),
-        },
-        full_path,
-    )
-    torch.save(
-        {
-            "model": train_state.model.state_dict(),
-        },
-        weights_path,
-    )
-    logger.info(
-        "Full checkpoint saved to %s and weights saved to %s",
-        full_path,
-        weights_path,
-    )
 
 
 if __name__ == "__main__":

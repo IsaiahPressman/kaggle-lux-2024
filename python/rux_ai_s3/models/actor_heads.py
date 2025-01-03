@@ -57,8 +57,10 @@ class BasicActorHead(nn.Module):
         unit_slices = get_unit_slices(x, action_info)
         unit_count = unit_slices.shape[1]
         main_logits = self.main_actor(unit_slices)
-        sap_logits = torch.flatten(
-            self.sap_actor(x).expand(-1, unit_count, -1, -1), start_dim=-2, end_dim=-1
+        sap_logits = (
+            self.sap_actor(x)
+            .expand(-1, unit_count, -1, -1)
+            .flatten(start_dim=-2, end_dim=-1)
         )
 
         main_log_probs = F.log_softmax(
@@ -71,7 +73,7 @@ class BasicActorHead(nn.Module):
         )
         masked_sap_logits = self.safe_mask_logits(
             sap_logits,
-            torch.flatten(action_info.sap_mask, start_dim=-2, end_dim=-1),
+            action_info.sap_mask.flatten(start_dim=-2, end_dim=-1),
             action_info.units_mask,
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)

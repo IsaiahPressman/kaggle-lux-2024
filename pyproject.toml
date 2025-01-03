@@ -48,6 +48,7 @@ select = [
     "I",
     "PT",
     "UP",
+    "ARG",
     "ERA",
     "PIE",
     "RET",

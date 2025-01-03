@@ -60,7 +60,7 @@ class ActorCriticOut(NamedTuple):
 
     def flatten(self, start_dim: int, end_dim: int) -> "ActorCriticOut":
         return ActorCriticOut(
-            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+            *(t.flatten(start_dim=start_dim, end_dim=end_dim) for t in self)
         )
 
     def compute_joint_log_probs(self) -> torch.Tensor:
@@ -129,7 +129,26 @@ class FactorizedActorCriticOut(NamedTuple):
 
     def flatten(self, start_dim: int, end_dim: int) -> "FactorizedActorCriticOut":
         return FactorizedActorCriticOut(
-            *(torch.flatten(t, start_dim=start_dim, end_dim=end_dim) for t in self)
+            *(t.flatten(start_dim=start_dim, end_dim=end_dim) for t in self)
+        )
+
+    def get_unit_value(self, units_mask: torch.Tensor) -> torch.Tensor:
+        return torch.where(
+            units_mask,
+            self.factorized_value,
+            self.baseline_value.unsqueeze(dim=-1),
+        )
+
+    def compute_agent_value(self, units_mask: torch.Tensor) -> torch.Tensor:
+        assert units_mask.shape == self.factorized_value.shape
+        assert units_mask.dtype == torch.bool
+        units_mask_float = units_mask.float()
+        masked_summed_value = (units_mask_float * self.factorized_value).sum(dim=-1)
+        unit_alive_count = units_mask_float.sum(dim=-1)
+        return torch.where(
+            unit_alive_count != 0,
+            masked_summed_value / unit_alive_count,
+            self.baseline_value,
         )
 
     def get_unit_log_probs(self) -> torch.Tensor:

@@ -1,0 +1,30 @@
+max_updates: null
+optimizer_kwargs:
+  lr: 1e-4
+  eps: 0.000_3
+steps_per_update: 32
+epochs_per_update: 1
+train_batch_size: 128
+use_mixed_precision: true
+
+gamma: 0.9999
+gae_lambda: 0.8
+clip_coefficient: 0.2
+loss_coefficients:
+  policy: 1.0
+  unit_value: 0.5
+  baseline_value: 0.5
+  entropy: 1e-4
+
+env_config:
+  n_envs: 64
+  frame_stack_len: 4
+  # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
+  reward_space: MATCH_WINNER
+  jax_device: cpu:0
+
+rl_model_config:
+  d_model: 64
+  n_blocks: 4
+
+device: cuda:0
