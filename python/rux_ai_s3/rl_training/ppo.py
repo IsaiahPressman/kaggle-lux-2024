@@ -1,7 +1,5 @@
 import logging
-from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -9,21 +7,9 @@ import torch
 import torch.nn.functional as F
 import wandb
 import yaml
-from torch import nn, optim
-from torch.amp import GradScaler  # type: ignore[attr-defined]
 from typing_extensions import assert_never
 
 from rux_ai_s3.types import Action
-
-_ModelT = TypeVar("_ModelT", bound=nn.Module)
-
-
-@dataclass
-class TrainState(Generic[_ModelT]):
-    model: _ModelT
-    optimizer: optim.Optimizer
-    scaler: GradScaler
-    step: int = 0
 
 
 class WandbLogMode(Enum):

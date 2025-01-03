@@ -2,6 +2,8 @@ max_updates: null
 optimizer_kwargs:
   lr: 1e-4
   eps: 0.000_3
+lr_schedule_steps: 100_000
+lr_schedule_min_factor: 0.2
 steps_per_update: 32
 epochs_per_update: 1
 train_batch_size: 128
@@ -17,14 +19,14 @@ loss_coefficients:
 
 env_config:
   n_envs: 64
-  frame_stack_len: 4
+  frame_stack_len: 8
   # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
   reward_space: MATCH_WINNER
   jax_device: cpu:0
 
 rl_model_config:
   d_model: 64
-  n_blocks: 4
+  n_blocks: 8
 
 device: cuda:0
 log_histograms: false

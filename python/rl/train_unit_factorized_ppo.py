@@ -8,13 +8,13 @@ import time
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Annotated, Final
 
 import numpy as np
 import numpy.typing as npt
 import torch
 import wandb
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import (
     FactorizedActorCritic,
@@ -25,7 +25,6 @@ from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import MAX_UNITS, PROJECT_NAME
 from rux_ai_s3.rl_training.ppo import (
-    TrainState,
     bootstrap_value,
     compute_entropy_loss,
     compute_pg_loss,
@@ -35,6 +34,7 @@ from rux_ai_s3.rl_training.ppo import (
 )
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import (
+    TrainState,
     WandbInitConfig,
     count_trainable_params,
     get_config_path_from_checkpoint,
@@ -48,6 +48,7 @@ from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
 from torch import optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
+from torch.optim.lr_scheduler import LambdaLR
 
 TrainStateT = TrainState[FactorizedActorCritic]
 FILE: Final[Path] = Path(__file__)
@@ -110,6 +111,8 @@ class UnitFactorizedPPOConfig(TrainConfig):
     # Training config
     max_updates: int | None
     optimizer_kwargs: dict[str, float]
+    lr_schedule_steps: Annotated[int, Field(ge=10_000, lt=1_000_000)]
+    lr_schedule_min_factor: Annotated[float, Field(gt=0.0, lt=1.0)]
     steps_per_update: int
     epochs_per_update: int
     train_batch_size: int
@@ -258,9 +261,11 @@ def main() -> None:
         model = torch.compile(model)  # type: ignore[assignment]
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer_kwargs)  # type: ignore[arg-type]
+    lr_scheduler = build_lr_scheduler(cfg, optimizer)
     train_state = TrainState(
         model=model,
         optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
         scaler=GradScaler("cuda"),
     )
     if args.checkpoint:
@@ -318,6 +323,22 @@ def build_model(
     )
 
 
+def build_lr_scheduler(
+    cfg: UnitFactorizedPPOConfig,
+    optimizer: optim.Optimizer,
+) -> LambdaLR:
+    def lr_lambda(epoch: int) -> float:
+        pct_remaining = max(1.0 - epoch / cfg.lr_schedule_steps, 0.0)
+        return cfg.lr_schedule_min_factor + pct_remaining * (
+            1.0 - cfg.lr_schedule_min_factor
+        )
+
+    return LambdaLR(
+        optimizer,
+        lr_lambda,
+    )
+
+
 def train_step(
     env: ParallelEnv,
     train_state: TrainStateT,
@@ -350,6 +371,7 @@ def train_step(
         ),
         logger=logger,
     )
+    train_state.lr_scheduler.step()
     train_state.step += 1
 
 

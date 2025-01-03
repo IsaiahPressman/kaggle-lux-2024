@@ -2,6 +2,8 @@ max_updates: null
 optimizer_kwargs:
   lr: 1e-4
   eps: 0.000_3
+lr_schedule_steps: 100_000
+lr_schedule_min_factor: 0.2
 steps_per_update: 32
 epochs_per_update: 1
 train_batch_size: 128

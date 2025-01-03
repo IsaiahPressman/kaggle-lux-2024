@@ -3,16 +3,28 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import coloredlogs
 import torch
 import wandb
 import yaml
-from torch import nn
+from torch import GradScaler, nn
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME, TRAIN_OUTPUTS_DIR
-from rux_ai_s3.rl_training.ppo import TrainState
+
+_ModelT = TypeVar("_ModelT", bound=nn.Module)
+
+
+@dataclass
+class TrainState(Generic[_ModelT]):
+    model: _ModelT
+    optimizer: Optimizer
+    lr_scheduler: LRScheduler
+    scaler: GradScaler
+    step: int = 0
 
 
 def count_trainable_params(model: nn.Module) -> int:
@@ -57,6 +69,7 @@ def save_checkpoint(
             "run_id": wandb.run.id if wandb.run else None,
             "model": train_state.model.state_dict(),
             "optimizer": train_state.optimizer.state_dict(),
+            "lr_scheduler": train_state.lr_scheduler.state_dict(),
             "scaler": train_state.scaler.state_dict(),
         },
         full_path,
@@ -93,6 +106,7 @@ def load_checkpoint(
     train_state.model.load_state_dict(checkpoint_state["model"])
     train_state.optimizer.load_state_dict(checkpoint_state["optimizer"])
     train_state.scaler.load_state_dict(checkpoint_state["scaler"])
+    train_state.lr_scheduler.load_state_dict(checkpoint_state["lr_scheduler"])
     train_state.step = checkpoint_state["step"]
     run_id: str | None = checkpoint_state["run_id"]
     if wandb_init_config and run_id:
