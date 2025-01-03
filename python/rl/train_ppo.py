@@ -14,7 +14,6 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import wandb
-import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
@@ -28,6 +27,8 @@ from rux_ai_s3.rl_training.ppo import (
     compute_entropy_loss,
     compute_pg_loss,
     compute_value_loss,
+    get_wandb_log_mode,
+    log_results,
 )
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import (
@@ -122,6 +123,7 @@ class PPOConfig(TrainConfig):
 
     # Miscellaneous config
     device: torch.device
+    log_histograms: bool
 
     model_config = ConfigDict(
         extra="forbid",
@@ -286,7 +288,6 @@ def main() -> None:
             train_step(
                 env=env,
                 train_state=train_state,
-                args=args,
                 cfg=cfg,
             )
             if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
@@ -319,7 +320,6 @@ def build_model(
 def train_step(
     env: ParallelEnv,
     train_state: TrainStateT,
-    args: UserArgs,
     cfg: PPOConfig,
 ) -> None:
     step_start_time = time.perf_counter()
@@ -343,7 +343,11 @@ def train_step(
         train_state.step,
         scalar_stats,
         array_stats,
-        wandb_log=args.release,
+        wandb_log_mode=get_wandb_log_mode(
+            wandb_enabled=wandb.run is not None,
+            histograms_enabled=cfg.log_histograms,
+        ),
+        logger=logger,
     )
     train_state.step += 1
 
@@ -471,13 +475,11 @@ def update_model_on_batch(
             )
             * cfg.loss_coefficients.value
         )
-        entropy_loss = (
-            compute_entropy_loss(
-                new_out.main_log_probs,
-                new_out.sap_log_probs,
-            )
-            * cfg.loss_coefficients.entropy
+        negative_entropy = compute_entropy_loss(
+            new_out.main_log_probs,
+            new_out.sap_log_probs,
         )
+        entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
         total_loss = policy_loss + value_loss + entropy_loss
 
     step_optimizer(train_state, total_loss, cfg)
@@ -487,6 +489,7 @@ def update_model_on_batch(
         "value_loss": value_loss.item(),
         "entropy_loss": entropy_loss.item(),
         "clip_fraction": clip_fraction,
+        "entropy": -negative_entropy.item(),
     }
 
 
@@ -504,21 +507,6 @@ def step_optimizer(
     train_state.scaler.scale(total_loss).backward()
     train_state.scaler.step(train_state.optimizer)
     train_state.scaler.update()
-
-
-def log_results(
-    step: int,
-    scalar_stats: dict[str, float],
-    array_stats: dict[str, npt.NDArray[np.float32]],
-    wandb_log: bool,
-) -> None:
-    logger.info("Completed step %d\n%s\n", step, yaml.dump(scalar_stats))
-    if not wandb_log:
-        return
-
-    histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
-    combined_stats = dict(**scalar_stats, **histograms)
-    wandb.log(combined_stats, step=step)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,17 @@
+import logging
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional as F
+import wandb
+import yaml
 from torch import nn, optim
 from torch.amp import GradScaler  # type: ignore[attr-defined]
+from typing_extensions import assert_never
 
 from rux_ai_s3.types import Action
 
@@ -19,6 +24,12 @@ class TrainState(Generic[_ModelT]):
     optimizer: optim.Optimizer
     scaler: GradScaler
     step: int = 0
+
+
+class WandbLogMode(Enum):
+    DISABLED = auto()
+    SCALAR_ONLY = auto()
+    ALL = auto()
 
 
 def bootstrap_value(
@@ -52,6 +63,7 @@ def compute_pg_loss(
     action_probability_ratio: torch.Tensor,
     clip_coefficient: float,
 ) -> torch.Tensor:
+    assert advantages.shape == action_probability_ratio.shape
     pg_loss_1 = -advantages * action_probability_ratio
     pg_loss_2 = -advantages * torch.clamp(
         action_probability_ratio,
@@ -65,6 +77,7 @@ def compute_value_loss(
     new_value_estimate: torch.Tensor,
     returns: torch.Tensor,
 ) -> torch.Tensor:
+    assert new_value_estimate.shape == returns.shape
     return F.huber_loss(new_value_estimate, returns)
 
 
@@ -85,3 +98,40 @@ def compute_entropy_loss(
     )
     entropies = (policy * log_policy_masked_zeroed).sum(dim=-1)
     return entropies.mean()
+
+
+def get_wandb_log_mode(
+    wandb_enabled: bool,
+    histograms_enabled: bool,
+) -> WandbLogMode:
+    if not wandb_enabled:
+        return WandbLogMode.DISABLED
+
+    if not histograms_enabled:
+        return WandbLogMode.SCALAR_ONLY
+
+    return WandbLogMode.ALL
+
+
+def log_results(
+    step: int,
+    scalar_stats: dict[str, float],
+    array_stats: dict[str, npt.NDArray[np.float32]],
+    wandb_log_mode: WandbLogMode,
+    logger: logging.Logger,
+) -> None:
+    logger.info("Completed step %d\n%s\n", step, yaml.dump(scalar_stats))
+    if wandb_log_mode == WandbLogMode.DISABLED:
+        return
+
+    if wandb_log_mode == WandbLogMode.SCALAR_ONLY:
+        wandb.log(scalar_stats, step=step)
+        return
+
+    if wandb_log_mode == WandbLogMode.ALL:
+        histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
+        combined_stats = dict(**scalar_stats, **histograms)
+        wandb.log(combined_stats, step=step)
+        return
+
+    assert_never(wandb_log_mode)

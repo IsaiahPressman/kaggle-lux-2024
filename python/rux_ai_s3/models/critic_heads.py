@@ -96,19 +96,29 @@ class BaseFactorizedCriticHead(nn.Module, ABC):
         activation: ActivationFactory,
     ) -> None:
         super().__init__()
-        self.conv = nn.Conv2d(
-            in_channels=d_model,
-            out_channels=d_model,
-            kernel_size=1,
+        self.baseline_conv = nn.Sequential(
+            nn.Conv2d(
+                in_channels=d_model,
+                out_channels=d_model,
+                kernel_size=1,
+            ),
+            activation(),
+            nn.Conv2d(
+                in_channels=d_model,
+                out_channels=1,
+                kernel_size=1,
+            ),
         )
-        self.activation = activation()
-        self.baseline_conv = nn.Linear(
-            in_features=d_model,
-            out_features=1,
-        )
-        self.units_linear = nn.Linear(
-            in_features=d_model + 1,
-            out_features=1,
+        self.units_linear = nn.Sequential(
+            nn.Linear(
+                in_features=d_model + 1,
+                out_features=d_model,
+            ),
+            activation(),
+            nn.Linear(
+                in_features=d_model,
+                out_features=1,
+            ),
         )
 
     def forward(
@@ -116,7 +126,6 @@ class BaseFactorizedCriticHead(nn.Module, ABC):
         x: torch.Tensor,
         action_info: TorchActionInfo,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x = self.activation(self.conv(x))
         # baseline value shape (batch,)
         baseline_value = (
             self.baseline_conv(x)

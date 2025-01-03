@@ -22,20 +22,29 @@ class BasicActorHead(nn.Module):
         activation: ActivationFactory,
     ) -> None:
         super().__init__()
-        self.conv = nn.Conv2d(
-            in_channels=d_model,
-            out_channels=d_model,
-            kernel_size=1,
+        self.main_actor_linear = nn.Sequential(
+            nn.Linear(
+                in_features=d_model + 1,
+                out_features=d_model,
+            ),
+            activation(),
+            nn.Linear(
+                in_features=d_model,
+                out_features=len(Action),
+            ),
         )
-        self.activation = activation()
-        self.main_actor = nn.Linear(
-            in_features=d_model + 1,
-            out_features=len(Action),
-        )
-        self.sap_actor = nn.Conv2d(
-            in_channels=d_model,
-            out_channels=1,
-            kernel_size=1,
+        self.sap_actor_conv = nn.Sequential(
+            nn.Conv2d(
+                in_channels=d_model,
+                out_channels=d_model,
+                kernel_size=1,
+            ),
+            activation(),
+            nn.Conv2d(
+                in_channels=d_model,
+                out_channels=1,
+                kernel_size=1,
+            ),
         )
 
     def forward(
@@ -53,12 +62,11 @@ class BasicActorHead(nn.Module):
         main_actions: shape (batch, units)
         sap_actions: shape (batch, units)
         """
-        x = self.activation(self.conv(x))
         unit_slices = get_unit_slices(x, action_info)
         unit_count = unit_slices.shape[1]
-        main_logits = self.main_actor(unit_slices)
+        main_logits = self.main_actor_linear(unit_slices)
         sap_logits = (
-            self.sap_actor(x)
+            self.sap_actor_conv(x)
             .expand(-1, unit_count, -1, -1)
             .flatten(start_dim=-2, end_dim=-1)
         )

@@ -26,5 +26,7 @@ env_config:
 rl_model_config:
   d_model: 64
   n_blocks: 4
+  critic_mode: unit_factorized
 
 device: cuda:0
+log_histograms: false

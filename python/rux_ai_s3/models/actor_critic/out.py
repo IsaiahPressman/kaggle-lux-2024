@@ -132,11 +132,11 @@ class FactorizedActorCriticOut(NamedTuple):
             *(t.flatten(start_dim=start_dim, end_dim=end_dim) for t in self)
         )
 
-    def get_unit_value(self, units_mask: torch.Tensor) -> torch.Tensor:
+    def compute_unit_value(self, units_mask: torch.Tensor) -> torch.Tensor:
         return torch.where(
             units_mask,
             self.factorized_value,
-            self.baseline_value.unsqueeze(dim=-1),
+            self.compute_agent_value(units_mask).unsqueeze(dim=-1),
         )
 
     def compute_agent_value(self, units_mask: torch.Tensor) -> torch.Tensor:
@@ -146,8 +146,8 @@ class FactorizedActorCriticOut(NamedTuple):
         masked_summed_value = (units_mask_float * self.factorized_value).sum(dim=-1)
         unit_alive_count = units_mask_float.sum(dim=-1)
         return torch.where(
-            unit_alive_count != 0,
-            masked_summed_value / unit_alive_count,
+            units_mask.any(dim=-1),
+            masked_summed_value / unit_alive_count.clamp_min(1.0),
             self.baseline_value,
         )
 

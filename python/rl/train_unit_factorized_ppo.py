@@ -14,7 +14,6 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import wandb
-import yaml
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import (
@@ -31,6 +30,8 @@ from rux_ai_s3.rl_training.ppo import (
     compute_entropy_loss,
     compute_pg_loss,
     compute_value_loss,
+    get_wandb_log_mode,
+    log_results,
 )
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.rl_training.utils import (
@@ -126,6 +127,7 @@ class UnitFactorizedPPOConfig(TrainConfig):
 
     # Miscellaneous config
     device: torch.device
+    log_histograms: bool
 
     model_config = ConfigDict(
         extra="forbid",
@@ -290,7 +292,6 @@ def main() -> None:
             train_step(
                 env=env,
                 train_state=train_state,
-                args=args,
                 cfg=cfg,
             )
             if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
@@ -320,7 +321,6 @@ def build_model(
 def train_step(
     env: ParallelEnv,
     train_state: TrainStateT,
-    args: UserArgs,
     cfg: UnitFactorizedPPOConfig,
 ) -> None:
     step_start_time = time.perf_counter()
@@ -344,7 +344,11 @@ def train_step(
         train_state.step,
         scalar_stats,
         array_stats,
-        wandb_log=args.release,
+        wandb_log_mode=get_wandb_log_mode(
+            wandb_enabled=wandb.run is not None,
+            histograms_enabled=cfg.log_histograms,
+        ),
+        logger=logger,
     )
     train_state.step += 1
 
@@ -394,8 +398,16 @@ def update_model(
     train_state: TrainStateT,
     cfg: UnitFactorizedPPOConfig,
 ) -> dict[str, float]:
+    unit_value_estimate = experience.model_out.compute_unit_value(
+        experience.action_info.units_mask
+    )
     unit_advantages_np, unit_returns_np = boostrap_unit_factorized_value(
-        experience, cfg
+        value_estimate=unit_value_estimate.cpu().numpy(),
+        reward=experience.reward,
+        done=experience.done,
+        units_died=torch.logical_not(experience.action_info.units_mask).cpu().numpy(),
+        gamma=cfg.gamma,
+        gae_lambda=cfg.gae_lambda,
     )
     agent_value_estimate = experience.model_out.compute_agent_value(
         experience.action_info.units_mask
@@ -438,31 +450,29 @@ def update_model(
 
 
 def boostrap_unit_factorized_value(
-    experience: ExperienceBatch,
-    cfg: UnitFactorizedPPOConfig,
+    value_estimate: npt.NDArray[np.float32],
+    reward: npt.NDArray[np.float32],
+    done: npt.NDArray[np.bool],
+    units_died: npt.NDArray[np.bool],
+    gamma: float,
+    gae_lambda: float,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    steps_plus_one, envs, players = experience.reward.shape
+    steps_plus_one, envs, players = reward.shape
     unit_advantages: npt.NDArray[np.float32] = np.zeros(
         (steps_plus_one - 1, envs, players, MAX_UNITS), dtype=np.float32
     )
     last_unit_gae_lambda = np.zeros((envs, players, MAX_UNITS), dtype=np.float32)
-    unit_value_out: npt.NDArray[np.float32] = (
-        experience.model_out.get_unit_value(experience.action_info.units_mask)
-        .cpu()
-        .numpy()
-    )
-    units_died = torch.logical_not(experience.action_info.units_mask).cpu().numpy()
-    for t, last_value in reversed(list(enumerate(unit_value_out))[:-1]):
-        reward = experience.reward[t + 1, ..., None]
-        done = experience.done[t + 1, ..., None] | units_died[t + 1]
-        next_value = unit_value_out[t + 1]
-        delta = reward + cfg.gamma * next_value * (1.0 - done) - last_value
+    for t, last_value in reversed(list(enumerate(value_estimate))[:-1]):
+        step_reward = reward[t + 1, ..., None]
+        step_done = done[t + 1, ..., None] | units_died[t + 1]
+        next_value = value_estimate[t + 1]
+        delta = step_reward + gamma * next_value * (1.0 - step_done) - last_value
         last_unit_gae_lambda = (
-            delta + cfg.gamma * cfg.gae_lambda * (1.0 - done) * last_unit_gae_lambda
+            delta + gamma * gae_lambda * (1.0 - step_done) * last_unit_gae_lambda
         )
         unit_advantages[t] = last_unit_gae_lambda
 
-    unit_returns: npt.NDArray[np.float32] = unit_advantages + unit_value_out[:-1]
+    unit_returns: npt.NDArray[np.float32] = unit_advantages + value_estimate[:-1]
     return unit_advantages, unit_returns
 
 
@@ -505,14 +515,16 @@ def update_model_on_batch(
         )
         unit_value_loss = (
             compute_value_loss(
-                new_out.get_unit_value(experience.action_info.units_mask),
-                unit_returns,
+                new_out.factorized_value[experience.action_info.units_mask],
+                unit_returns[experience.action_info.units_mask],
             )
             * cfg.loss_coefficients.unit_value
         )
         baseline_value_loss = (
             compute_value_loss(
-                new_out.baseline_value,
+                new_out.compute_agent_value(
+                    units_mask=experience.action_info.units_mask
+                ),
                 agent_returns,
             )
             * cfg.loss_coefficients.baseline_value
@@ -531,8 +543,8 @@ def update_model_on_batch(
         "unit_value_loss": unit_value_loss.item(),
         "baseline_value_loss": baseline_value_loss.item(),
         "entropy_loss": entropy_loss.item(),
-        "entropy": -negative_entropy.item(),
         "clip_fraction": clip_fraction,
+        "entropy": -negative_entropy.item(),
     }
 
 
@@ -550,21 +562,6 @@ def step_optimizer(
     train_state.scaler.scale(total_loss).backward()
     train_state.scaler.step(train_state.optimizer)
     train_state.scaler.update()
-
-
-def log_results(
-    step: int,
-    scalar_stats: dict[str, float],
-    array_stats: dict[str, npt.NDArray[np.float32]],
-    wandb_log: bool,
-) -> None:
-    logger.info("Completed step %d\n%s\n", step, yaml.dump(scalar_stats))
-    if not wandb_log:
-        return
-
-    histograms = {k: wandb.Histogram(v) for k, v in array_stats.items()}  # type: ignore[arg-type]
-    combined_stats = dict(**scalar_stats, **histograms)
-    wandb.log(combined_stats)
 
 
 if __name__ == "__main__":
