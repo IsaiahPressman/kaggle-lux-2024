@@ -381,7 +381,9 @@ def train_step(
 ) -> None:
     step_start_time = time.perf_counter()
     experience, stats = collect_trajectories(env, train_state.model, cfg)
+    data_collection_time = time.perf_counter() - step_start_time
     scalar_stats = update_model(experience, train_state, cfg)
+    train_time = time.perf_counter() - step_start_time - data_collection_time
     array_stats = {}
     if stats:
         scalar_stats.update(stats.scalar_stats)
@@ -397,6 +399,8 @@ def train_step(
     scalar_stats["env_steps_per_second"] = (
         cfg.env_config.n_envs * cfg.steps_per_update / time_elapsed
     )
+    scalar_stats["data_collection_time"] = data_collection_time
+    scalar_stats["train_time"] = train_time
     log_results(
         train_state.step,
         scalar_stats,
@@ -456,6 +460,7 @@ def update_model(
     train_state: TrainStateT,
     cfg: PPOConfig,
 ) -> dict[str, float]:
+    experience.validate()
     advantages_np, returns_np = bootstrap_value(
         value_estimate=experience.model_out.value.cpu().numpy(),
         reward=experience.reward,
@@ -465,7 +470,6 @@ def update_model(
     )
     advantages = torch.from_numpy(advantages_np)
     returns = torch.from_numpy(returns_np)
-    experience.validate()
     # Combine batch/player dims for experience batch, advantages, and returns
     experience = experience.trim().flatten(end_dim=2)
     advantages = advantages.flatten(start_dim=0, end_dim=2)
