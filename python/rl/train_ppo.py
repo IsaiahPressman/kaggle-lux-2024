@@ -47,8 +47,8 @@ from rux_ai_s3.rl_training.utils import (
     load_checkpoint,
     load_model_weights,
     save_checkpoint,
+    validate_file_path,
     validate_full_checkpoint_path,
-    validate_weights_checkpoint_path,
 )
 from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
@@ -71,10 +71,12 @@ logger = logging.getLogger(NAME.upper())
 
 class UserArgs(BaseModel):
     debug: bool
-    checkpoint: Path | None
+    config: Path | None
     model_weights: Path | None
+    checkpoint: Path | None
 
-    _validate_checkpoint = field_validator("checkpoint")(validate_full_checkpoint_path)
+    _validate_config = field_validator("config")(validate_file_path)
+    _validate_model_weights = field_validator("model_weights")(validate_file_path)
 
     @property
     def release(self) -> bool:
@@ -82,39 +84,49 @@ class UserArgs(BaseModel):
 
     @property
     def config_file(self) -> Path:
-        if self.checkpoint is None:
-            return CONFIG_FILE
+        if self.checkpoint:
+            return get_config_path_from_checkpoint(self.checkpoint)
 
-        return get_config_path_from_checkpoint(self.checkpoint)
+        if self.config:
+            return self.config
 
-    @field_validator("model_weights")
+        return CONFIG_FILE
+
+    @field_validator("checkpoint")
     @classmethod
-    def _validate_model_weights(
-        cls, model_weights: Path | None, info: ValidationInfo
+    def _validate_checkpoint(
+        cls, checkpoint: Path | None, info: ValidationInfo
     ) -> Path | None:
-        if model_weights is None:
+        if checkpoint is None:
             return None
 
-        if info.data["checkpoint"] is not None:
-            raise ValueError("checkpoint and model_weights are mutually exclusive")
+        for field in ("config", "model_weights"):
+            if info.data[field] is not None:
+                raise ValueError(f"checkpoint and {field} are mutually exclusive")
 
-        return validate_weights_checkpoint_path(model_weights)
+        return validate_full_checkpoint_path(checkpoint)
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
         parser = argparse.ArgumentParser()
         parser.add_argument("--debug", action="store_true")
         parser.add_argument(
-            "--checkpoint",
+            "--config",
             type=Path,
             default=None,
-            help="Checkpoint to resume training from",
+            help="Path to load training config from",
         )
         parser.add_argument(
             "--model_weights",
             type=Path,
             default=None,
             help="Path to load model weights from",
+        )
+        parser.add_argument(
+            "--checkpoint",
+            type=Path,
+            default=None,
+            help="Checkpoint to resume training from",
         )
         args = parser.parse_args()
         return UserArgs(**vars(args))
@@ -225,7 +237,7 @@ class ExperienceBatch:
             done=self.done.reshape((-1, *self.done.shape[(end_dim + 1) :])),
         )
 
-    def index(self, ix: npt.NDArray[np.int_]) -> "ExperienceBatch":
+    def index(self, ix: slice | npt.NDArray[np.int_]) -> "ExperienceBatch":
         obs = TorchObs(*(t[ix] for t in self.obs))
         action_info = TorchActionInfo(*(t[ix] for t in self.action_info))
         model_out = ActorCriticOut(*(t[ix] for t in self.model_out))
@@ -477,15 +489,15 @@ def update_model(
     aggregated_stats = collections.defaultdict(list)
     for _ in range(cfg.epochs_per_update):
         assert experience.done.shape[0] == cfg.full_batch_size
-        batch_indices = np.random.permutation(cfg.full_batch_size)
         for minibatch_start in range(0, cfg.full_batch_size, cfg.train_batch_size):
-            minibatch_end = minibatch_start + cfg.train_batch_size
-            minibatch_indices = batch_indices[minibatch_start:minibatch_end]
+            minibatch_slice = slice(
+                minibatch_start, minibatch_start + cfg.train_batch_size
+            )
             batch_stats = update_model_on_batch(
                 train_state=train_state,
-                experience=experience.index(minibatch_indices).to_device(cfg.device),
-                advantages=advantages[minibatch_indices].to(cfg.device),
-                returns=returns[minibatch_indices].to(cfg.device),
+                experience=experience.index(minibatch_slice).to_device(cfg.device),
+                advantages=advantages[minibatch_slice].to(cfg.device),
+                returns=returns[minibatch_slice].to(cfg.device),
                 cfg=cfg,
             )
             for k, v in batch_stats.items():

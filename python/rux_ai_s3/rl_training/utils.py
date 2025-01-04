@@ -133,19 +133,19 @@ def get_config_path_from_checkpoint(checkpoint: Path) -> Path:
     return checkpoint.parent / TRAIN_CONFIG_FILE_NAME
 
 
-def validate_weights_checkpoint_path(checkpoint: Path | None) -> Path | None:
-    if checkpoint is None:
+def validate_file_path(path: Path | None) -> Path | None:
+    if path is None:
         return None
 
-    checkpoint_path = Path(checkpoint).absolute()
-    if not checkpoint_path.is_file():
-        raise ValueError(f"Invalid checkpoint path: {checkpoint_path}")
+    path = path.absolute()
+    if not path.is_file():
+        raise ValueError(f"Invalid path: {path}")
 
-    return checkpoint_path
+    return path
 
 
 def validate_full_checkpoint_path(checkpoint: Path | None) -> Path | None:
-    checkpoint = validate_weights_checkpoint_path(checkpoint)
+    checkpoint = validate_file_path(checkpoint)
     if checkpoint is None:
         return None
 

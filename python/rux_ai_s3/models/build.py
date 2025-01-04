@@ -14,6 +14,7 @@ from .critic_heads import (
     BoundedCriticHead,
     BoundedFactorizedCriticHead,
     PositiveUnboundedCriticHead,
+    ZeroSumCriticHead,
 )
 from .types import ActivationFactory
 
@@ -34,9 +35,7 @@ def build_critic_head(
     activation: ActivationFactory,
 ) -> BaseCriticHead:
     if reward_space == RewardSpace.FINAL_WINNER:
-        return BoundedCriticHead(
-            reward_min=-1,
-            reward_max=1,
+        return ZeroSumCriticHead(
             d_model=d_model,
             activation=activation,
         )

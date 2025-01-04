@@ -200,7 +200,7 @@ class ExperienceBatch:
             done=self.done.reshape((-1, *self.done.shape[(end_dim + 1) :])),
         )
 
-    def index(self, ix: npt.NDArray[np.int_]) -> "ExperienceBatch":
+    def index(self, ix: slice | npt.NDArray[np.int_]) -> "ExperienceBatch":
         obs = TorchObs(*(t[ix] for t in self.obs))
         action_info = TorchActionInfo(*(t[ix] for t in self.action_info))
         model_out = FactorizedActorCriticOut(*(t[ix] for t in self.model_out))
@@ -453,16 +453,16 @@ def update_model(
     aggregated_stats = collections.defaultdict(list)
     for _ in range(cfg.epochs_per_update):
         assert experience.done.shape[0] == cfg.full_batch_size
-        batch_indices = np.random.permutation(cfg.full_batch_size)
         for minibatch_start in range(0, cfg.full_batch_size, cfg.train_batch_size):
-            minibatch_end = minibatch_start + cfg.train_batch_size
-            minibatch_indices = batch_indices[minibatch_start:minibatch_end]
+            minibatch_slice = slice(
+                minibatch_start, minibatch_start + cfg.train_batch_size
+            )
             batch_stats = update_model_on_batch(
                 train_state=train_state,
-                experience=experience.index(minibatch_indices).to_device(cfg.device),
-                unit_advantages=unit_advantages[minibatch_indices].to(cfg.device),
-                unit_returns=unit_returns[minibatch_indices].to(cfg.device),
-                agent_returns=agent_returns[minibatch_indices].to(cfg.device),
+                experience=experience.index(minibatch_slice).to_device(cfg.device),
+                unit_advantages=unit_advantages[minibatch_slice].to(cfg.device),
+                unit_returns=unit_returns[minibatch_slice].to(cfg.device),
+                agent_returns=agent_returns[minibatch_slice].to(cfg.device),
                 cfg=cfg,
             )
             for k, v in batch_stats.items():
