@@ -9,6 +9,7 @@ from rux_ai_s3.models.conv_blocks import ResidualBlock
 from rux_ai_s3.models.critic_heads import BaseCriticHead, BaseFactorizedCriticHead
 from rux_ai_s3.models.types import ActivationFactory, TorchActionInfo, TorchObs
 
+from ..weight_initialization import orthogonal_initialization_
 from .out import ActorCriticOut, FactorizedActorCriticOut
 
 DEFAULT_ACTION_CONFIG: Final[ActionConfig] = ActionConfig(
@@ -45,6 +46,10 @@ class ActorCriticBase(nn.Module):
             activation=activation,
             kernel_size=kernel_size,
         )
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        self.apply(orthogonal_initialization_)
 
     def forward(
         self,

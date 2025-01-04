@@ -6,6 +6,7 @@ from torch import nn
 
 from .types import ActivationFactory, TorchActionInfo
 from .utils import get_unit_slices
+from .weight_initialization import orthogonal_initialization_
 
 
 class BaseCriticHead(nn.Module, ABC):
@@ -26,6 +27,11 @@ class BaseCriticHead(nn.Module, ABC):
             out_channels=1,
             kernel_size=1,
         )
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        orthogonal_initialization_(self.conv_base, strict=True)
+        orthogonal_initialization_(self.conv_value, scale=1.0, strict=True)
 
     def forward(self, x: torch.Tensor, _action_info: TorchActionInfo) -> torch.Tensor:
         x = self.activation(self.conv_base(x))
