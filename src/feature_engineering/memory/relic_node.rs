@@ -4,11 +4,17 @@ use itertools::Itertools;
 use numpy::ndarray::{Array2, Zip};
 use std::collections::BTreeSet;
 
+const RELIC_WINDOW: isize = FIXED_PARAMS.relic_config_size as isize / 2;
+
 /// Tracks everything known by a player so far about relic nodes
 #[derive(Debug)]
 pub struct RelicNodeMemory {
     pub relic_nodes: Vec<Pos>,
     pub explored_nodes_map: Array2<bool>,
+    // TODO: Three points channels instead of two:
+    //  - points_map (when known_points == true)
+    //  - points_estimate_map (when known_points == false)
+    //  - known_points_map
     pub points_map: Array2<f32>,
     pub known_points_map: Array2<bool>,
     points_sum_map: Array2<f32>,
@@ -56,20 +62,60 @@ impl RelicNodeMemory {
             self.relic_nodes.push(pos.reflect(self.map_size));
         }
 
-        for ((x, y), _) in obs
+        for pos in obs
             .sensor_mask
             .indexed_iter()
-            .filter(|(_, sensed)| **sensed)
+            .filter_map(|(xy, sensed)| sensed.then_some(Pos::from(xy)))
         {
-            let pos = Pos::new(x, y);
+            if self.explored_nodes_map[pos.as_index()] {
+                continue;
+            }
+
+            let reflected = pos.reflect(self.map_size);
             self.explored_nodes_map[pos.as_index()] = true;
-            self.explored_nodes_map[pos.reflect(self.map_size).as_index()] =
-                true;
+            self.explored_nodes_map[reflected.as_index()] = true;
+            self.update_known_pointless_map(pos);
+            self.update_known_pointless_map(reflected);
         }
 
         if self.check_if_all_relic_nodes_found() {
             self.register_all_relic_nodes_found()
         }
+    }
+
+    fn update_known_pointless_map(&mut self, seen_pos: Pos) {
+        let map_size = self.map_size;
+        for pos in (-RELIC_WINDOW..=RELIC_WINDOW)
+            .cartesian_product(-RELIC_WINDOW..=RELIC_WINDOW)
+            .filter_map(|(dx, dy)| seen_pos.maybe_translate([dx, dy], map_size))
+        {
+            if !self.known_points_map[pos.as_index()]
+                && self.known_pointless(pos)
+            {
+                self.set_known_points(pos, false);
+            }
+        }
+    }
+
+    fn known_pointless(&self, base_pos: Pos) -> bool {
+        (-RELIC_WINDOW..=RELIC_WINDOW)
+            .cartesian_product(-RELIC_WINDOW..=RELIC_WINDOW)
+            .filter_map(|(dx, dy)| {
+                base_pos.maybe_translate([dx, dy], self.map_size)
+            })
+            .all(|pos| {
+                self.explored_nodes_map[pos.as_index()]
+                    && !self.relic_nodes.contains(&pos)
+            })
+    }
+
+    fn set_known_points(&mut self, pos: Pos, worth_points: bool) {
+        if self.known_points_map[pos.as_index()] {
+            assert_eq!(worth_points, self.points_map[pos.as_index()] == 1.0);
+        }
+
+        self.known_points_map[pos.as_index()] = true;
+        self.points_map[pos.as_index()] = if worth_points { 1.0 } else { 0.0 };
     }
 
     fn update_points_map(&mut self, obs: &Observation) {
@@ -97,19 +143,13 @@ impl RelicNodeMemory {
                 .count();
         if unaccounted_new_points == 0 {
             frontier_locations.into_iter().for_each(|pos| {
-                let reflected = pos.reflect(self.map_size);
-                self.known_points_map[pos.as_index()] = true;
-                self.known_points_map[reflected.as_index()] = true;
-                self.points_map[pos.as_index()] = 0.0;
-                self.points_map[reflected.as_index()] = 0.0;
+                self.set_known_points(pos, false);
+                self.set_known_points(pos.reflect(self.map_size), false);
             });
         } else if unaccounted_new_points == frontier_locations.len() {
             frontier_locations.into_iter().for_each(|pos| {
-                let reflected = pos.reflect(self.map_size);
-                self.known_points_map[pos.as_index()] = true;
-                self.known_points_map[reflected.as_index()] = true;
-                self.points_map[pos.as_index()] = 1.0;
-                self.points_map[reflected.as_index()] = 1.0;
+                self.set_known_points(pos, true);
+                self.set_known_points(pos.reflect(self.map_size), true);
             });
         } else if unaccounted_new_points > frontier_locations.len() {
             panic!(
@@ -143,8 +183,8 @@ impl RelicNodeMemory {
         for pos in self
             .relic_nodes
             .iter()
-            .cartesian_product(-2..=2)
-            .cartesian_product(-2..=2)
+            .cartesian_product(-RELIC_WINDOW..=RELIC_WINDOW)
+            .cartesian_product(-RELIC_WINDOW..=RELIC_WINDOW)
             .filter_map(|((rn, dx), dy)| {
                 rn.maybe_translate([dx, dy], self.map_size)
             })
@@ -175,6 +215,14 @@ mod tests {
     use super::*;
     use crate::rules_engine::state::Unit;
     use numpy::ndarray::arr2;
+
+    #[test]
+    fn test_relic_window() {
+        assert_eq!(
+            RELIC_WINDOW * 2 + 1,
+            FIXED_PARAMS.relic_config_size as isize
+        );
+    }
 
     #[test]
     fn test_update_explored_nodes() {

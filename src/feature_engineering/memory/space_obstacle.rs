@@ -101,8 +101,8 @@ impl SpaceObstacleMemory {
         .mapv(|vision| vision > 0);
         Zip::indexed(&obs.sensor_mask)
             .and(&expected_vision_power_map)
-            .for_each(|(x, y), &sensed, &should_see| {
-                let pos = Pos::new(x, y);
+            .for_each(|xy, &sensed, &should_see| {
+                let pos = Pos::from(xy);
                 if sensed {
                     self.explored_tiles[pos.as_index()] = true;
                     self.explored_tiles
@@ -149,8 +149,8 @@ impl SpaceObstacleMemory {
             .explored_tiles
             .indexed_iter()
             .filter(|(_, &explored)| explored)
-            .map(|((x, y), _)| {
-                let pos = Pos::new(x, y);
+            .map(|(xy, _)| {
+                let pos = Pos::from(xy);
                 (pos, observed.get_tile_type_at(pos.as_index()).unwrap())
             })
         {
@@ -414,8 +414,8 @@ mod tests {
             arr[pos.as_index()] = special;
             apply_drift(&mut arr, drift);
             let pos_drifted = pos.wrapped_translate(drift, map_size);
-            for ((x, y), &val) in arr.indexed_iter() {
-                if Pos::new(x, y) == pos_drifted {
+            for (xy, &val) in arr.indexed_iter() {
+                if Pos::from(xy) == pos_drifted {
                     assert_eq!(val, special);
                 } else {
                     assert_eq!(val, base);

@@ -88,7 +88,7 @@ fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
     let map_size = [w, h];
     for pos in (0..energy_field.nrows())
         .cartesian_product(0..energy_field.ncols())
-        .map(|(x, y)| Pos::new(x, y))
+        .map(Pos::from)
     {
         if let Some(e) = energy_field[pos.as_index()] {
             energy_field[pos.reflect(map_size).as_index()].get_or_insert(e);

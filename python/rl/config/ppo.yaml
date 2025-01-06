@@ -1,8 +1,8 @@
 max_updates: null
 optimizer_kwargs:
-  lr: 1e-4
+  lr: 5e-5
   eps: 0.000_3
-lr_schedule_steps: 100_000
+lr_schedule_steps: 200_000
 lr_schedule_min_factor: 0.2
 steps_per_update: 32
 epochs_per_update: 1
@@ -10,7 +10,7 @@ train_batch_size: 128
 use_mixed_precision: true
 
 gamma: 0.9999
-gae_lambda: 0.8
+gae_lambda: 0.85
 clip_coefficient: 0.2
 loss_coefficients:
   policy: 1.0
@@ -19,14 +19,14 @@ loss_coefficients:
 
 env_config:
   n_envs: 64
-  frame_stack_len: 8
+  frame_stack_len: 5
   # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
   reward_space: MATCH_WINNER
   jax_device: cpu:0
 
 rl_model_config:
   d_model: 64
-  n_blocks: 8
+  n_blocks: 6
 
 device: cuda:0
 log_histograms: false

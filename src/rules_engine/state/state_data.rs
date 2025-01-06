@@ -1,6 +1,7 @@
 use crate::rules_engine::params::{FIXED_PARAMS, P};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView3};
+use std::array::TryFromSliceError;
 use std::cmp::{max, min};
 use std::num::TryFromIntError;
 
@@ -107,8 +108,7 @@ impl Pos {
 }
 
 impl From<[usize; 2]> for Pos {
-    fn from(value: [usize; 2]) -> Self {
-        let [x, y] = value;
+    fn from([x, y]: [usize; 2]) -> Self {
         Self { x, y }
     }
 }
@@ -119,26 +119,30 @@ impl From<Pos> for [usize; 2] {
     }
 }
 
+impl From<(usize, usize)> for Pos {
+    fn from((x, y): (usize, usize)) -> Self {
+        Self { x, y }
+    }
+}
+
 impl TryFrom<[isize; 2]> for Pos {
     type Error = TryFromIntError;
 
     fn try_from(value: [isize; 2]) -> Result<Self, Self::Error> {
         let [x, y] = value;
-        Ok(Pos {
+        Ok(Self {
             x: x.try_into()?,
             y: y.try_into()?,
         })
     }
 }
 
-impl From<&[usize]> for Pos {
-    fn from(value: &[usize]) -> Self {
-        match value {
-            &[x, y] => Self { x, y },
-            invalid => {
-                panic!("Invalid pos: {invalid:?}")
-            },
-        }
+impl TryFrom<&[usize]> for Pos {
+    type Error = TryFromSliceError;
+
+    fn try_from(value: &[usize]) -> Result<Self, Self::Error> {
+        let array: [usize; 2] = value.try_into()?;
+        Ok(Self::from(array))
     }
 }
 
@@ -443,12 +447,12 @@ mod tests {
     fn test_inverted_wrapped_translate() {
         let map_size = [8, 8];
         let [width, height] = map_size;
-        for (((x, y), dx), dy) in (0..width)
+        for ((pos, dx), dy) in (0..width)
             .cartesian_product(0..height)
+            .map(Pos::from)
             .cartesian_product(-3..=3)
             .cartesian_product(-3..=3)
         {
-            let pos = Pos::new(x, y);
             let deltas = [dx, dy];
             assert_eq!(
                 pos.wrapped_translate(deltas, map_size)
@@ -460,10 +464,10 @@ mod tests {
 
     #[test]
     fn test_pos_reflect() {
-        for (x, y) in (0..FIXED_PARAMS.map_width)
+        for pos in (0..FIXED_PARAMS.map_width)
             .cartesian_product(0..FIXED_PARAMS.map_height)
+            .map(Pos::from)
         {
-            let pos = Pos::new(x, y);
             assert_eq!(
                 pos.reflect(FIXED_PARAMS.map_size)
                     .reflect(FIXED_PARAMS.map_size),

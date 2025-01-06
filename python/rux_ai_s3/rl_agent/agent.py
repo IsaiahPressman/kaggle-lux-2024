@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from rux_ai_s3.feature_engineering_env import FeatureEngineeringEnv
 from rux_ai_s3.models.actor_critic import (
@@ -25,8 +25,8 @@ ModelTypes = ActorCritic | FactorizedActorCritic
 
 
 class AgentConfig(BaseModel):
-    main_action_temperature: float
-    sap_action_temperature: float
+    main_action_temperature: Annotated[float, Field(ge=0.0, le=1.0)]
+    sap_action_temperature: Annotated[float, Field(ge=0.0, le=1.0)]
 
 
 class Agent:

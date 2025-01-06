@@ -207,7 +207,7 @@ impl ParallelEnv {
             let (locations, configs): (_, Vec<ArrayView2<bool>>) = relic_nodes
                 .mapv(|x| x as usize)
                 .outer_iter()
-                .map(|pos| Pos::from(pos.as_slice().unwrap()))
+                .map(|pos| Pos::try_from(pos.as_slice().unwrap()).unwrap())
                 .zip_eq(relic_node_configs.outer_iter())
                 .zip_eq(relic_nodes_mask.iter())
                 .filter_map(|(data, mask)| mask.then_some(data))

@@ -191,9 +191,7 @@ mod tests {
     {
         let (width, height) = arr.dim();
         let map_size = [width, height];
-        for (pos, &v) in
-            arr.indexed_iter().map(|((x, y), v)| (Pos::new(x, y), v))
-        {
+        for (pos, &v) in arr.indexed_iter().map(|(xy, v)| (Pos::from(xy), v)) {
             if arr[pos.reflect(map_size).as_index()] != v {
                 return false;
             }
@@ -364,7 +362,7 @@ mod tests {
 
                 for explored_pos in
                     mem.relic_node.explored_nodes_map.indexed_iter().filter_map(
-                        |((x, y), explored)| explored.then_some(Pos::new(x, y)),
+                        |(xy, explored)| explored.then_some(Pos::from(xy)),
                     )
                 {
                     assert_eq!(
@@ -431,7 +429,7 @@ mod tests {
                     .space_obstacle
                     .explored_tiles
                     .indexed_iter()
-                    .map(|((x, y), explored)| (Pos::new(x, y), *explored))
+                    .map(|(xy, explored)| (Pos::from(xy), *explored))
                 {
                     if explored {
                         assert_eq!(

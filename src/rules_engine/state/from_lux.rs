@@ -62,9 +62,7 @@ impl LuxPlayerObservation {
             .iter()
             .zip_eq(self.relic_nodes_mask.iter())
             .filter(|(_, &mask)| mask)
-            .map(|(&[x, y], _)| {
-                Pos::new(x.try_into().unwrap(), y.try_into().unwrap())
-            })
+            .map(|(&xy, _)| Pos::try_from(xy).unwrap())
             .collect();
         Observation {
             team_id,
