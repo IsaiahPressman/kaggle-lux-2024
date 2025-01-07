@@ -1,5 +1,3 @@
-from typing import NamedTuple
-
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -9,11 +7,6 @@ from rux_ai_s3.types import Action
 from .types import ActivationFactory, TorchActionInfo
 from .utils import get_unit_slices
 from .weight_initialization import orthogonal_initialization_
-
-
-class ActionConfig(NamedTuple):
-    main_action_temperature: float | None
-    sap_action_temperature: float | None
 
 
 class BasicActorHead(nn.Module):
@@ -62,7 +55,8 @@ class BasicActorHead(nn.Module):
         self,
         x: torch.Tensor,
         action_info: TorchActionInfo,
-        action_config: ActionConfig,
+        main_action_temperature: float | None,
+        sap_action_temperature: float | None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         x: shape (batch, d_model, w, h)
@@ -97,16 +91,14 @@ class BasicActorHead(nn.Module):
         )
         sap_log_probs = F.log_softmax(masked_sap_logits, dim=-1)
         main_actions = self.log_probs_to_actions(
-            main_log_probs, action_config.main_action_temperature
+            main_log_probs, main_action_temperature
         )
         main_actions = torch.where(
             action_info.units_mask,
             main_actions,
             torch.zeros_like(main_actions),
         )
-        sap_actions = self.log_probs_to_actions(
-            sap_log_probs, action_config.sap_action_temperature
-        )
+        sap_actions = self.log_probs_to_actions(sap_log_probs, sap_action_temperature)
         return main_log_probs, sap_log_probs, main_actions, sap_actions
 
     @staticmethod

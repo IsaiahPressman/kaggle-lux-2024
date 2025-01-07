@@ -17,7 +17,8 @@ loss_coefficients:
   policy: 1.0
   value: 0.5
   entropy: 1e-4
-  teacher_kl: 5e-3
+  # TODO: tune teacher_kl coefficient
+  teacher_kl: 2e-3
 
 env_config:
   n_envs: 64

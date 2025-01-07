@@ -1,21 +1,15 @@
 from collections.abc import Callable
-from typing import Final
 
 import torch
 from torch import nn
 
-from rux_ai_s3.models.actor_heads import ActionConfig, BasicActorHead
+from rux_ai_s3.models.actor_heads import BasicActorHead
 from rux_ai_s3.models.conv_blocks import ResidualBlock
 from rux_ai_s3.models.critic_heads import BaseCriticHead, BaseFactorizedCriticHead
 from rux_ai_s3.models.types import ActivationFactory, TorchActionInfo, TorchObs
 
 from ..weight_initialization import orthogonal_initialization_
 from .out import ActorCriticOut, FactorizedActorCriticOut
-
-DEFAULT_ACTION_CONFIG: Final[ActionConfig] = ActionConfig(
-    main_action_temperature=None,
-    sap_action_temperature=None,
-)
 
 
 class ActorCriticBase(nn.Module):
@@ -141,15 +135,27 @@ class ActorCritic(nn.Module):
         self,
         obs: TorchObs,
         action_info: TorchActionInfo,
-        action_config: ActionConfig = DEFAULT_ACTION_CONFIG,
+        main_action_temperature: float | None = None,
+        sap_action_temperature: float | None = None,
+        omit_value: bool = False,
     ) -> ActorCriticOut:
         x = self.base(obs)
         main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
             x,
             action_info,
-            action_config,
+            main_action_temperature=main_action_temperature,
+            sap_action_temperature=sap_action_temperature,
         )
-        value = self.critic_head(x, action_info)
+        if omit_value:
+            assert not self.training
+            value = torch.zeros(
+                main_log_probs.shape[0],
+                device=main_log_probs.device,
+                dtype=main_log_probs.dtype,
+            )
+        else:
+            value = self.critic_head(x, action_info)
+
         return ActorCriticOut(
             main_log_probs=main_log_probs,
             sap_log_probs=sap_log_probs,
@@ -177,15 +183,32 @@ class FactorizedActorCritic(nn.Module):
         self,
         obs: TorchObs,
         action_info: TorchActionInfo,
-        action_config: ActionConfig = DEFAULT_ACTION_CONFIG,
+        main_action_temperature: float | None = None,
+        sap_action_temperature: float | None = None,
+        omit_value: bool = False,
     ) -> FactorizedActorCriticOut:
         x = self.base(obs)
         main_log_probs, sap_log_probs, main_actions, sap_actions = self.actor_head(
             x,
             action_info,
-            action_config,
+            main_action_temperature=main_action_temperature,
+            sap_action_temperature=sap_action_temperature,
         )
-        baseline_value, factorized_value = self.critic_head(x, action_info)
+        if omit_value:
+            assert not self.training
+            baseline_value = torch.zeros(
+                main_log_probs.shape[0],
+                device=main_log_probs.device,
+                dtype=main_log_probs.dtype,
+            )
+            factorized_value = torch.zeros(
+                main_log_probs.shape[:2],
+                device=main_log_probs.device,
+                dtype=main_log_probs.dtype,
+            )
+        else:
+            baseline_value, factorized_value = self.critic_head(x, action_info)
+
         return FactorizedActorCriticOut(
             main_log_probs=main_log_probs,
             sap_log_probs=sap_log_probs,

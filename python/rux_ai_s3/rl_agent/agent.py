@@ -7,11 +7,11 @@ import torch
 from pydantic import BaseModel, Field
 
 from rux_ai_s3.feature_engineering_env import FeatureEngineeringEnv
+from rux_ai_s3.lowlevel import RewardSpace
 from rux_ai_s3.models.actor_critic import (
     ActorCritic,
     FactorizedActorCritic,
 )
-from rux_ai_s3.models.actor_heads import ActionConfig
 from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME
@@ -51,10 +51,12 @@ class Agent:
         self.model = self.build_model()
 
     @property
-    def action_config(self) -> ActionConfig:
-        return ActionConfig(
+    def forward_kwargs(self) -> dict[str, Any]:
+        return dict(  # noqa: C408
             main_action_temperature=self.agent_config.main_action_temperature,
             sap_action_temperature=self.agent_config.sap_action_temperature,
+            omit_value=self.train_config.env_config.reward_space
+            == RewardSpace.FINAL_WINNER,
         )
 
     def act(
@@ -76,7 +78,7 @@ class Agent:
         model_out = self.model(
             obs=obs,
             action_info=torch_action_info,
-            action_config=self.action_config,
+            **self.forward_kwargs,
         )
         return model_out.to_env_actions(action_info.unit_indices).squeeze(axis=0)
 
