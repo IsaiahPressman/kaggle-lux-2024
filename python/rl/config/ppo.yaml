@@ -16,7 +16,7 @@ clip_coefficient: 0.2
 loss_coefficients:
   policy: 1.0
   value: 0.5
-  entropy: 1e-5
+  entropy: 1e-4
   teacher_kl: 5e-3
 
 env_config:

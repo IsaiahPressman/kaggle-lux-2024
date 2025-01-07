@@ -571,7 +571,7 @@ def update_model_on_batch(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,
         )
-        if train_state.teacher_model:
+        if train_state.teacher_model is not None:
             with torch.no_grad():
                 teacher_out = train_state.teacher_model(
                     obs=experience.obs,
@@ -620,8 +620,8 @@ def update_model_on_batch(
                 )
                 * cfg.loss_coefficients.teacher_kl
             )
-            if train_state.teacher_model
-            else torch.tensor(0.0).to(cfg.device)
+            if train_state.teacher_model is not None
+            else torch.zeros_like(policy_loss)
         )
         total_loss = policy_loss + value_loss + entropy_loss + teacher_kl_loss
 

@@ -94,7 +94,7 @@ def compute_entropy_loss(
         log_policy,
     )
     entropies = (policy * log_policy_masked_zeroed).sum(dim=-1) * units_mask.float()
-    return entropies.mean()
+    return entropies.sum(dim=-1).mean()
 
 
 def compute_teacher_kl_loss(
