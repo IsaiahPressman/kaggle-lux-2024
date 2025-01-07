@@ -67,23 +67,60 @@ def compute_value_loss(
     return F.huber_loss(new_value_estimate, returns)
 
 
-def compute_entropy_loss(
+def merge_log_probs(
     main_log_probs: torch.Tensor,
     sap_log_probs: torch.Tensor,
 ) -> torch.Tensor:
     assert main_log_probs.shape[-1] - 1 == Action.SAP.value
-    log_policy = torch.cat(
-        [main_log_probs[..., :-1], main_log_probs[..., -1:] + sap_log_probs],
+    return torch.cat(
+        [
+            main_log_probs[..., :-1],
+            main_log_probs[..., -1].unsqueeze(dim=-1) + sap_log_probs,
+        ],
         dim=-1,
     )
+
+
+def compute_entropy_loss(
+    main_log_probs: torch.Tensor,
+    sap_log_probs: torch.Tensor,
+    units_mask: torch.Tensor,
+) -> torch.Tensor:
+    log_policy = merge_log_probs(main_log_probs, sap_log_probs)
     policy = log_policy.exp()
     log_policy_masked_zeroed = torch.where(
         log_policy.isneginf(),
         torch.zeros_like(log_policy),
         log_policy,
     )
-    entropies = (policy * log_policy_masked_zeroed).sum(dim=-1)
+    entropies = (policy * log_policy_masked_zeroed).sum(dim=-1) * units_mask.float()
     return entropies.mean()
+
+
+def compute_teacher_kl_loss(
+    learner_main_log_probs: torch.Tensor,
+    learner_sap_log_probs: torch.Tensor,
+    teacher_main_log_probs: torch.Tensor,
+    teacher_sap_log_probs: torch.Tensor,
+    units_mask: torch.Tensor,
+) -> torch.Tensor:
+    learner_log_probs = merge_log_probs(learner_main_log_probs, learner_sap_log_probs)
+    teacher_log_probs = merge_log_probs(teacher_main_log_probs, teacher_sap_log_probs)
+    kl_div = F.kl_div(
+        learner_log_probs,
+        teacher_log_probs,
+        reduction="none",
+        log_target=True,
+    )
+    kl_div = (
+        torch.where(
+            learner_log_probs.isneginf(),
+            torch.zeros_like(kl_div),
+            kl_div,
+        ).sum(dim=-1)
+        * units_mask.float()
+    )
+    return kl_div.sum(dim=-1).mean()
 
 
 def get_wandb_log_mode(

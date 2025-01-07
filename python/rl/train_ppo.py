@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import wandb
+import yaml
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -32,6 +33,7 @@ from rux_ai_s3.rl_training.ppo import (
     bootstrap_value,
     compute_entropy_loss,
     compute_pg_loss,
+    compute_teacher_kl_loss,
     compute_value_loss,
     get_wandb_log_mode,
     log_results,
@@ -47,8 +49,8 @@ from rux_ai_s3.rl_training.utils import (
     load_checkpoint,
     load_model_weights,
     save_checkpoint,
+    validate_checkpoint_with_config_path,
     validate_file_path,
-    validate_full_checkpoint_path,
 )
 from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
@@ -104,7 +106,7 @@ class UserArgs(BaseModel):
             if info.data[field] is not None:
                 raise ValueError(f"checkpoint and {field} are mutually exclusive")
 
-        return validate_full_checkpoint_path(checkpoint)
+        return validate_checkpoint_with_config_path(checkpoint)
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
@@ -136,6 +138,7 @@ class LossCoefficients(BaseModel):
     policy: float
     value: float
     entropy: float
+    teacher_kl: float
 
     model_config = ConfigDict(
         extra="forbid",
@@ -154,6 +157,7 @@ class PPOConfig(TrainConfig):
     epochs_per_update: int
     train_batch_size: int
     use_mixed_precision: bool
+    teacher_path: Path | None
 
     gamma: float
     gae_lambda: float
@@ -174,6 +178,29 @@ class PPOConfig(TrainConfig):
         arbitrary_types_allowed=True,
     )
 
+    _validate_teacher_path = field_validator("teacher_path")(
+        validate_checkpoint_with_config_path
+    )
+
+    @field_serializer("teacher_path")
+    def serialize_teacher_path(self, teacher_path: Path | None) -> str | None:
+        if teacher_path is None:
+            return None
+
+        return str(teacher_path)
+
+    @field_validator("device", mode="before")
+    @classmethod
+    def _validate_device(cls, device: torch.device | str) -> torch.device:
+        if isinstance(device, torch.device):
+            return device
+
+        return torch.device(device)
+
+    @field_serializer("device")
+    def serialize_device(self, device: torch.device) -> str:
+        return str(device)
+
     @property
     def full_batch_size(self) -> int:
         return self.env_config.n_envs * self.steps_per_update * 2
@@ -188,17 +215,15 @@ class PPOConfig(TrainConfig):
 
         return (i for i in range(1, self.max_updates + 1))
 
-    @field_validator("device", mode="before")
-    @classmethod
-    def _validate_device(cls, device: torch.device | str) -> torch.device:
-        if isinstance(device, torch.device):
-            return device
+    def load_teacher_config(self) -> tuple[Path, ActorCriticConfig] | None:
+        if self.teacher_path is None:
+            return None
 
-        return torch.device(device)
+        teacher_config_path = get_config_path_from_checkpoint(self.teacher_path)
+        with open(teacher_config_path) as f:
+            data = yaml.safe_load(f)
 
-    @field_serializer("device")
-    def serialize_device(self, device: torch.device) -> str:
-        return str(device)
+        return self.teacher_path, ActorCriticConfig(**data["rl_model_config"])
 
 
 @dataclass(frozen=True)
@@ -290,17 +315,28 @@ def main() -> None:
     cfg = load_from_yaml(PPOConfig, args.config_file)
     init_train_dir(NAME, cfg.model_dump())
     env = ParallelEnv.from_config(cfg.env_config)
-    model = build_model(env, cfg).to(cfg.device).train()
+    model = build_model(env, cfg.rl_model_config).to(cfg.device).train()
+    if args.model_weights:
+        load_model_weights(
+            model,
+            args.model_weights,
+            logger=logger,
+        )
+
     logger.info(
         "Training model with %s parameters", f"{count_trainable_params(model):,d}"
     )
+    teacher_model = load_teacher_model(env, cfg)
     if args.release:
         model = torch.compile(model)  # type: ignore[assignment]
+        if teacher_model is not None:
+            teacher_model = torch.compile(teacher_model)  # type: ignore[assignment]
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer_kwargs)  # type: ignore[arg-type]
     lr_scheduler = build_lr_scheduler(cfg, optimizer)
     train_state = TrainState(
         model=model,
+        teacher_model=teacher_model,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=GradScaler("cuda"),
@@ -318,13 +354,6 @@ def main() -> None:
             train_state,
             args.checkpoint,
             wandb_init_config=wandb_init_config,
-            logger=logger,
-        )
-
-    if args.model_weights:
-        load_model_weights(
-            train_state,
-            args.model_weights,
             logger=logger,
         )
 
@@ -356,7 +385,7 @@ def main() -> None:
 
 def build_model(
     env: ParallelEnv,
-    cfg: PPOConfig,
+    config: ActorCriticConfig,
 ) -> ActorCritic:
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
@@ -365,9 +394,26 @@ def build_model(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
         reward_space=env.reward_space,
-        config=cfg.rl_model_config,
+        config=config,
         model_type=ActorCritic,
     )
+
+
+def load_teacher_model(
+    env: ParallelEnv,
+    cfg: PPOConfig,
+) -> ActorCritic | None:
+    wp_tc = cfg.load_teacher_config()
+    if not wp_tc:
+        return None
+
+    (weights_path, teacher_cfg) = wp_tc
+    model = build_model(
+        env=env,
+        config=teacher_cfg,
+    )
+    load_model_weights(model, weights_path, logger=logger, model_name="teacher")
+    return model.to(cfg.device).eval()
 
 
 def build_lr_scheduler(
@@ -525,6 +571,13 @@ def update_model_on_batch(
             main_actions=experience.model_out.main_actions,
             sap_actions=experience.model_out.sap_actions,
         )
+        if train_state.teacher_model:
+            with torch.no_grad():
+                teacher_out = train_state.teacher_model(
+                    obs=experience.obs,
+                    action_info=experience.action_info,
+                )
+
         action_probability_ratio = (
             new_out.compute_joint_log_probs()
             - experience.model_out.compute_joint_log_probs()
@@ -553,9 +606,24 @@ def update_model_on_batch(
         negative_entropy = compute_entropy_loss(
             new_out.main_log_probs,
             new_out.sap_log_probs,
+            units_mask=experience.action_info.units_mask,
         )
         entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
-        total_loss = policy_loss + value_loss + entropy_loss
+        teacher_kl_loss = (
+            (
+                compute_teacher_kl_loss(
+                    learner_main_log_probs=new_out.main_log_probs,
+                    learner_sap_log_probs=new_out.sap_log_probs,
+                    teacher_main_log_probs=teacher_out.main_log_probs,
+                    teacher_sap_log_probs=teacher_out.sap_log_probs,
+                    units_mask=experience.action_info.units_mask,
+                )
+                * cfg.loss_coefficients.teacher_kl
+            )
+            if train_state.teacher_model
+            else torch.tensor(0.0).to(cfg.device)
+        )
+        total_loss = policy_loss + value_loss + entropy_loss + teacher_kl_loss
 
     step_optimizer(train_state, total_loss, cfg)
     return {
@@ -563,6 +631,7 @@ def update_model_on_batch(
         "policy_loss": policy_loss.item(),
         "value_loss": value_loss.item(),
         "entropy_loss": entropy_loss.item(),
+        "teacher_kl_loss": teacher_kl_loss.item(),
         "clip_fraction": clip_fraction,
         "entropy": -negative_entropy.item(),
     }

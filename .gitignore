@@ -1,5 +1,6 @@
 *.lock
 replay.json
+hall_of_fame/
 wandb/
 
 # Submission files

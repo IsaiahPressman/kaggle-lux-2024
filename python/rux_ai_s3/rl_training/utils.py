@@ -21,6 +21,7 @@ _ModelT = TypeVar("_ModelT", bound=nn.Module)
 @dataclass
 class TrainState(Generic[_ModelT]):
     model: _ModelT
+    teacher_model: _ModelT | None
     optimizer: Optimizer
     lr_scheduler: LRScheduler
     scaler: GradScaler
@@ -118,15 +119,32 @@ def load_checkpoint(
 
 
 def load_model_weights(
-    train_state: TrainState[Any],
+    model: nn.Module,
     weights_path: Path,
     logger: logging.Logger,
+    model_name: str = "",
 ) -> None:
-    logger.info("Loading model weights from %s", weights_path)
+    logger.info(
+        "Loading %s weights from %s",
+        f"{model_name} model" if model_name else "model",
+        weights_path,
+    )
     checkpoint_state = torch.load(
         weights_path, map_location=torch.device("cpu"), weights_only=True
     )
-    train_state.model.load_state_dict(checkpoint_state["model"])
+    state_dict = checkpoint_state["model"]
+    state_dict = {
+        remove_compile_prefix(key): value for key, value in state_dict.items()
+    }
+    model.load_state_dict(state_dict)
+
+
+def remove_compile_prefix(key: str) -> str:
+    prefix = "_orig_mod."
+    if key.startswith(prefix):
+        return key[len(prefix) :]
+
+    return key
 
 
 def get_config_path_from_checkpoint(checkpoint: Path) -> Path:
@@ -144,7 +162,7 @@ def validate_file_path(path: Path | None) -> Path | None:
     return path
 
 
-def validate_full_checkpoint_path(checkpoint: Path | None) -> Path | None:
+def validate_checkpoint_with_config_path(checkpoint: Path | None) -> Path | None:
     checkpoint = validate_file_path(checkpoint)
     if checkpoint is None:
         return None

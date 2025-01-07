@@ -16,6 +16,7 @@ from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME
 from rux_ai_s3.rl_training.train_config import TrainConfig
+from rux_ai_s3.rl_training.utils import remove_compile_prefix
 from rux_ai_s3.types import ActionArray
 from rux_ai_s3.utils import load_from_yaml, to_json
 
@@ -96,7 +97,7 @@ class Agent:
             weights_only=True,
         )["model"]
         state_dict = {
-            self.remove_compile_prefix(key): value for key, value in state_dict.items()
+            remove_compile_prefix(key): value for key, value in state_dict.items()
         }
         model.load_state_dict(state_dict)
         return model.to(self.device).eval()
@@ -129,11 +130,3 @@ class Agent:
             ) from e
 
         return path
-
-    @staticmethod
-    def remove_compile_prefix(key: str) -> str:
-        prefix = "_orig_mod."
-        if key.startswith(prefix):
-            return key[len(prefix) :]
-
-        return key

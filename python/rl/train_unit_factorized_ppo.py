@@ -42,7 +42,7 @@ from rux_ai_s3.rl_training.utils import (
     init_train_dir,
     load_checkpoint,
     save_checkpoint,
-    validate_full_checkpoint_path,
+    validate_checkpoint_with_config_path,
 )
 from rux_ai_s3.types import Stats
 from rux_ai_s3.utils import load_from_yaml
@@ -67,7 +67,9 @@ class UserArgs(BaseModel):
     debug: bool
     checkpoint: Path | None
 
-    _validate_checkpoint = field_validator("checkpoint")(validate_full_checkpoint_path)
+    _validate_checkpoint = field_validator("checkpoint")(
+        validate_checkpoint_with_config_path
+    )
 
     @property
     def release(self) -> bool:
@@ -264,6 +266,7 @@ def main() -> None:
     lr_scheduler = build_lr_scheduler(cfg, optimizer)
     train_state = TrainState(
         model=model,
+        teacher_model=None,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=GradScaler("cuda"),
@@ -554,6 +557,7 @@ def update_model_on_batch(
         negative_entropy = compute_entropy_loss(
             new_out.main_log_probs,
             new_out.sap_log_probs,
+            units_mask=experience.action_info.units_mask,
         )
         entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
         total_loss = policy_loss + unit_value_loss + baseline_value_loss + entropy_loss
