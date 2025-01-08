@@ -13,6 +13,7 @@ from torch import GradScaler, nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
+from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME, TRAIN_OUTPUTS_DIR
 
 _ModelT = TypeVar("_ModelT", bound=nn.Module)
@@ -137,14 +138,6 @@ def load_model_weights(
         remove_compile_prefix(key): value for key, value in state_dict.items()
     }
     model.load_state_dict(state_dict)
-
-
-def remove_compile_prefix(key: str) -> str:
-    prefix = "_orig_mod."
-    if key.startswith(prefix):
-        return key[len(prefix) :]
-
-    return key
 
 
 def get_config_path_from_checkpoint(checkpoint: Path) -> Path:

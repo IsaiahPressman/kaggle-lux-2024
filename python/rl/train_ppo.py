@@ -178,9 +178,13 @@ class PPOConfig(TrainConfig):
         arbitrary_types_allowed=True,
     )
 
-    _validate_teacher_path = field_validator("teacher_path")(
-        validate_checkpoint_with_config_path
-    )
+    @field_validator("teacher_path")
+    @classmethod
+    def _validate_teacher_path(cls, path: Path | None) -> Path | None:
+        if path is None:
+            return None
+
+        return path.absolute()
 
     @field_serializer("teacher_path")
     def serialize_teacher_path(self, teacher_path: Path | None) -> str | None:

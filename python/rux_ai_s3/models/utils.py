@@ -18,3 +18,11 @@ def get_unit_slices(x: torch.Tensor, action_info: TorchActionInfo) -> torch.Tens
         action_info.unit_indices[..., 1],
     ]
     return torch.cat([unit_slices, action_info.unit_energies.unsqueeze(-1)], dim=-1)
+
+
+def remove_compile_prefix(key: str) -> str:
+    prefix = "_orig_mod."
+    if key.startswith(prefix):
+        return key[len(prefix) :]
+
+    return key

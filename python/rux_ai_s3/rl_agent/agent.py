@@ -14,9 +14,9 @@ from rux_ai_s3.models.actor_critic import (
 )
 from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
+from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME
 from rux_ai_s3.rl_training.train_config import TrainConfig
-from rux_ai_s3.rl_training.utils import remove_compile_prefix
 from rux_ai_s3.types import ActionArray
 from rux_ai_s3.utils import load_from_yaml, to_json
 
