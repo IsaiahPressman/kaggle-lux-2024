@@ -5,7 +5,9 @@ use crate::env_api::utils::{
     action_array_to_vec, update_memories_and_write_output_arrays,
 };
 use crate::feature_engineering::obs_space::basic_obs_space::{
-    get_global_feature_count, get_spatial_feature_count,
+    get_nontemporal_global_feature_count,
+    get_nontemporal_spatial_feature_count, get_temporal_global_feature_count,
+    get_temporal_spatial_feature_count,
 };
 use crate::feature_engineering::reward_space::RewardSpace;
 use crate::izip_eq;
@@ -39,7 +41,12 @@ type PyStatsOutputs<'py> = (
     HashMap<String, Bound<'py, PyArray1<f32>>>,
 );
 type PyEnvOutputs<'py> = (
-    (Bound<'py, PyArray5<f32>>, Bound<'py, PyArray3<f32>>),
+    (
+        Bound<'py, PyArray5<f32>>,
+        Bound<'py, PyArray5<f32>>,
+        Bound<'py, PyArray3<f32>>,
+        Bound<'py, PyArray3<f32>>,
+    ),
     (
         Bound<'py, PyArray4<bool>>,
         Bound<'py, PyArray5<bool>>,
@@ -126,7 +133,12 @@ impl ParallelEnv {
     ) {
         let mut rng = rand::thread_rng();
         let (
-            (spatial_obs, global_obs),
+            (
+                temporal_spatial_obs,
+                nontemporal_spatial_obs,
+                temporal_global_obs,
+                nontemporal_global_obs,
+            ),
             (action_mask, sap_mask, unit_indices, unit_energies, units_mask),
             reward,
             done,
@@ -143,8 +155,22 @@ impl ParallelEnv {
             relic_nodes_mask,
         ) in izip_eq!(
             izip_eq!(
-                spatial_obs.readwrite().as_array_mut().outer_iter_mut(),
-                global_obs.readwrite().as_array_mut().outer_iter_mut(),
+                temporal_spatial_obs
+                    .readwrite()
+                    .as_array_mut()
+                    .outer_iter_mut(),
+                nontemporal_spatial_obs
+                    .readwrite()
+                    .as_array_mut()
+                    .outer_iter_mut(),
+                temporal_global_obs
+                    .readwrite()
+                    .as_array_mut()
+                    .outer_iter_mut(),
+                nontemporal_global_obs
+                    .readwrite()
+                    .as_array_mut()
+                    .outer_iter_mut(),
                 action_mask.readwrite().as_array_mut().outer_iter_mut(),
                 sap_mask.readwrite().as_array_mut().outer_iter_mut(),
                 unit_indices.readwrite().as_array_mut().outer_iter_mut(),
@@ -155,8 +181,10 @@ impl ParallelEnv {
             )
             .map(
                 |(
-                    spatial_obs,
-                    global_obs,
+                    temporal_spatial_obs,
+                    nontemporal_spatial_obs,
+                    temporal_global_obs,
+                    nontemporal_global_obs,
                     action_mask,
                     sap_mask,
                     unit_indices,
@@ -166,8 +194,10 @@ impl ParallelEnv {
                     done,
                 )| {
                     let obs_arrays = ObsArraysView {
-                        spatial_obs,
-                        global_obs,
+                        temporal_spatial_obs,
+                        nontemporal_spatial_obs,
+                        temporal_global_obs,
+                        nontemporal_global_obs,
                     };
                     let action_info_arrays = ActionInfoArraysView {
                         action_mask,
@@ -396,8 +426,10 @@ impl EnvData {
 }
 
 struct ParallelEnvOutputs {
-    spatial_obs: Array5<f32>,
-    global_obs: Array3<f32>,
+    temporal_spatial_obs: Array5<f32>,
+    nontemporal_spatial_obs: Array5<f32>,
+    temporal_global_obs: Array3<f32>,
+    nontemporal_global_obs: Array3<f32>,
     action_mask: Array4<bool>,
     sap_mask: Array5<bool>,
     unit_indices: Array4<isize>,
@@ -410,14 +442,24 @@ struct ParallelEnvOutputs {
 
 impl ParallelEnvOutputs {
     fn new(n_envs: usize) -> Self {
-        let spatial_obs = Array5::zeros((
+        let temporal_spatial_obs = Array5::zeros((
             n_envs,
             P,
-            get_spatial_feature_count(),
+            get_temporal_spatial_feature_count(),
             FIXED_PARAMS.map_width,
             FIXED_PARAMS.map_height,
         ));
-        let global_obs = Array3::zeros((n_envs, P, get_global_feature_count()));
+        let nontemporal_spatial_obs = Array5::zeros((
+            n_envs,
+            P,
+            get_nontemporal_spatial_feature_count(),
+            FIXED_PARAMS.map_width,
+            FIXED_PARAMS.map_height,
+        ));
+        let temporal_global_obs =
+            Array3::zeros((n_envs, P, get_temporal_global_feature_count()));
+        let nontemporal_global_obs =
+            Array3::zeros((n_envs, P, get_nontemporal_global_feature_count()));
         let action_mask =
             Array4::default((n_envs, P, FIXED_PARAMS.max_units, Action::COUNT));
         let sap_mask = Array5::default((
@@ -434,8 +476,10 @@ impl ParallelEnvOutputs {
         let reward = Array2::zeros((n_envs, P));
         let done = Array1::default(n_envs);
         Self {
-            spatial_obs,
-            global_obs,
+            temporal_spatial_obs,
+            nontemporal_spatial_obs,
+            temporal_global_obs,
+            nontemporal_global_obs,
             action_mask,
             sap_mask,
             unit_indices,
@@ -449,8 +493,10 @@ impl ParallelEnvOutputs {
 
     fn into_pyarray_bound(self, py: Python) -> PyEnvOutputs {
         let obs = (
-            self.spatial_obs.into_pyarray_bound(py),
-            self.global_obs.into_pyarray_bound(py),
+            self.temporal_spatial_obs.into_pyarray_bound(py),
+            self.nontemporal_spatial_obs.into_pyarray_bound(py),
+            self.temporal_global_obs.into_pyarray_bound(py),
+            self.nontemporal_global_obs.into_pyarray_bound(py),
         );
         let action_info = (
             self.action_mask.into_pyarray_bound(py),
@@ -471,8 +517,10 @@ impl ParallelEnvOutputs {
 
     fn iter_env_slices_mut(&mut self) -> impl Iterator<Item = SingleEnvView> {
         izip_eq!(
-            self.spatial_obs.outer_iter_mut(),
-            self.global_obs.outer_iter_mut(),
+            self.temporal_spatial_obs.outer_iter_mut(),
+            self.nontemporal_spatial_obs.outer_iter_mut(),
+            self.temporal_global_obs.outer_iter_mut(),
+            self.nontemporal_global_obs.outer_iter_mut(),
             self.action_mask.outer_iter_mut(),
             self.sap_mask.outer_iter_mut(),
             self.unit_indices.outer_iter_mut(),
@@ -483,8 +531,10 @@ impl ParallelEnvOutputs {
         )
         .map(
             |(
-                spatial_obs,
-                global_obs,
+                temporal_spatial_obs,
+                nontemporal_spatial_obs,
+                temporal_global_obs,
+                nontemporal_global_obs,
                 action_mask,
                 sap_mask,
                 unit_indices,
@@ -494,8 +544,10 @@ impl ParallelEnvOutputs {
                 done,
             )| {
                 let obs_arrays = ObsArraysView {
-                    spatial_obs,
-                    global_obs,
+                    temporal_spatial_obs,
+                    nontemporal_spatial_obs,
+                    temporal_global_obs,
+                    nontemporal_global_obs,
                 };
                 let action_info_arrays = ActionInfoArraysView {
                     action_mask,

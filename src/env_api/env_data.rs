@@ -26,14 +26,18 @@ impl PlayerData {
 }
 
 pub struct ObsArraysView<'a> {
-    pub spatial_obs: ArrayViewMut4<'a, f32>,
-    pub global_obs: ArrayViewMut2<'a, f32>,
+    pub temporal_spatial_obs: ArrayViewMut4<'a, f32>,
+    pub nontemporal_spatial_obs: ArrayViewMut4<'a, f32>,
+    pub temporal_global_obs: ArrayViewMut2<'a, f32>,
+    pub nontemporal_global_obs: ArrayViewMut2<'a, f32>,
 }
 
 impl ObsArraysView<'_> {
     pub fn reset(&mut self) {
-        self.spatial_obs.fill(0.0);
-        self.global_obs.fill(0.0);
+        self.temporal_spatial_obs.fill(0.0);
+        self.nontemporal_spatial_obs.fill(0.0);
+        self.temporal_global_obs.fill(0.0);
+        self.nontemporal_global_obs.fill(0.0);
     }
 }
 

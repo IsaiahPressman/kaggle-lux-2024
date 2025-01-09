@@ -1,4 +1,6 @@
 use crate::feature_engineering::memory::Memory;
+use crate::izip_eq;
+use crate::rules_engine::env::get_spawn_position;
 use crate::rules_engine::param_ranges::{
     PARAM_RANGES, UNIT_SAP_COST_MAX, UNIT_SAP_COST_MIN,
 };
@@ -12,7 +14,7 @@ use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
-enum SpatialFeature {
+enum TemporalSpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
@@ -25,6 +27,11 @@ enum SpatialFeature {
     OppUnitEnergyMin,
     MyUnitEnergyMax,
     OppUnitEnergyMax,
+}
+
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
+enum NontemporalSpatialFeature {
+    SpawnPosition,
     Asteroid,
     Nebula,
     TileExplored,
@@ -35,27 +42,30 @@ enum SpatialFeature {
     EnergyField,
 }
 
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
+enum TemporalGlobalFeature {
+    MyTeamPoints,
+    OppTeamPoints,
+}
+
 #[derive(Debug, Clone, Copy, EnumIter)]
-enum GlobalFeature {
+enum NontemporalGlobalFeature {
     // Visible features
-    MyTeamId = 0,
-    MyTeamPoints = 2,
-    OppTeamPoints = 3,
-    MyTeamWins = 4,
-    OppTeamWins = 7,
-    MatchSteps = 10,
+    MyTeamWins = 0,
+    OppTeamWins = 3,
+    MatchSteps = 6,
     // Known parameters
-    UnitMoveCost = 11,
-    UnitSapCost = 16,
-    UnitSapRange = 17,
-    UnitSensorRange = 22,
+    UnitMoveCost = 7,
+    UnitSapCost = 12,
+    UnitSapRange = 13,
+    UnitSensorRange = 18,
     // Estimated / inferred features
-    UnitSapDropoffFactor = 25,
-    NebulaTileVisionReduction = 28,
-    NebulaTileEnergyReduction = 32,
-    NebulaTileDriftSpeed = 35,
-    EnergyNodeDriftSpeed = 39,
-    End = 44,
+    UnitSapDropoffFactor = 21,
+    NebulaTileVisionReduction = 24,
+    NebulaTileEnergyReduction = 28,
+    NebulaTileDriftSpeed = 31,
+    EnergyNodeDriftSpeed = 35,
+    End = 40,
 }
 
 // Normalizing constants
@@ -63,46 +73,65 @@ const UNIT_COUNT_NORM: f32 = 4.0;
 const UNIT_ENERGY_NORM: f32 = 400.0;
 const UNIT_ENERGY_MIN_BASELINE: f32 = 0.1;
 const ENERGY_FIELD_NORM: f32 = 7.0;
+const POINTS_NORM: f32 = 100.0;
+
+pub fn get_temporal_spatial_feature_count() -> usize {
+    TemporalSpatialFeature::COUNT
+}
+
+pub fn get_nontemporal_spatial_feature_count() -> usize {
+    NontemporalSpatialFeature::COUNT
+}
+
+pub fn get_temporal_global_feature_count() -> usize {
+    TemporalGlobalFeature::COUNT
+}
+
+pub fn get_nontemporal_global_feature_count() -> usize {
+    NontemporalGlobalFeature::End as usize
+}
 
 /// Writes into spatial_out of shape (teams, s_channels, map_width, map_height) and
 /// global_out of shape (teams, g_channels)
 pub fn write_obs_arrays(
-    mut spatial_out: ArrayViewMut4<f32>,
-    mut global_out: ArrayViewMut2<f32>,
+    mut temporal_spatial_out: ArrayViewMut4<f32>,
+    mut nontemporal_spatial_out: ArrayViewMut4<f32>,
+    mut temporal_global_out: ArrayViewMut2<f32>,
+    mut nontemporal_global_out: ArrayViewMut2<f32>,
     observations: &[Observation],
     memories: &[Memory],
     params: &KnownVariableParams,
 ) {
-    for (((obs, mem), team_spatial_out), team_global_out) in observations
-        .iter()
-        .zip_eq(memories)
-        .zip_eq(spatial_out.outer_iter_mut())
-        .zip_eq(global_out.outer_iter_mut())
-    {
-        write_team_obs(team_spatial_out, team_global_out, obs, mem, params);
+    for (
+        obs,
+        mem,
+        temporal_spatial_out,
+        nontemporal_spatial_out,
+        temporal_global_out,
+        nontemporal_global_out,
+    ) in izip_eq!(
+        observations,
+        memories,
+        temporal_spatial_out.outer_iter_mut(),
+        nontemporal_spatial_out.outer_iter_mut(),
+        temporal_global_out.outer_iter_mut(),
+        nontemporal_global_out.outer_iter_mut(),
+    ) {
+        write_temporal_spatial_out(temporal_spatial_out, obs);
+        write_nontemporal_spatial_out(nontemporal_spatial_out, obs, mem);
+        write_temporal_global_out(temporal_global_out, obs);
+        write_nontemporal_global_out(nontemporal_global_out, obs, mem, params);
     }
 }
 
-pub fn get_spatial_feature_count() -> usize {
-    SpatialFeature::COUNT
-}
-
-pub fn get_global_feature_count() -> usize {
-    GlobalFeature::End as usize
-}
-
-fn write_team_obs(
-    mut spatial_out: ArrayViewMut3<f32>,
-    mut global_out: ArrayViewMut1<f32>,
+fn write_temporal_spatial_out(
+    mut temporal_spatial_out: ArrayViewMut3<f32>,
     obs: &Observation,
-    mem: &Memory,
-    params: &KnownVariableParams,
 ) {
-    use GlobalFeature::*;
-    use SpatialFeature::*;
+    use TemporalSpatialFeature::*;
 
-    for (sf, mut slice) in
-        SpatialFeature::iter().zip_eq(spatial_out.outer_iter_mut())
+    for (sf, mut slice) in TemporalSpatialFeature::iter()
+        .zip_eq(temporal_spatial_out.outer_iter_mut())
     {
         match sf {
             Visible => {
@@ -139,6 +168,26 @@ fn write_team_obs(
             },
             OppUnitEnergyMax => {
                 write_unit_energy_max(slice, obs.get_opp_units());
+            },
+        }
+    }
+}
+
+fn write_nontemporal_spatial_out(
+    mut nontemporal_spatial_out: ArrayViewMut3<f32>,
+    obs: &Observation,
+    mem: &Memory,
+) {
+    use NontemporalSpatialFeature::*;
+
+    for (sf, mut slice) in NontemporalSpatialFeature::iter()
+        .zip_eq(nontemporal_spatial_out.outer_iter_mut())
+    {
+        match sf {
+            SpawnPosition => {
+                let spawn_pos =
+                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size);
+                slice[spawn_pos.as_index()] = 1.0;
             },
             Asteroid => Zip::from(&mut slice)
                 .and(mem.get_known_asteroids_map())
@@ -178,27 +227,39 @@ fn write_team_obs(
                 }),
         }
     }
+}
 
-    let mut global_result: Vec<f32> = vec![0.0; End as usize];
-    for (gf, next_gf) in GlobalFeature::iter().tuple_windows() {
+fn write_temporal_global_out(
+    mut temporal_global_out: ArrayViewMut1<f32>,
+    obs: &Observation,
+) {
+    use TemporalGlobalFeature::*;
+
+    for (gf, out) in
+        TemporalGlobalFeature::iter().zip_eq(temporal_global_out.iter_mut())
+    {
         match gf {
-            MyTeamId => {
-                let onehot_team_id = match obs.team_id {
-                    0 => [1., 0.],
-                    1 => [0., 1.],
-                    _ => unreachable!(),
-                };
-                global_result[gf as usize..next_gf as usize]
-                    .copy_from_slice(&onehot_team_id);
-            },
             MyTeamPoints => {
-                global_result[gf as usize] =
-                    obs.team_points[obs.team_id] as f32;
+                *out = obs.team_points[obs.team_id] as f32 / POINTS_NORM;
             },
             OppTeamPoints => {
-                global_result[gf as usize] =
-                    obs.team_points[1 - obs.team_id] as f32;
+                *out = obs.team_points[obs.opp_team_id()] as f32 / POINTS_NORM;
             },
+        }
+    }
+}
+
+fn write_nontemporal_global_out(
+    mut nontemporal_global_out: ArrayViewMut1<f32>,
+    obs: &Observation,
+    mem: &Memory,
+    params: &KnownVariableParams,
+) {
+    use NontemporalGlobalFeature::*;
+
+    let mut global_result: Vec<f32> = vec![0.0; End as usize];
+    for (gf, next_gf) in NontemporalGlobalFeature::iter().tuple_windows() {
+        match gf {
             MyTeamWins => {
                 let my_team_wins =
                     discretize_team_wins(obs.team_wins[obs.team_id]);
@@ -274,7 +335,7 @@ fn write_team_obs(
             },
         }
     }
-    global_out
+    nontemporal_global_out
         .iter_mut()
         .zip_eq(global_result)
         .for_each(|(out, v)| *out = v);
@@ -341,19 +402,14 @@ where
 mod tests {
     use super::*;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
-    use crate::rules_engine::params::P;
-    use GlobalFeature::*;
+    use NontemporalGlobalFeature::*;
 
     #[test]
-    fn test_global_feature_indices() {
-        for (feature, next_feature) in GlobalFeature::iter().tuple_windows() {
+    fn test_nontemporal_global_feature_indices() {
+        for (feature, next_feature) in
+            NontemporalGlobalFeature::iter().tuple_windows()
+        {
             match feature {
-                MyTeamId => {
-                    assert_eq!(
-                        next_feature as isize - feature as isize,
-                        P as isize
-                    );
-                },
                 MyTeamWins | OppTeamWins => {
                     let option_count = discretize_team_wins(0).len();
                     assert_eq!(

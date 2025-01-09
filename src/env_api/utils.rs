@@ -46,8 +46,10 @@ pub fn update_memories_and_write_output_arrays(
             mem.update(obs, last_actions, &FIXED_PARAMS, params)
         });
     write_obs_arrays(
-        obs_slice.spatial_obs.view_mut(),
-        obs_slice.global_obs.view_mut(),
+        obs_slice.temporal_spatial_obs.view_mut(),
+        obs_slice.nontemporal_spatial_obs.view_mut(),
+        obs_slice.temporal_global_obs.view_mut(),
+        obs_slice.nontemporal_global_obs.view_mut(),
         observations,
         memories,
         params,

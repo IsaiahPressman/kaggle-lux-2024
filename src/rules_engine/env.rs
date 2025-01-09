@@ -545,17 +545,20 @@ fn spawn_units(units: &mut [Vec<Unit>; P], fixed_params: &FixedParams) {
                 .unwrap()
         };
 
-        let pos = match team {
-            0 => Pos::new(0, 0),
-            1 => Pos::new(
-                fixed_params.map_width - 1,
-                fixed_params.map_height - 1,
-            ),
-            n => panic!("this town ain't big enough for the {n} of us"),
-        };
-
+        let pos = get_spawn_position(team, fixed_params.map_size);
         let new_unit = Unit::new(pos, fixed_params.init_unit_energy, u_id);
         team_units.insert(u_id, new_unit);
+    }
+}
+
+pub fn get_spawn_position(
+    team_id: usize,
+    [map_width, map_height]: [usize; 2],
+) -> Pos {
+    match team_id {
+        0 => Pos::new(0, 0),
+        1 => Pos::new(map_width - 1, map_height - 1),
+        _ => unreachable!(),
     }
 }
 
