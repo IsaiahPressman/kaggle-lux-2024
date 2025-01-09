@@ -3,5 +3,5 @@
 # - temp < 1.0 -> Lower entropy distribution
 # - temp == 1.0 -> Use original action distribution
 # - temp > 1.0 -> Higher entropy distribution (currently forbidden)
-main_action_temperature: 0.9
-sap_action_temperature: 0.9
+main_action_temperature: 1.0
+sap_action_temperature: 1.0

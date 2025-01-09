@@ -8,7 +8,7 @@ steps_per_update: 32
 epochs_per_update: 1
 train_batch_size: 128
 use_mixed_precision: true
-teacher_path: train_outputs/ppo/2025_01_06/12_50/checkpoint_246679.pt
+teacher_path: train_outputs/ppo/2025_01_07/03_06/checkpoint_044515.pt
 
 gamma: 0.9999
 gae_lambda: 0.85
@@ -18,7 +18,7 @@ loss_coefficients:
   value: 0.5
   entropy: 1e-4
   # TODO: tune teacher_kl coefficient
-  teacher_kl: 2e-3
+  teacher_kl: 1e-3
 
 env_config:
   n_envs: 64
@@ -28,7 +28,7 @@ env_config:
   jax_device: cpu:0
 
 rl_model_config:
-  d_model: 64
+  d_model: 128
   n_blocks: 6
 
 device: cuda:0

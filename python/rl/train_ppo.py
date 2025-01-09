@@ -62,7 +62,7 @@ TrainStateT = TrainState[ActorCritic]
 FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
 CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}.yaml"
-CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=10)
+CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=20)
 CPU: Final[torch.device] = torch.device("cpu")
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -76,6 +76,11 @@ class UserArgs(BaseModel):
     config: Path | None
     model_weights: Path | None
     checkpoint: Path | None
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
 
     _validate_config = field_validator("config")(validate_file_path)
     _validate_model_weights = field_validator("model_weights")(validate_file_path)
@@ -143,7 +148,6 @@ class LossCoefficients(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        arbitrary_types_allowed=True,
     )
 
 
