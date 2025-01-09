@@ -139,8 +139,9 @@ class TestParallelEnv:
             relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
         )
-        assert np.all(env_out.obs.spatial_obs != _FLOAT_FLAG)
-        assert np.all(env_out.obs.global_obs != _FLOAT_FLAG)
+        for obs_array in env_out.obs:
+            assert np.all(obs_array != _FLOAT_FLAG)
+
         assert np.all(np.logical_not(env_out.action_info.main_mask))
         assert np.all(np.logical_not(env_out.action_info.sap_mask))
         assert np.all(env_out.action_info.unit_indices != _INT_FLAG)
@@ -183,10 +184,11 @@ class TestParallelEnv:
                 : len(reset_env_ids)
             ],
         )
-        assert np.all(env_out.obs.spatial_obs[reset_env_ids] != _FLOAT_FLAG)
-        assert np.all(env_out.obs.spatial_obs[not_reset_env_ids] == _FLOAT_FLAG)
-        assert np.all(env_out.obs.global_obs[reset_env_ids] != _FLOAT_FLAG)
-        assert np.all(env_out.obs.global_obs[not_reset_env_ids] == _FLOAT_FLAG)
+
+        for obs_array in env_out.obs:
+            assert np.all(obs_array[reset_env_ids] != _FLOAT_FLAG)
+            assert np.all(obs_array[not_reset_env_ids] == _FLOAT_FLAG)
+
         assert np.all(np.logical_not(env_out.action_info.main_mask[reset_env_ids]))
         assert np.all(env_out.action_info.main_mask[not_reset_env_ids])
         assert np.all(np.logical_not(env_out.action_info.sap_mask[reset_env_ids]))
@@ -199,6 +201,7 @@ class TestParallelEnv:
         )
         assert np.all(np.logical_not(env_out.action_info.units_mask[reset_env_ids]))
         assert np.all(env_out.action_info.units_mask[not_reset_env_ids])
+
         # Reward and done are left as-is after a soft reset
         assert np.all(env_out.reward[reset_env_ids] == _FLOAT_FLAG)
         assert np.all(env_out.reward[not_reset_env_ids] == _FLOAT_FLAG - 1)
@@ -224,8 +227,9 @@ class TestParallelEnv:
 
     @staticmethod
     def fill_env_out(env_out: ParallelEnvOut) -> None:
-        env_out.obs.spatial_obs[:] = _FLOAT_FLAG
-        env_out.obs.global_obs[:] = _FLOAT_FLAG
+        for obs_array in env_out.obs:
+            obs_array[:] = _FLOAT_FLAG
+
         env_out.action_info.main_mask[:] = True
         env_out.action_info.sap_mask[:] = True
         env_out.action_info.unit_indices[:] = _INT_FLAG
@@ -247,7 +251,16 @@ class TestFeatureEngineeringEnv:
         fe_out = FeatureEngineeringOut.from_raw(
             fe_env.step(self.json_dump_lux_obs(lux_obs, team_id), actions)
         )
-        for array in itertools.chain(fe_out.obs.spatial_obs, *fe_out.action_info):
+        # Omit nontemporal_global_obs as it's expected that some of these
+        # values will be non-zero
+        for array in itertools.chain(
+            [
+                fe_out.obs.temporal_spatial_obs,
+                fe_out.obs.nontemporal_spatial_obs,
+                fe_out.obs.temporal_global_obs,
+            ],
+            *fe_out.action_info,
+        ):
             assert np.all(array == 0)
 
         truncated: dict[str, npt.NDArray[np.bool_]] = {}

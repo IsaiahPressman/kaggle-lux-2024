@@ -20,7 +20,12 @@ use pyo3::Bound;
 use strum::EnumCount;
 
 type PyEnvOutputs<'py> = (
-    (Bound<'py, PyArray4<f32>>, Bound<'py, PyArray2<f32>>),
+    (
+        Bound<'py, PyArray4<f32>>,
+        Bound<'py, PyArray4<f32>>,
+        Bound<'py, PyArray2<f32>>,
+        Bound<'py, PyArray2<f32>>,
+    ),
     (
         Bound<'py, PyArray3<bool>>,
         Bound<'py, PyArray4<bool>>,
@@ -159,7 +164,9 @@ impl EnvOutputs {
     fn into_pyarray_bound(self, py: Python) -> PyEnvOutputs {
         let obs = (
             self.temporal_spatial_obs.into_pyarray_bound(py),
+            self.nontemporal_spatial_obs.into_pyarray_bound(py),
             self.temporal_global_obs.into_pyarray_bound(py),
+            self.nontemporal_global_obs.into_pyarray_bound(py),
         );
         let action_info = (
             self.action_mask.into_pyarray_bound(py),
