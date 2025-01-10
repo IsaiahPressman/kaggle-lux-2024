@@ -8,8 +8,9 @@
 3. Install maturin: `rye install maturin`
 4. Install packages: `rye sync`
 5. Activate venv: `. .venv/bin/activate`
-6. Generate full-game test cases: `./generate_full_game_test_cases.sh`
-7. If everything is working, `make prepare` should now run without errors
+6. Generate full-game test cases: `./scripts/generate_full_game_test_cases.sh`
+7. TODO: Generate memory module test cases: `./scripts/generate_memory_test_cases.sh`
+8. If everything is working, `make prepare` should now run without errors
 
 
 ### Generating simulator test cases
@@ -19,20 +20,17 @@ There should preferably be at least one test case per possible node count value.
 - Full game test cases can be generated individually by running
 `JAX_PLATFORMS=cpu luxai-s3 python/test_agent/main.py python/test_agent/main.py 
 --output replay.json --replay.no-compressed-obs`
-followed by `process_replay_for_tests.py --include_observations` on the generated replay.json, observations_0.json, and observations_1.json files.
+followed by `process_replay_for_tests.py --include_observations` on the generated 
+replay.json, observations_0.json, and observations_1.json files.
 
 
 ### Playing a game with the local agent
 `JAX_PLATFORMS=cpu luxai-s3 python/main.py python/main.py --output replay.json`
 
+
 ### Creating a submission file
-1. Build the docker image: `docker build -t rux-ai-s3 .`
-2. Assuming the above runs without errors, we can copy the compiled + tarred submission file from the image as follows:
-```
-id=$(docker create rux-ai-s3)
-docker cp $id:/home/rux_ai_s3/submission.tar.gz .
-docker rm -v $id
-```
+`./scripts/make_submission.sh`
+
 
 ### Parameter meta-learning (as of 11-2) [source](https://github.com/Lux-AI-Challenge/Lux-Design-S3/blob/main/src/luxai_s3/params.py)
 Fixed parameters:
