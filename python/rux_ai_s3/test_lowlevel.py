@@ -251,12 +251,13 @@ class TestFeatureEngineeringEnv:
         fe_out = FeatureEngineeringOut.from_raw(
             fe_env.step(self.json_dump_lux_obs(lux_obs, team_id), actions)
         )
-        # Omit nontemporal_global_obs as it's expected that some of these
+        # Omit nontemporal_global_obs as it's expected that many of these
         # values will be non-zero
         for array in itertools.chain(
-            [
+            *[
                 fe_out.obs.temporal_spatial_obs,
-                fe_out.obs.nontemporal_spatial_obs,
+                # The first feature - spawn point - will be non-zero
+                fe_out.obs.nontemporal_spatial_obs[1:],
                 fe_out.obs.temporal_global_obs,
             ],
             *fe_out.action_info,
@@ -272,7 +273,14 @@ class TestFeatureEngineeringEnv:
             fe_out = FeatureEngineeringOut.from_raw(
                 fe_env.step(self.json_dump_lux_obs(lux_obs, team_id), actions)
             )
-            for array in itertools.chain.from_iterable(fe_out.obs):
+            for array in itertools.chain.from_iterable(
+                [
+                    fe_out.obs.temporal_spatial_obs,
+                    fe_out.obs.nontemporal_spatial_obs,
+                    # Exclude temporal_global_obs - points will be 0
+                    fe_out.obs.nontemporal_global_obs,
+                ]
+            ):
                 assert np.any(array != 0)
 
         assert all(t for t in truncated.values())
