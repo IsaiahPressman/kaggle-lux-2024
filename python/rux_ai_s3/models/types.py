@@ -4,7 +4,7 @@ from typing import NamedTuple
 import torch
 from torch import nn
 
-from rux_ai_s3.types import ActionInfo, Obs
+from rux_ai_s3.types import ActionInfo, FrameStackedObs
 
 ActivationFactory = Callable[[], nn.Module]
 
@@ -22,7 +22,7 @@ class TorchObs(NamedTuple):
         return TorchObs(*(t.to(device) for t in self))
 
     @classmethod
-    def from_numpy(cls, obs: Obs, device: torch.device) -> "TorchObs":
+    def from_numpy(cls, obs: FrameStackedObs, device: torch.device) -> "TorchObs":
         return TorchObs(
             **{
                 key: torch.from_numpy(val).to(device)

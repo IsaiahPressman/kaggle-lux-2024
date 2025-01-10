@@ -56,23 +56,6 @@ class Obs(NamedTuple):
     def from_raw(cls, raw: ObsArrays) -> "Obs":
         return Obs(*raw)
 
-    @classmethod
-    def concatenate_frame_history(cls, frames: list["Obs"], axis: int) -> "Obs":
-        temporal_spatial_stack = np.concatenate(
-            [f.temporal_spatial_obs for f in frames], axis=axis
-        )
-        nontemporal_spatial_latest = frames[-1].nontemporal_spatial_obs
-        temporal_global_stack = np.concatenate(
-            [f.temporal_global_obs for f in frames], axis=axis
-        )
-        nontemporal_global_latest = frames[-1].nontemporal_global_obs
-        return Obs(
-            temporal_spatial_obs=temporal_spatial_stack,
-            nontemporal_spatial_obs=nontemporal_spatial_latest,
-            temporal_global_obs=temporal_global_stack,
-            nontemporal_global_obs=nontemporal_global_latest,
-        )
-
 
 class ActionInfo(NamedTuple):
     main_mask: npt.NDArray[np.bool_]
@@ -168,6 +151,26 @@ class FeatureEngineeringOut(NamedTuple):
         return FeatureEngineeringOut(
             Obs.from_raw(raw_obs_arrays),
             ActionInfo.from_raw(raw_action_info_arrays),
+        )
+
+
+class FrameStackedObs(NamedTuple):
+    spatial_obs: npt.NDArray[np.float32]
+    global_obs: npt.NDArray[np.float32]
+
+    @classmethod
+    def from_frame_history(cls, frames: list[Obs], axis: int) -> "FrameStackedObs":
+        all_spatial_arrays = [f.temporal_spatial_obs for f in frames]
+        all_spatial_arrays.append(frames[-1].nontemporal_spatial_obs)
+        combined_spatial_obs = np.concatenate(all_spatial_arrays, axis=axis)
+
+        all_global_arrays = [f.temporal_global_obs for f in frames]
+        all_global_arrays.append(frames[-1].nontemporal_global_obs)
+        combined_global_obs = np.concatenate(all_global_arrays, axis=axis)
+
+        return FrameStackedObs(
+            spatial_obs=combined_spatial_obs,
+            global_obs=combined_global_obs,
         )
 
 

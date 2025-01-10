@@ -3,7 +3,7 @@ from collections import deque
 from typing import Any
 
 from rux_ai_s3.lowlevel import FeatureEngineeringEnv as LowLevelEnv
-from rux_ai_s3.types import ActionArray, FeatureEngineeringOut, Obs
+from rux_ai_s3.types import ActionArray, FeatureEngineeringOut, FrameStackedObs, Obs
 
 
 class FeatureEngineeringEnv:
@@ -27,8 +27,8 @@ class FeatureEngineeringEnv:
     def last_out(self) -> FeatureEngineeringOut:
         return self._last_out
 
-    def get_frame_stacked_obs(self) -> Obs:
-        return Obs.concatenate_frame_history(list(self._frame_history), axis=1)
+    def get_frame_stacked_obs(self) -> FrameStackedObs:
+        return FrameStackedObs.from_frame_history(list(self._frame_history), axis=1)
 
     def _make_empty_out(self) -> FeatureEngineeringOut:
         return FeatureEngineeringOut.from_raw(self._env.get_empty_outputs())

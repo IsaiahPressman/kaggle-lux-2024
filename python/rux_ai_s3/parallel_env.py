@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 from rux_ai_s3.lowlevel import ParallelEnv as LowLevelEnv
 from rux_ai_s3.lowlevel import RewardSpace
-from rux_ai_s3.types import ActionArray
+from rux_ai_s3.types import ActionArray, FrameStackedObs
 
 from .types import Obs, ParallelEnvOut
 
@@ -95,8 +95,8 @@ class ParallelEnv:
     def last_out(self) -> ParallelEnvOut:
         return self._last_out
 
-    def get_frame_stacked_obs(self) -> Obs:
-        return Obs.concatenate_frame_history(list(self._frame_history), axis=2)
+    def get_frame_stacked_obs(self) -> FrameStackedObs:
+        return FrameStackedObs.from_frame_history(list(self._frame_history), axis=2)
 
     def _gen_maps(self, n_maps: int) -> dict[str, Any]:
         with jax.default_device(self.jax_device):
