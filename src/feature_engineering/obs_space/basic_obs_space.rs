@@ -65,7 +65,7 @@ enum NontemporalGlobalFeature {
     NebulaTileEnergyReduction = 28,
     NebulaTileDriftSpeed = 31,
     EnergyNodeDriftSpeed = 35,
-    End = 40,
+    End = 39,
 }
 
 // Normalizing constants
@@ -427,7 +427,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules_engine::param_ranges::PARAM_RANGES;
+    use crate::rules_engine::param_ranges::{
+        IRRELEVANT_ENERGY_NODE_DRIFT_SPEED, PARAM_RANGES,
+    };
 
     #[test]
     fn test_nontemporal_global_feature_indices() {
@@ -533,6 +535,9 @@ mod tests {
                         .energy_node_drift_speed
                         .iter()
                         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                        .filter(|&&speed| {
+                            speed != IRRELEVANT_ENERGY_NODE_DRIFT_SPEED
+                        })
                         .dedup()
                         .count();
                     assert_eq!(

@@ -281,7 +281,7 @@ mod tests {
             n => panic!("Unrecognized unit_sensor_range {}", n),
         }
         for mem in memories.iter() {
-            if variable_params.energy_node_drift_speed > 0.03 {
+            if variable_params.energy_node_drift_speed > 0.02 {
                 assert!(!mem
                     .energy_field
                     .energy_node_drift_speed

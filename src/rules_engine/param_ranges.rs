@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 
 pub static PARAM_RANGES: LazyLock<ParamRanges> =
     LazyLock::new(load_param_ranges);
+// Speed 0.03 is a special case that works out the same as speed 0.01
+pub const IRRELEVANT_ENERGY_NODE_DRIFT_SPEED: f32 = 0.03;
 
 fn load_param_ranges() -> ParamRanges {
     let json_data = include_str!("../data/env_params_ranges.json");
@@ -75,5 +77,13 @@ mod tests {
     #[test]
     fn test_param_ranges() {
         _ = PARAM_RANGES.clone();
+    }
+
+    #[test]
+    fn test_irrelevant_energy_drift_speed() {
+        assert!(PARAM_RANGES
+            .energy_node_drift_speed
+            .contains(&IRRELEVANT_ENERGY_NODE_DRIFT_SPEED));
+        assert!(PARAM_RANGES.energy_node_drift_speed.contains(&0.01));
     }
 }

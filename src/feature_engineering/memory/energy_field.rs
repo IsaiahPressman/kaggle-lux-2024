@@ -1,5 +1,7 @@
 use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
-use crate::rules_engine::param_ranges::ParamRanges;
+use crate::rules_engine::param_ranges::{
+    ParamRanges, IRRELEVANT_ENERGY_NODE_DRIFT_SPEED,
+};
 use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
 use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
@@ -19,6 +21,7 @@ impl EnergyFieldMemory {
                 .iter()
                 .copied()
                 .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                .filter(|&speed| speed != IRRELEVANT_ENERGY_NODE_DRIFT_SPEED)
                 .dedup()
                 .collect_vec(),
         );
@@ -135,8 +138,44 @@ fn should_drift(step: u32, speed: f32) -> bool {
 mod tests {
     use super::*;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
+    use crate::rules_engine::params::FIXED_PARAMS;
     use numpy::ndarray::arr2;
     use rstest::rstest;
+
+    fn get_drift_schedule(speed: f32) -> Vec<bool> {
+        (0..=FIXED_PARAMS.get_max_steps_in_game())
+            .map(|step| should_drift(step, speed))
+            .collect()
+    }
+
+    #[test]
+    fn test_all_movement_schedules_included() {
+        let memory =
+            EnergyFieldMemory::new(&PARAM_RANGES, FIXED_PARAMS.map_size);
+        assert!(
+            memory.energy_node_drift_speed.mask.len()
+                < PARAM_RANGES.energy_node_drift_speed.len()
+        );
+
+        for &speed in
+            PARAM_RANGES
+                .energy_node_drift_speed
+                .iter()
+                .filter(|&speed| {
+                    !memory
+                        .energy_node_drift_speed
+                        .get_options()
+                        .contains(speed)
+                })
+        {
+            assert!(memory
+                .energy_node_drift_speed
+                .get_options()
+                .iter()
+                .any(|&candidate_speed| get_drift_schedule(speed)
+                    == get_drift_schedule(candidate_speed)))
+        }
+    }
 
     #[rstest]
     // The observed field matches what's known - just update
@@ -273,11 +312,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0, vec![true; 5])]
-    #[case(20, vec![false, false, false, false, true])]
-    #[case(25, vec![false, false, false, true, false])]
-    #[case(50, vec![false, true, false, true, false])]
-    #[case(100, vec![true; 5])]
+    #[case(0, vec![true; 4])]
+    #[case(20, vec![false, false, false, true])]
+    #[case(25, vec![false, false, true, false])]
+    #[case(50, vec![false, true, true, false])]
+    #[case(100, vec![true; 4])]
     fn test_update_energy_node_drift_speed(
         #[case] step: u32,
         #[case] expected_result: Vec<bool>,
@@ -293,9 +332,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case([true, true, true, true, true])]
-    #[case([true, true, true, true, false])]
-    fn test_update_energy_node_drift_speed_resets(#[case] mask: [bool; 5]) {
+    #[case([true, true, true, true])]
+    #[case([true, true, true, false])]
+    fn test_update_energy_node_drift_speed_resets(#[case] mask: [bool; 4]) {
         let mut energy_node_drift_speed =
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
@@ -303,7 +342,7 @@ mod tests {
         update_energy_node_drift_speed(&mut energy_node_drift_speed, 120);
         assert_eq!(
             energy_node_drift_speed.mask,
-            vec![false, false, false, false, true]
+            vec![false, false, false, true]
         );
     }
 }

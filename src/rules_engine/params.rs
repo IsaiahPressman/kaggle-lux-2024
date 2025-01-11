@@ -52,8 +52,12 @@ pub struct FixedParams {
     pub relic_config_size: usize,
 }
 
-#[cfg(test)]
 impl FixedParams {
+    pub fn get_max_steps_in_game(&self) -> u32 {
+        (self.max_steps_in_match + 1) * self.match_count_per_episode
+    }
+
+    #[cfg(test)]
     /// Sets map_width and map_height along with map_size
     pub fn set_map_size(&mut self, map_size: [usize; 2]) {
         let [width, height] = map_size;

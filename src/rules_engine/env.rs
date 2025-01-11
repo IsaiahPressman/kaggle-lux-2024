@@ -801,10 +801,7 @@ fn step_game(
         },
     }
 
-    if *total_steps
-        < (fixed_params.max_steps_in_match + 1)
-            * fixed_params.match_count_per_episode
-    {
+    if *total_steps < fixed_params.get_max_steps_in_game() {
         return None;
     }
 
@@ -1756,9 +1753,7 @@ mod tests {
     #[test]
     fn test_step_game() {
         let fixed_params = FIXED_PARAMS;
-        let start_step = (fixed_params.max_steps_in_match + 1)
-            * fixed_params.match_count_per_episode
-            - 2;
+        let start_step = fixed_params.get_max_steps_in_game() - 2;
         let mut total_steps = start_step;
         let mut game_over = false;
         let result = step_game(
@@ -1822,9 +1817,7 @@ mod tests {
     #[should_panic(expected = "Team wins tied")]
     fn test_step_game_panics() {
         let fixed_params = FIXED_PARAMS;
-        let mut total_steps = (fixed_params.max_steps_in_match + 1)
-            * fixed_params.match_count_per_episode
-            - 1;
+        let mut total_steps = fixed_params.get_max_steps_in_game() - 1;
         step_game(
             &mut total_steps,
             &mut false,
