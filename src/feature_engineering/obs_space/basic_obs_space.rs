@@ -1,15 +1,15 @@
 use crate::feature_engineering::memory::Memory;
 use crate::izip_eq;
 use crate::rules_engine::env::get_spawn_position;
-use crate::rules_engine::param_ranges::{
-    PARAM_RANGES, UNIT_SAP_COST_MAX, UNIT_SAP_COST_MIN,
-};
+use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
     ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Zip,
 };
+use std::iter::Iterator;
+use std::sync::LazyLock;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
 
@@ -31,8 +31,7 @@ enum TemporalSpatialFeature {
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum NontemporalSpatialFeature {
-    DistanceFromSpawnX,
-    DistanceFromSpawnY,
+    DistanceFromSpawn,
     Asteroid,
     Nebula,
     TileExplored,
@@ -71,10 +70,23 @@ enum NontemporalGlobalFeature {
 
 // Normalizing constants
 const UNIT_COUNT_NORM: f32 = 4.0;
-const UNIT_ENERGY_NORM: f32 = 400.0;
+const UNIT_ENERGY_NORM: f32 = FIXED_PARAMS.max_unit_energy as f32;
 const UNIT_ENERGY_MIN_BASELINE: f32 = 0.1;
-const ENERGY_FIELD_NORM: f32 = 7.0;
-const POINTS_NORM: f32 = 100.0;
+static ENERGY_FIELD_NORM: LazyLock<f32> = LazyLock::new(|| {
+    *PARAM_RANGES
+        .nebula_tile_energy_reduction
+        .iter()
+        .max()
+        .unwrap() as f32
+});
+const MANHATTAN_DISTANCE_NORM: f32 =
+    (FIXED_PARAMS.map_width + FIXED_PARAMS.map_height) as f32;
+const POINTS_NORM: f32 = 200.0;
+
+static UNIT_SAP_COST_MIN: LazyLock<i32> =
+    LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().min().unwrap());
+static UNIT_SAP_COST_MAX: LazyLock<i32> =
+    LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().max().unwrap());
 
 pub fn get_temporal_spatial_feature_count() -> usize {
     TemporalSpatialFeature::COUNT
@@ -185,22 +197,12 @@ fn write_nontemporal_spatial_out(
         .zip_eq(nontemporal_spatial_out.outer_iter_mut())
     {
         match sf {
-            DistanceFromSpawnX => {
-                let spawn_x =
-                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size).x
-                        as f32;
-                slice.indexed_iter_mut().for_each(|((x, _), out)| {
-                    *out = (x as f32 - spawn_x).abs()
-                        / FIXED_PARAMS.map_width as f32
-                });
-            },
-            DistanceFromSpawnY => {
-                let spawn_y =
-                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size).y
-                        as f32;
-                slice.indexed_iter_mut().for_each(|((_, y), out)| {
-                    *out = (y as f32 - spawn_y).abs()
-                        / FIXED_PARAMS.map_height as f32
+            DistanceFromSpawn => {
+                let spawn_pos =
+                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size);
+                slice.indexed_iter_mut().for_each(|(xy, out)| {
+                    *out = spawn_pos.manhattan_distance(xy.into()) as f32
+                        / MANHATTAN_DISTANCE_NORM;
                 });
             },
             Asteroid => Zip::from(&mut slice)
@@ -232,13 +234,23 @@ fn write_nontemporal_spatial_out(
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
-            EnergyField => Zip::from(&mut slice)
-                .and(mem.get_energy_field())
-                .for_each(|out, &energy| {
-                    if let Some(e) = energy {
-                        *out = e as f32 / ENERGY_FIELD_NORM
-                    }
-                }),
+            EnergyField => {
+                // Optimistically estimate nebula tile energy reduction
+                let nebula_cost = mem
+                    .iter_nebula_tile_energy_reduction_options()
+                    .copied()
+                    .min()
+                    .unwrap();
+                Zip::from(&mut slice)
+                    .and(mem.get_energy_field())
+                    .and(mem.get_known_nebulae_map())
+                    .for_each(|out, &energy, &is_nebula| {
+                        if let Some(e) = energy {
+                            let e = if is_nebula { e - nebula_cost } else { e };
+                            *out = e as f32 / *ENERGY_FIELD_NORM
+                        }
+                    })
+            },
         }
     }
 }
@@ -416,10 +428,11 @@ where
 mod tests {
     use super::*;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
-    use NontemporalGlobalFeature::*;
 
     #[test]
     fn test_nontemporal_global_feature_indices() {
+        use NontemporalGlobalFeature::*;
+
         for (feature, next_feature) in
             NontemporalGlobalFeature::iter().tuple_windows()
         {

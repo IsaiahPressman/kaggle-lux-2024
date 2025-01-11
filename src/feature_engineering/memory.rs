@@ -81,6 +81,14 @@ impl Memory {
             .get_weighted_possibilities()
     }
 
+    pub fn iter_nebula_tile_energy_reduction_options(
+        &self,
+    ) -> impl Iterator<Item = &i32> {
+        self.hidden_parameter
+            .nebula_tile_energy_reduction
+            .iter_unmasked_options()
+    }
+
     pub fn get_unit_sap_dropoff_factor_weights(&self) -> Vec<f32> {
         self.hidden_parameter
             .unit_sap_dropoff_factor

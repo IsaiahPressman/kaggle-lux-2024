@@ -93,17 +93,21 @@ impl Pos {
     }
 
     #[inline]
-    pub fn reflect(self, map_size: [usize; 2]) -> Self {
-        let [width, height] = map_size;
+    pub fn reflect(self, [map_width, map_height]: [usize; 2]) -> Self {
         Pos {
-            x: height - 1 - self.y,
-            y: width - 1 - self.x,
+            x: map_height - 1 - self.y,
+            y: map_width - 1 - self.x,
         }
     }
 
     #[inline]
     pub fn as_index(&self) -> [usize; 2] {
         [self.x, self.y]
+    }
+
+    #[inline]
+    pub fn manhattan_distance(self, target: Self) -> usize {
+        self.x.abs_diff(target.x) + self.y.abs_diff(target.y)
     }
 }
 
@@ -480,6 +484,15 @@ mod tests {
         assert_eq!(Pos::new(1, 1).reflect(map_size), Pos::new(22, 22));
         assert_eq!(Pos::new(2, 0).reflect(map_size), Pos::new(23, 21));
         assert_eq!(Pos::new(3, 22).reflect(map_size), Pos::new(1, 20));
+    }
+
+    #[test]
+    fn test_manhattan_distance() {
+        let p1 = Pos::new(10, 10);
+        assert_eq!(p1.manhattan_distance(Pos::new(10, 10)), 0);
+        assert_eq!(p1.manhattan_distance(Pos::new(8, 10)), 2);
+        assert_eq!(p1.manhattan_distance(Pos::new(10, 12)), 2);
+        assert_eq!(p1.manhattan_distance(Pos::new(7, 15)), 8);
     }
 
     #[test]
