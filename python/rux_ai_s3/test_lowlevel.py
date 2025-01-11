@@ -256,7 +256,8 @@ class TestFeatureEngineeringEnv:
         for array in itertools.chain(
             *[
                 fe_out.obs.temporal_spatial_obs,
-                # The first feature - spawn point - will be non-zero
+                # The first two features - x/y distance from spawn point - will
+                # be non-zero
                 fe_out.obs.nontemporal_spatial_obs[1:],
                 fe_out.obs.temporal_global_obs,
             ],

@@ -31,7 +31,8 @@ enum TemporalSpatialFeature {
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum NontemporalSpatialFeature {
-    SpawnPosition,
+    DistanceFromSpawnX,
+    DistanceFromSpawnY,
     Asteroid,
     Nebula,
     TileExplored,
@@ -184,10 +185,23 @@ fn write_nontemporal_spatial_out(
         .zip_eq(nontemporal_spatial_out.outer_iter_mut())
     {
         match sf {
-            SpawnPosition => {
-                let spawn_pos =
-                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size);
-                slice[spawn_pos.as_index()] = 1.0;
+            DistanceFromSpawnX => {
+                let spawn_x =
+                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size).x
+                        as f32;
+                slice.indexed_iter_mut().for_each(|((x, _), out)| {
+                    *out = (x as f32 - spawn_x).abs()
+                        / FIXED_PARAMS.map_width as f32
+                });
+            },
+            DistanceFromSpawnY => {
+                let spawn_y =
+                    get_spawn_position(obs.team_id, FIXED_PARAMS.map_size).y
+                        as f32;
+                slice.indexed_iter_mut().for_each(|((_, y), out)| {
+                    *out = (y as f32 - spawn_y).abs()
+                        / FIXED_PARAMS.map_height as f32
+                });
             },
             Asteroid => Zip::from(&mut slice)
                 .and(mem.get_known_asteroids_map())
