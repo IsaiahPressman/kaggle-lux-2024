@@ -39,11 +39,12 @@ impl EnergyFieldMemory {
         );
         let err_msg =
             "Missing new_energy where there was observed energy last turn";
-        if Zip::from(&new_energy_field).and(&self.energy_field).all(
-            |new_energy, energy_last_turn| {
+        let energy_field_moved = !Zip::from(&new_energy_field)
+            .and(&self.energy_field)
+            .all(|new_energy, energy_last_turn| {
                 energy_last_turn.is_none_or(|e| e == new_energy.expect(err_msg))
-            },
-        ) {
+            });
+        if !energy_field_moved {
             // If there are no conflicts between this turn and last turns
             // non-null values, then we're good to update and move on
             self.energy_field = new_energy_field;
@@ -56,16 +57,15 @@ impl EnergyFieldMemory {
                 self.energy_field.view_mut(),
                 obs.energy_field.view(),
             );
-            // NB: Energy nodes have a (slim) chance of not moving. As a
-            // result, don't update the drift speed in the negative case (i.e.
-            // no movement when we would have expected some)
-            //
             // Subtract 2: 1 for the delay in the observed energy field and 1
             // because the energy field is moved before step is incremented
             // when creating the observation
+        }
+        if self.energy_node_drift_speed.still_unsolved() || energy_field_moved {
             update_energy_node_drift_speed(
                 &mut self.energy_node_drift_speed,
                 obs.total_steps.saturating_sub(2),
+                energy_field_moved,
             );
         }
     }
@@ -102,13 +102,14 @@ fn symmetrize(mut energy_field: ArrayViewMut2<Option<i32>>) {
 fn update_energy_node_drift_speed(
     energy_node_drift_speed: &mut MaskedPossibilities<f32>,
     step: u32,
+    energy_field_moved: bool,
 ) {
     // Sometimes the step where the energy field moved is missed by a couple steps.
     // In this case, omit updating energy_node_drift_speed
     if !energy_node_drift_speed
         .get_options()
         .iter()
-        .any(|&speed| should_drift(step, speed))
+        .any(|&speed| should_drift(step, speed) == energy_field_moved)
     {
         return;
     }
@@ -116,7 +117,7 @@ fn update_energy_node_drift_speed(
     for (&candidate_speed, mask) in
         energy_node_drift_speed.iter_unmasked_options_mut_mask()
     {
-        if !should_drift(step, candidate_speed) {
+        if should_drift(step, candidate_speed) != energy_field_moved {
             *mask = false;
         }
     }
@@ -126,7 +127,11 @@ fn update_energy_node_drift_speed(
         *energy_node_drift_speed = MaskedPossibilities::from_options(
             energy_node_drift_speed.get_options().to_vec(),
         );
-        update_energy_node_drift_speed(energy_node_drift_speed, step);
+        update_energy_node_drift_speed(
+            energy_node_drift_speed,
+            step,
+            energy_field_moved,
+        );
     }
 }
 
@@ -312,19 +317,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case(0, vec![true; 4])]
-    #[case(20, vec![false, false, false, true])]
-    #[case(25, vec![false, false, true, false])]
-    #[case(50, vec![false, true, true, false])]
-    #[case(100, vec![true; 4])]
+    #[case(0, true, vec![true; 4])]
+    #[case(20, true, vec![false, false, false, true])]
+    #[case(20, false, vec![true, true, true, false])]
+    #[case(25, true, vec![false, false, true, false])]
+    #[case(25, false, vec![true, true, false, true])]
+    #[case(50, true, vec![false, true, true, false])]
+    #[case(50, false, vec![true, false, false, true])]
+    #[case(100, true, vec![true; 4])]
     fn test_update_energy_node_drift_speed(
         #[case] step: u32,
+        #[case] energy_field_moved: bool,
         #[case] expected_result: Vec<bool>,
     ) {
         let mut energy_node_drift_speed =
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
-        update_energy_node_drift_speed(&mut energy_node_drift_speed, step);
+        update_energy_node_drift_speed(
+            &mut energy_node_drift_speed,
+            step,
+            energy_field_moved,
+        );
         assert_eq!(
             energy_node_drift_speed.get_mask().to_vec(),
             expected_result
@@ -339,7 +352,7 @@ mod tests {
             EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
         energy_node_drift_speed.mask = mask.to_vec();
-        update_energy_node_drift_speed(&mut energy_node_drift_speed, 120);
+        update_energy_node_drift_speed(&mut energy_node_drift_speed, 120, true);
         assert_eq!(
             energy_node_drift_speed.mask,
             vec![false, false, false, true]

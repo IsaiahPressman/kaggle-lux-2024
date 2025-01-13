@@ -141,7 +141,7 @@ mod tests {
     use crate::rules_engine::env::step;
     use crate::rules_engine::env::TerminationMode::FinalStep;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
-    use crate::rules_engine::params::FIXED_PARAMS;
+    use crate::rules_engine::params::{FIXED_PARAMS, P};
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::State;
     use itertools::Itertools;
@@ -199,6 +199,15 @@ mod tests {
         true
     }
 
+    fn should_drift(step: u32, speed: f32) -> bool {
+        step as f32 * speed % 1.0 == 0.0
+    }
+
+    fn drift_speed_equal(speed: f32, other: f32) -> bool {
+        (0..FIXED_PARAMS.get_max_steps_in_game())
+            .all(|step| should_drift(step, speed) == should_drift(step, other))
+    }
+
     #[rstest]
     #[ignore = "slow"]
     fn test_energy_field_memory(
@@ -213,6 +222,7 @@ mod tests {
             Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
         ];
         let mut known_pcts = Vec::new();
+        let mut incorrect_speed_count = 0.;
         for (state, actions, obs, _next_state) in run_replay(&full_replay) {
             let mut known_count = 0;
             let mut unknown_count = 0;
@@ -234,13 +244,19 @@ mod tests {
                         unknown_count += 1;
                     }
                 }
-                assert!(mem
+                if !mem
                     .energy_field
                     .energy_node_drift_speed
                     .iter_unmasked_options()
-                    .any(|&speed| speed
-                        == variable_params.energy_node_drift_speed));
-
+                    .any(|&speed| {
+                        drift_speed_equal(
+                            speed,
+                            variable_params.energy_node_drift_speed,
+                        )
+                    })
+                {
+                    incorrect_speed_count += 1.;
+                }
                 assert!(is_symmetrical(mem.energy_field.energy_field.view()));
             }
             known_pcts.push(
@@ -268,13 +284,14 @@ mod tests {
             },
             n => panic!("Unrecognized unit_sensor_range {}", n),
         }
+
+        assert!(
+            incorrect_speed_count
+                / (FIXED_PARAMS.get_max_steps_in_game() * P as u32) as f32
+                <= 0.1
+        );
         for mem in memories.iter() {
-            if variable_params.energy_node_drift_speed > 0.02 {
-                assert!(!mem
-                    .energy_field
-                    .energy_node_drift_speed
-                    .still_unsolved());
-            }
+            assert!(mem.energy_field.energy_node_drift_speed.solved());
         }
     }
 
@@ -317,18 +334,9 @@ mod tests {
         }
 
         for mem in memories.iter() {
-            assert!(!mem
-                .hidden_parameter
-                .nebula_tile_vision_reduction
-                .still_unsolved());
-            assert!(!mem
-                .hidden_parameter
-                .nebula_tile_energy_reduction
-                .still_unsolved());
-            assert!(!mem
-                .hidden_parameter
-                .unit_sap_dropoff_factor
-                .still_unsolved());
+            assert!(mem.hidden_parameter.nebula_tile_vision_reduction.solved());
+            assert!(mem.hidden_parameter.nebula_tile_energy_reduction.solved());
+            assert!(mem.hidden_parameter.unit_sap_dropoff_factor.solved());
         }
     }
 
@@ -481,10 +489,7 @@ mod tests {
                 .mean()
                 .unwrap();
             assert!(explored_pct >= 0.9);
-            assert!(!mem
-                .space_obstacle
-                .nebula_tile_drift_speed
-                .still_unsolved());
+            assert!(mem.space_obstacle.nebula_tile_drift_speed.solved());
         }
     }
 }

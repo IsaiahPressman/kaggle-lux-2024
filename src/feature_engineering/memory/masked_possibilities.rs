@@ -63,6 +63,11 @@ impl<T> MaskedPossibilities<T> {
     pub fn get_mask(&self) -> &[bool] {
         &self.mask
     }
+
+    #[cfg(test)]
+    pub fn solved(&self) -> bool {
+        !self.still_unsolved()
+    }
 }
 
 #[cfg(test)]
