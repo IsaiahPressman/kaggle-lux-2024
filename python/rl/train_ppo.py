@@ -139,6 +139,16 @@ class UserArgs(BaseModel):
         return UserArgs(**vars(args))
 
 
+class LRScheduleConfig(BaseModel):
+    steps: Annotated[int, Field(ge=10_000, lt=1_000_000)]
+    min_factor: Annotated[float, Field(gt=0.0, lt=1.0)]
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+
 class LossCoefficients(BaseModel):
     policy: float
     value: float
@@ -155,8 +165,7 @@ class PPOConfig(TrainConfig):
     # Training config
     max_updates: int | None
     optimizer_kwargs: dict[str, float]
-    lr_schedule_steps: Annotated[int, Field(ge=10_000, lt=1_000_000)]
-    lr_schedule_min_factor: Annotated[float, Field(gt=0.0, lt=1.0)]
+    lr_schedule: LRScheduleConfig
     steps_per_update: int
     epochs_per_update: int
     train_batch_size: int
@@ -429,9 +438,9 @@ def build_lr_scheduler(
     optimizer: optim.Optimizer,
 ) -> LambdaLR:
     def lr_lambda(epoch: int) -> float:
-        pct_remaining = max(1.0 - epoch / cfg.lr_schedule_steps, 0.0)
-        return cfg.lr_schedule_min_factor + pct_remaining * (
-            1.0 - cfg.lr_schedule_min_factor
+        pct_remaining = max(1.0 - epoch / cfg.lr_schedule.steps, 0.0)
+        return cfg.lr_schedule.min_factor + pct_remaining * (
+            1.0 - cfg.lr_schedule.min_factor
         )
 
     return LambdaLR(
