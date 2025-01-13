@@ -1,14 +1,15 @@
 max_updates: null
 optimizer_kwargs:
-  lr: 5e-5
+  lr: 8e-5
   eps: 0.000_3
-lr_schedule_steps: 200_000
-lr_schedule_min_factor: 0.2
+lr_schedule:
+  steps: 200_000
+  min_factor: 0.25
 steps_per_update: 32
 epochs_per_update: 1
 train_batch_size: 128
 use_mixed_precision: true
-teacher_path: train_outputs/ppo/2025_01_07/03_06/checkpoint_044515.pt
+teacher_path: train_outputs/ppo/2025_01_11/17_22/checkpoint_250574.pt
 
 gamma: 0.9999
 gae_lambda: 0.85
@@ -17,8 +18,8 @@ loss_coefficients:
   policy: 1.0
   value: 0.5
   entropy: 1e-4
-  # TODO: tune teacher_kl coefficient
-  teacher_kl: 1e-3
+  # TODO: continue tuning teacher_kl coefficient
+  teacher_kl: 5e-4
 
 env_config:
   n_envs: 64
@@ -28,8 +29,8 @@ env_config:
   jax_device: cpu:0
 
 rl_model_config:
-  d_model: 128
-  n_blocks: 6
+  d_model: 256
+  n_blocks: 8
 
 device: cuda:0
 log_histograms: false
