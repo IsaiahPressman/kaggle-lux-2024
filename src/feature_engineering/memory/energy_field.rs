@@ -57,10 +57,13 @@ impl EnergyFieldMemory {
                 self.energy_field.view_mut(),
                 obs.energy_field.view(),
             );
-            // Subtract 2: 1 for the delay in the observed energy field and 1
-            // because the energy field is moved before step is incremented
-            // when creating the observation
         }
+        // Subtract 2 steps: 1 for the delay in the observed energy field
+        // and 1 because the energy field is moved before step is
+        // incremented when creating the observation
+        //
+        // In case the speed was registered incorrectly, re-check the
+        // solution if the energy field moved
         if self.energy_node_drift_speed.still_unsolved() || energy_field_moved {
             update_energy_node_drift_speed(
                 &mut self.energy_node_drift_speed,

@@ -230,18 +230,18 @@ mod tests {
                 izip_eq!(memories.iter_mut(), obs, actions)
             {
                 mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
-                for (e_mem, e_actual) in mem
+                for ((loc, e_mem), e_actual) in mem
                     .energy_field
                     .energy_field
-                    .iter()
-                    .copied()
+                    .indexed_iter()
                     .zip_eq(state.energy_field.iter().copied())
                 {
-                    if let Some(e) = e_mem {
+                    if let &Some(e) = e_mem {
                         known_count += 1;
                         assert_eq!(e, e_actual);
                     } else {
                         unknown_count += 1;
+                        assert!(!obs.sensor_mask[loc]);
                     }
                 }
                 if !mem
@@ -271,16 +271,16 @@ mod tests {
             .unwrap();
         match variable_params.unit_sensor_range {
             2 => {
-                assert!(mean_known_pct >= 0.35);
-                assert!(max_known_pct >= 0.6);
-            },
-            3 => {
                 assert!(mean_known_pct >= 0.4);
                 assert!(max_known_pct >= 0.65);
             },
-            4 => {
-                assert!(mean_known_pct >= 0.5);
+            3 => {
+                assert!(mean_known_pct >= 0.45);
                 assert!(max_known_pct >= 0.7);
+            },
+            4 => {
+                assert!(mean_known_pct >= 0.6);
+                assert!(max_known_pct >= 0.8);
             },
             n => panic!("Unrecognized unit_sensor_range {}", n),
         }
@@ -364,20 +364,23 @@ mod tests {
                     .for_each(
                         |&actual_point, &known_and_explored, &explored| {
                             if explored {
-                                assert_eq!(known_and_explored, actual_point,);
+                                assert_eq!(known_and_explored, actual_point);
                             }
                         },
                     );
 
-                for explored_pos in
-                    mem.relic_node.explored_nodes_map.indexed_iter().filter_map(
-                        |(xy, explored)| explored.then_some(Pos::from(xy)),
-                    )
+                for (loc, &explored) in
+                    mem.relic_node.explored_nodes_map.indexed_iter()
                 {
-                    assert_eq!(
-                        state.relic_node_locations.contains(&explored_pos),
-                        mem.relic_node.relic_nodes.contains(&explored_pos)
-                    );
+                    if explored {
+                        let pos = loc.into();
+                        assert_eq!(
+                            state.relic_node_locations.contains(&pos),
+                            mem.relic_node.relic_nodes.contains(&pos)
+                        );
+                    } else {
+                        assert!(!obs.sensor_mask[loc]);
+                    }
                 }
 
                 for rn in &mem.relic_node.relic_nodes {
@@ -408,20 +411,28 @@ mod tests {
                 .mean()
                 .unwrap();
             match variable_params.unit_sensor_range {
-                2 => assert!(explored_pct >= 0.65),
-                3 => assert!(explored_pct >= 0.7),
-                4 => assert!(explored_pct >= 0.8),
+                2 => assert!(explored_pct >= 0.7),
+                3 => assert!(explored_pct >= 0.75),
+                4 => assert!(explored_pct >= 0.85),
                 n => panic!("Unrecognized unit_sensor_range {}", n),
             }
             if mem.relic_node.get_all_nodes_registered() {
                 assert_eq!(explored_pct, 1.0);
             }
 
+            let point_explored_pct = mem
+                .relic_node
+                .explored_points_map
+                .mapv(|ex| if ex { 1.0 } else { 0.0 })
+                .mean()
+                .unwrap();
             if full_replay.get_relic_nodes().len()
                 == FIXED_PARAMS.max_relic_nodes
-                && variable_params.unit_sensor_range > 2
             {
                 assert!(mem.relic_node.get_all_nodes_registered());
+                assert!(point_explored_pct >= 0.98);
+            } else {
+                assert!(point_explored_pct >= 0.7);
             }
         }
     }
@@ -488,7 +499,7 @@ mod tests {
                 .mapv(|ex| if ex { 1.0 } else { 0.0 })
                 .mean()
                 .unwrap();
-            assert!(explored_pct >= 0.9);
+            assert!(explored_pct >= 0.98);
             assert!(mem.space_obstacle.nebula_tile_drift_speed.solved());
         }
     }
