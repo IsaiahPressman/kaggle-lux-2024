@@ -56,7 +56,7 @@ pub fn update_memories_and_write_output_arrays(
     );
     let known_valuable_points_maps = memories
         .iter()
-        .map(|m| m.get_known_valuable_relic_points_map())
+        .map(|m| m.get_relic_known_and_explored_points_map().view())
         .collect_vec();
     write_basic_action_space(
         action_info_slice.action_mask.view_mut(),

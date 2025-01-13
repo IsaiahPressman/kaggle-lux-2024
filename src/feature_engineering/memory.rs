@@ -13,7 +13,7 @@ use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos};
 use energy_field::EnergyFieldMemory;
 use hidden_parameter::HiddenParameterMemory;
-use numpy::ndarray::{Array2, Zip};
+use numpy::ndarray::Array2;
 use relic_node::RelicNodeMemory;
 
 pub struct Memory {
@@ -103,18 +103,16 @@ impl Memory {
         &self.relic_node.explored_nodes_map
     }
 
-    pub fn get_relic_points_map(&self) -> &Array2<f32> {
-        &self.relic_node.points_map
+    pub fn get_relic_known_and_explored_points_map(&self) -> &Array2<bool> {
+        &self.relic_node.known_and_explored_points_map
     }
 
-    pub fn get_known_relic_points_map(&self) -> &Array2<bool> {
-        &self.relic_node.known_points_map
+    pub fn get_relic_estimated_points_map(&self) -> &Array2<f32> {
+        &self.relic_node.estimated_unexplored_points_map
     }
 
-    pub fn get_known_valuable_relic_points_map(&self) -> Array2<bool> {
-        Zip::from(&self.relic_node.points_map)
-            .and(&self.relic_node.known_points_map)
-            .map_collect(|&value, &known| known && value >= 0.99)
+    pub fn get_relic_explored_points_map(&self) -> &Array2<bool> {
+        &self.relic_node.explored_points_map
     }
 
     pub fn get_known_asteroids_map(&self) -> &Array2<bool> {
@@ -147,7 +145,7 @@ mod tests {
     use crate::rules_engine::replay::FullReplay;
     use crate::rules_engine::state::State;
     use itertools::Itertools;
-    use numpy::ndarray::ArrayView2;
+    use numpy::ndarray::{ArrayView2, Zip};
     use rstest::rstest;
     use rstest_reuse::{self, *};
     use std::fs;
@@ -357,16 +355,15 @@ mod tests {
             {
                 mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
                 Zip::from(&state.relic_node_points_map)
-                    .and(&mem.relic_node.points_map)
-                    .and(&mem.relic_node.known_points_map)
-                    .for_each(|&actual_point, &mem_point, &mem_point_known| {
-                        if mem_point_known {
-                            assert_eq!(
-                                if actual_point { 1.0 } else { 0.0 },
-                                mem_point
-                            );
-                        }
-                    });
+                    .and(&mem.relic_node.known_and_explored_points_map)
+                    .and(&mem.relic_node.explored_points_map)
+                    .for_each(
+                        |&actual_point, &known_and_explored, &explored| {
+                            if explored {
+                                assert_eq!(known_and_explored, actual_point,);
+                            }
+                        },
+                    );
 
                 for explored_pos in
                     mem.relic_node.explored_nodes_map.indexed_iter().filter_map(
@@ -388,8 +385,15 @@ mod tests {
                 assert!(is_symmetrical(
                     mem.relic_node.explored_nodes_map.view()
                 ));
-                assert!(is_symmetrical(mem.relic_node.points_map.view()));
-                assert!(is_symmetrical(mem.relic_node.known_points_map.view()));
+                assert!(is_symmetrical(
+                    mem.relic_node.known_and_explored_points_map.view()
+                ));
+                assert!(is_symmetrical(
+                    mem.relic_node.estimated_unexplored_points_map.view()
+                ));
+                assert!(is_symmetrical(
+                    mem.relic_node.explored_points_map.view()
+                ));
             }
         }
         for mem in memories.iter() {

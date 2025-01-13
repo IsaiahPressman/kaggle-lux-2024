@@ -11,12 +11,9 @@ const RELIC_WINDOW: isize = FIXED_PARAMS.relic_config_size as isize / 2;
 pub struct RelicNodeMemory {
     pub relic_nodes: Vec<Pos>,
     pub explored_nodes_map: Array2<bool>,
-    // TODO: Three points channels instead of two:
-    //  - points_map (when known_points == true)
-    //  - points_estimate_map (when known_points == false)
-    //  - known_points_map
-    pub points_map: Array2<f32>,
-    pub known_points_map: Array2<bool>,
+    pub known_and_explored_points_map: Array2<bool>,
+    pub estimated_unexplored_points_map: Array2<f32>,
+    pub explored_points_map: Array2<bool>,
     points_sum_map: Array2<f32>,
     points_count_map: Array2<u32>,
     points_last_turn: u32,
@@ -29,8 +26,9 @@ impl RelicNodeMemory {
         RelicNodeMemory {
             relic_nodes: Vec::with_capacity(FIXED_PARAMS.max_relic_nodes),
             explored_nodes_map: Array2::default(map_size),
-            points_map: Array2::default(map_size),
-            known_points_map: Array2::default(map_size),
+            known_and_explored_points_map: Array2::default(map_size),
+            estimated_unexplored_points_map: Array2::zeros(map_size),
+            explored_points_map: Array2::default(map_size),
             points_sum_map: Array2::zeros(map_size),
             points_count_map: Array2::zeros(map_size),
             points_last_turn: 0,
@@ -89,7 +87,7 @@ impl RelicNodeMemory {
             .cartesian_product(-RELIC_WINDOW..=RELIC_WINDOW)
             .filter_map(|(dx, dy)| seen_pos.maybe_translate([dx, dy], map_size))
         {
-            if !self.known_points_map[pos.as_index()]
+            if !self.explored_points_map[pos.as_index()]
                 && self.known_pointless(pos)
             {
                 self.set_known_points(pos, false);
@@ -110,12 +108,21 @@ impl RelicNodeMemory {
     }
 
     fn set_known_points(&mut self, pos: Pos, worth_points: bool) {
-        if self.known_points_map[pos.as_index()] {
-            assert_eq!(worth_points, self.points_map[pos.as_index()] == 1.0);
+        if self.explored_points_map[pos.as_index()] {
+            assert_eq!(
+                worth_points,
+                self.known_and_explored_points_map[pos.as_index()]
+            );
         }
 
-        self.known_points_map[pos.as_index()] = true;
-        self.points_map[pos.as_index()] = if worth_points { 1.0 } else { 0.0 };
+        self.explored_points_map[pos.as_index()] = true;
+        self.known_and_explored_points_map[pos.as_index()] = worth_points;
+        self.estimated_unexplored_points_map[pos.as_index()] = 0.0;
+
+        let reflected = pos.reflect(self.map_size);
+        self.explored_points_map[reflected.as_index()] = true;
+        self.known_and_explored_points_map[reflected.as_index()] = worth_points;
+        self.estimated_unexplored_points_map[reflected.as_index()] = 0.0;
     }
 
     fn update_points_map(&mut self, obs: &Observation) {
@@ -135,21 +142,21 @@ impl RelicNodeMemory {
             .iter()
             .filter(|u| u.alive())
             .map(|u| u.pos)
-            .partition(|pos| self.known_points_map[pos.as_index()]);
+            .partition(|pos| self.explored_points_map[pos.as_index()]);
         let unaccounted_new_points = new_points
             - known_locations
                 .into_iter()
-                .filter(|pos| self.points_map[pos.as_index()] == 1.0)
+                .filter(|pos| {
+                    self.known_and_explored_points_map[pos.as_index()]
+                })
                 .count();
         if unaccounted_new_points == 0 {
             frontier_locations.into_iter().for_each(|pos| {
                 self.set_known_points(pos, false);
-                self.set_known_points(pos.reflect(self.map_size), false);
             });
         } else if unaccounted_new_points == frontier_locations.len() {
             frontier_locations.into_iter().for_each(|pos| {
                 self.set_known_points(pos, true);
-                self.set_known_points(pos.reflect(self.map_size), true);
             });
         } else if unaccounted_new_points > frontier_locations.len() {
             panic!(
@@ -166,12 +173,12 @@ impl RelicNodeMemory {
                 self.points_sum_map[reflected.as_index()] += mean_points;
                 self.points_count_map[pos.as_index()] += 1;
                 self.points_count_map[reflected.as_index()] += 1;
-                self.points_map[pos.as_index()] = self.points_sum_map
-                    [pos.as_index()]
+                self.estimated_unexplored_points_map[pos.as_index()] = self
+                    .points_sum_map[pos.as_index()]
                     / self.points_count_map[pos.as_index()] as f32;
-                self.points_map[reflected.as_index()] = self.points_sum_map
-                    [reflected.as_index()]
-                    / self.points_count_map[reflected.as_index()] as f32;
+                self.estimated_unexplored_points_map[reflected.as_index()] =
+                    self.points_sum_map[reflected.as_index()]
+                        / self.points_count_map[reflected.as_index()] as f32;
             });
         }
     }
@@ -191,15 +198,22 @@ impl RelicNodeMemory {
         {
             potential_points_mask[pos.as_index()] = true;
         }
-        Zip::from(&mut self.points_map)
-            .and(&mut self.known_points_map)
+        Zip::from(&mut self.known_and_explored_points_map)
+            .and(&mut self.estimated_unexplored_points_map)
+            .and(&mut self.explored_points_map)
             .and(&potential_points_mask)
-            .for_each(|points, known_points, potential_points| {
-                if !potential_points {
-                    *points = 0.0;
-                    *known_points = true;
-                }
-            })
+            .for_each(
+                |known_points,
+                 estimated_points,
+                 explored_points,
+                 potential_points| {
+                    if !potential_points {
+                        *known_points = false;
+                        *estimated_points = 0.0;
+                        *explored_points = true;
+                    }
+                },
+            )
     }
 }
 
@@ -319,12 +333,12 @@ mod tests {
             ..Default::default()
         };
         let pos = Pos::new(0, 0);
-        memory.known_points_map[pos.as_index()] = true;
-        memory.known_points_map[pos.reflect(map_size).as_index()] = true;
+        memory.explored_points_map[pos.as_index()] = true;
+        memory.explored_points_map[pos.reflect(map_size).as_index()] = true;
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 1);
         assert_eq!(
-            memory.known_points_map,
+            memory.explored_points_map,
             arr2(&[
                 [true, true, false, false],
                 [false, false, false, false],
@@ -333,12 +347,12 @@ mod tests {
             ])
         );
         assert_eq!(
-            memory.points_map,
+            memory.known_and_explored_points_map,
             arr2(&[
-                [0., 1., 0., 0.],
-                [0., 0., 0., 0.],
-                [0., 0., 0., 1.],
-                [0., 0., 0., 0.]
+                [false, true, false, false],
+                [false, false, false, false],
+                [false, false, false, true],
+                [false, false, false, false]
             ])
         );
 
@@ -357,7 +371,7 @@ mod tests {
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 3);
         assert_eq!(
-            memory.known_points_map,
+            memory.explored_points_map,
             arr2(&[
                 [true, true, false, false],
                 [true, true, false, false],
@@ -366,12 +380,12 @@ mod tests {
             ])
         );
         assert_eq!(
-            memory.points_map,
+            memory.known_and_explored_points_map,
             arr2(&[
-                [0., 1., 0., 0.],
-                [1., 1., 0., 0.],
-                [0., 0., 1., 1.],
-                [0., 0., 1., 0.]
+                [false, true, false, false],
+                [true, true, false, false],
+                [false, false, true, true],
+                [false, false, true, false]
             ])
         );
 
@@ -391,7 +405,7 @@ mod tests {
         memory.update_points_map(&obs);
         assert_eq!(memory.points_last_turn, 4);
         assert_eq!(
-            memory.known_points_map,
+            memory.explored_points_map,
             arr2(&[
                 [true, true, false, false],
                 [true, true, false, false],
@@ -400,14 +414,23 @@ mod tests {
             ])
         );
         assert_eq!(
-            memory.points_map,
+            memory.known_and_explored_points_map,
             arr2(&[
-                [0., 1., 0., 0.],
-                [1., 1., 0., 0.],
-                [0.5, 0.5, 1., 1.],
-                [0., 0.5, 1., 0.]
+                [false, true, false, false],
+                [true, true, false, false],
+                [false, false, true, true],
+                [false, false, true, false]
             ])
         );
+        assert_eq!(
+            memory.estimated_unexplored_points_map,
+            arr2(&[
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.],
+                [0.5, 0.5, 0., 0.],
+                [0., 0.5, 0., 0.]
+            ])
+        )
     }
 
     #[test]
@@ -421,7 +444,7 @@ mod tests {
             team_points: [1, 0],
             ..Default::default()
         };
-        memory.known_points_map[[0, 0]] = true;
+        memory.explored_points_map[[0, 0]] = true;
         memory.update_points_map(&obs);
     }
 
@@ -429,9 +452,11 @@ mod tests {
     fn test_register_all_relic_nodes_found() {
         let map_size = [5, 5];
         let mut memory = RelicNodeMemory::new(map_size);
-        memory.relic_nodes = vec![Pos::new(0, 1)];
-        memory.points_map.fill(0.5);
+        memory.relic_nodes = vec![Pos::new(0, 3), Pos::new(1, 4)];
+        memory.known_and_explored_points_map.fill(false);
+        memory.estimated_unexplored_points_map.fill(0.5);
 
+        memory.set_known_points(Pos::new(0, 4), true);
         memory.register_all_relic_nodes_found();
         assert!(memory.all_nodes_registered);
         assert_eq!(
@@ -439,22 +464,32 @@ mod tests {
             Array2::from_elem(map_size, true)
         );
         assert_eq!(
-            memory.points_map,
+            memory.known_and_explored_points_map,
             arr2(&[
-                [0.5, 0.5, 0.5, 0.5, 0.0],
-                [0.5, 0.5, 0.5, 0.5, 0.0],
-                [0.5, 0.5, 0.5, 0.5, 0.0],
-                [0.0, 0.0, 0.0, 0.0, 0.0],
+                [false, false, false, false, true],
+                [false; 5],
+                [false; 5],
+                [false; 5],
+                [false; 5],
+            ])
+        );
+        assert_eq!(
+            memory.estimated_unexplored_points_map,
+            arr2(&[
+                [0.0, 0.5, 0.5, 0.5, 0.0],
+                [0.0, 0.5, 0.5, 0.5, 0.5],
+                [0.0, 0.5, 0.5, 0.5, 0.5],
+                [0.0, 0.0, 0.5, 0.5, 0.5],
                 [0.0, 0.0, 0.0, 0.0, 0.0]
             ])
         );
         assert_eq!(
-            memory.known_points_map,
+            memory.explored_points_map,
             arr2(&[
-                [false, false, false, false, true],
-                [false, false, false, false, true],
-                [false, false, false, false, true],
-                [true, true, true, true, true],
+                [true, false, false, false, true],
+                [true, false, false, false, false],
+                [true, false, false, false, false],
+                [true, true, false, false, false],
                 [true, true, true, true, true],
             ])
         );

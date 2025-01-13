@@ -17,7 +17,7 @@ pub fn write_basic_action_space(
     mut action_mask: ArrayViewMut3<bool>,
     mut sap_mask: ArrayViewMut4<bool>,
     observations: &[Observation],
-    known_valuable_points_map: &[Array2<bool>],
+    known_valuable_points_map: &[ArrayView2<bool>],
     params: &KnownVariableParams,
 ) {
     for (obs, team_action_mask, team_sap_mask, known_valuable_points_map) in izip_eq!(

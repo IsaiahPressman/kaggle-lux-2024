@@ -18,27 +18,40 @@ enum TemporalSpatialFeature {
     Visible,
     MyUnitCount,
     OppUnitCount,
-    // Dead units still provide vision
-    MyDeadUnitCount,
-    OppDeadUnitCount,
     MyUnitEnergy,
     OppUnitEnergy,
-    MyUnitEnergyMin,
-    OppUnitEnergyMin,
-    MyUnitEnergyMax,
-    OppUnitEnergyMax,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum NontemporalSpatialFeature {
+    // Static features first
     DistanceFromSpawn,
+    // I think these we only need to provide these unit features
+    // for the current frame
+    MyUnitCanMove,
+    OppUnitCanMove,
+    MyUnitCanSap,
+    OppUnitCanSap,
+    // Dead units still provide vision, so we include them here
+    MyDeadUnitCount,
+    OppDeadUnitCount,
+    MyUnitEnergyMin,
+    OppUnitEnergyMin,
+    MyUnitEnergyMax,
+    OppUnitEnergyMax,
+    // These features represent the state of the map
+    // They also don't seem needed for more than the current frame
     Asteroid,
     Nebula,
     TileExplored,
     RelicNode,
     RelicNodeExplored,
-    RelicNodePoints,      // Guesstimate of the points value
-    RelicNodePointsKnown, // Whether the guessed value is known to be correct
+    // 1 if known to have points, 0 otherwise
+    TileKnownPoints,
+    // The estimated points (only if unknown, 0 if known or there's no data)
+    TileEstimatedPoints,
+    // Whether the tile is known to have points or not
+    TilePointsExplored,
     EnergyField,
 }
 
@@ -131,7 +144,12 @@ pub fn write_obs_arrays(
         nontemporal_global_out.outer_iter_mut(),
     ) {
         write_temporal_spatial_out(temporal_spatial_out, obs);
-        write_nontemporal_spatial_out(nontemporal_spatial_out, obs, mem);
+        write_nontemporal_spatial_out(
+            nontemporal_spatial_out,
+            obs,
+            mem,
+            params,
+        );
         write_temporal_global_out(temporal_global_out, obs);
         write_nontemporal_global_out(nontemporal_global_out, obs, mem, params);
     }
@@ -153,34 +171,16 @@ fn write_temporal_spatial_out(
                 );
             },
             MyUnitCount => {
-                write_unit_counts(slice, obs.get_my_units());
+                write_alive_unit_counts(slice, obs.get_my_units());
             },
             OppUnitCount => {
-                write_unit_counts(slice, obs.get_opp_units());
-            },
-            MyDeadUnitCount => {
-                write_dead_unit_counts(slice, obs.get_my_units());
-            },
-            OppDeadUnitCount => {
-                write_dead_unit_counts(slice, obs.get_opp_units());
+                write_alive_unit_counts(slice, obs.get_opp_units());
             },
             MyUnitEnergy => {
                 write_unit_energies(slice, obs.get_my_units());
             },
             OppUnitEnergy => {
                 write_unit_energies(slice, obs.get_opp_units());
-            },
-            MyUnitEnergyMin => {
-                write_unit_energy_min(slice, obs.get_my_units());
-            },
-            OppUnitEnergyMin => {
-                write_unit_energy_min(slice, obs.get_opp_units());
-            },
-            MyUnitEnergyMax => {
-                write_unit_energy_max(slice, obs.get_my_units());
-            },
-            OppUnitEnergyMax => {
-                write_unit_energy_max(slice, obs.get_opp_units());
             },
         }
     }
@@ -190,6 +190,7 @@ fn write_nontemporal_spatial_out(
     mut nontemporal_spatial_out: ArrayViewMut3<f32>,
     obs: &Observation,
     mem: &Memory,
+    params: &KnownVariableParams,
 ) {
     use NontemporalSpatialFeature::*;
 
@@ -204,6 +205,52 @@ fn write_nontemporal_spatial_out(
                     *out = spawn_pos.manhattan_distance(xy.into()) as f32
                         / MANHATTAN_DISTANCE_NORM;
                 });
+            },
+            MyUnitCanMove => {
+                write_units_have_enough_energy_counts(
+                    slice,
+                    obs.get_my_units(),
+                    params.unit_move_cost,
+                );
+            },
+            OppUnitCanMove => {
+                write_units_have_enough_energy_counts(
+                    slice,
+                    obs.get_opp_units(),
+                    params.unit_move_cost,
+                );
+            },
+            MyUnitCanSap => {
+                write_units_have_enough_energy_counts(
+                    slice,
+                    obs.get_opp_units(),
+                    params.unit_sap_cost,
+                );
+            },
+            OppUnitCanSap => {
+                write_units_have_enough_energy_counts(
+                    slice,
+                    obs.get_opp_units(),
+                    params.unit_sap_cost,
+                );
+            },
+            MyDeadUnitCount => {
+                write_dead_unit_counts(slice, obs.get_my_units());
+            },
+            OppDeadUnitCount => {
+                write_dead_unit_counts(slice, obs.get_opp_units());
+            },
+            MyUnitEnergyMin => {
+                write_unit_energy_min(slice, obs.get_my_units());
+            },
+            OppUnitEnergyMin => {
+                write_unit_energy_min(slice, obs.get_opp_units());
+            },
+            MyUnitEnergyMax => {
+                write_unit_energy_max(slice, obs.get_my_units());
+            },
+            OppUnitEnergyMax => {
+                write_unit_energy_max(slice, obs.get_opp_units());
             },
             Asteroid => Zip::from(&mut slice)
                 .and(mem.get_known_asteroids_map())
@@ -228,9 +275,16 @@ fn write_nontemporal_spatial_out(
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
-            RelicNodePoints => slice.assign(mem.get_relic_points_map()),
-            RelicNodePointsKnown => Zip::from(&mut slice)
-                .and(mem.get_known_relic_points_map())
+            TileKnownPoints => Zip::from(&mut slice)
+                .and(mem.get_relic_known_and_explored_points_map())
+                .for_each(|out, &known_and_explored| {
+                    *out = if known_and_explored { 1.0 } else { 0.0 }
+                }),
+            TileEstimatedPoints => {
+                slice.assign(mem.get_relic_estimated_points_map())
+            },
+            TilePointsExplored => Zip::from(&mut slice)
+                .and(mem.get_relic_explored_points_map())
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
@@ -367,11 +421,17 @@ fn write_nontemporal_global_out(
         .for_each(|(out, v)| *out = v);
 }
 
-fn write_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
+fn write_alive_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
     units
         .iter()
         .filter(|u| u.alive())
         .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
+}
+
+fn write_unit_energies(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
+    units.iter().filter(|u| u.alive()).for_each(|u| {
+        slice[u.pos.as_index()] += u.energy as f32 / UNIT_ENERGY_NORM
+    });
 }
 
 fn write_dead_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
@@ -381,10 +441,15 @@ fn write_dead_unit_counts(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
         .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
 }
 
-fn write_unit_energies(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
-    units.iter().filter(|u| u.alive()).for_each(|u| {
-        slice[u.pos.as_index()] += u.energy as f32 / UNIT_ENERGY_NORM
-    });
+fn write_units_have_enough_energy_counts(
+    mut slice: ArrayViewMut2<f32>,
+    units: &[Unit],
+    energy: i32,
+) {
+    units
+        .iter()
+        .filter(|u| u.energy >= energy)
+        .for_each(|u| slice[u.pos.as_index()] += 1. / UNIT_COUNT_NORM);
 }
 
 fn write_unit_energy_min(mut slice: ArrayViewMut2<f32>, units: &[Unit]) {
