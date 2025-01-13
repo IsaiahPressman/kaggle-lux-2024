@@ -59,6 +59,7 @@ enum NontemporalSpatialFeature {
 enum TemporalGlobalFeature {
     MyTeamPoints,
     OppTeamPoints,
+    PointsDiff,
 }
 
 #[derive(Debug, Clone, Copy, EnumIter)]
@@ -82,7 +83,7 @@ enum NontemporalGlobalFeature {
 }
 
 // Normalizing constants
-const UNIT_COUNT_NORM: f32 = 4.0;
+const UNIT_COUNT_NORM: f32 = 4.;
 const UNIT_ENERGY_NORM: f32 = FIXED_PARAMS.max_unit_energy as f32;
 const UNIT_ENERGY_MIN_BASELINE: f32 = 0.1;
 static ENERGY_FIELD_NORM: LazyLock<f32> = LazyLock::new(|| {
@@ -94,7 +95,8 @@ static ENERGY_FIELD_NORM: LazyLock<f32> = LazyLock::new(|| {
 });
 const MANHATTAN_DISTANCE_NORM: f32 =
     (FIXED_PARAMS.map_width + FIXED_PARAMS.map_height) as f32;
-const POINTS_NORM: f32 = 200.0;
+const POINTS_NORM: f32 = 200.;
+const POINTS_DIFF_NORM: f32 = POINTS_NORM / 2.;
 
 static UNIT_SAP_COST_MIN: LazyLock<i32> =
     LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().min().unwrap());
@@ -223,7 +225,7 @@ fn write_nontemporal_spatial_out(
             MyUnitCanSap => {
                 write_units_have_enough_energy_counts(
                     slice,
-                    obs.get_opp_units(),
+                    obs.get_my_units(),
                     params.unit_sap_cost,
                 );
             },
@@ -324,6 +326,12 @@ fn write_temporal_global_out(
             },
             OppTeamPoints => {
                 *out = obs.team_points[obs.opp_team_id()] as f32 / POINTS_NORM;
+            },
+            PointsDiff => {
+                *out = (obs.team_points[obs.team_id] as i32
+                    - obs.team_points[obs.opp_team_id()] as i32)
+                    as f32
+                    / POINTS_DIFF_NORM;
             },
         }
     }
@@ -492,9 +500,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::feature_engineering::replay;
+    use crate::feature_engineering::replay::run_replay;
     use crate::rules_engine::param_ranges::{
         IRRELEVANT_ENERGY_NODE_DRIFT_SPEED, PARAM_RANGES,
     };
+    use numpy::ndarray::{s, Array2, Array4, ArrayViewD, Axis};
+    use rstest::rstest;
+    use std::cmp::Ordering;
+    use std::path::PathBuf;
 
     #[test]
     fn test_nontemporal_global_feature_indices() {
@@ -624,6 +638,140 @@ mod tests {
             let mut expected = [0.; 3];
             expected[wins.min(2)] = 1.;
             assert_eq!(discretize_team_wins(wins as u32), expected);
+        }
+    }
+
+    fn f32_cmp(a: &f32, b: &f32) -> Ordering {
+        a.partial_cmp(b).unwrap()
+    }
+
+    fn update_ranges(array: ArrayViewD<f32>, ranges: &mut [[f32; 2]]) {
+        for (slice, [min_val, max_val]) in
+            array.outer_iter().zip_eq(ranges.iter_mut())
+        {
+            *min_val =
+                min_val.min(slice.iter().copied().min_by(f32_cmp).unwrap());
+            *max_val =
+                max_val.max(slice.iter().copied().max_by(f32_cmp).unwrap());
+        }
+    }
+
+    #[rstest]
+    #[ignore = "slow"]
+    fn test_observation_ranges(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = replay::load_replay(path);
+        let params =
+            KnownVariableParams::from(full_replay.params.variable.clone());
+        let mut memories = [
+            [Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size)],
+            [Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size)],
+        ];
+        let mut temporal_spatial_obs = Array4::zeros((
+            1,
+            get_temporal_spatial_feature_count(),
+            FIXED_PARAMS.map_width,
+            FIXED_PARAMS.map_height,
+        ));
+        let mut nontemporal_spatial_obs = Array4::zeros((
+            1,
+            get_nontemporal_spatial_feature_count(),
+            FIXED_PARAMS.map_width,
+            FIXED_PARAMS.map_height,
+        ));
+        let mut temporal_global_obs =
+            Array2::zeros((1, get_temporal_global_feature_count()));
+        let mut nontemporal_global_obs =
+            Array2::zeros((1, get_nontemporal_global_feature_count()));
+        let mut temporal_spatial_ranges =
+            vec![[0_f32, 0_f32]; get_temporal_spatial_feature_count()];
+        let mut nontemporal_spatial_ranges =
+            vec![[0_f32, 0_f32]; get_nontemporal_spatial_feature_count()];
+        let mut temporal_global_ranges =
+            vec![[0_f32, 0_f32]; get_temporal_global_feature_count()];
+        let mut nontemporal_global_ranges =
+            vec![[0_f32, 0_f32]; get_nontemporal_global_feature_count()];
+
+        for (_state, actions, obs, _next_state) in run_replay(&full_replay) {
+            for (mem, actions, obs) in
+                izip_eq!(memories.iter_mut(), actions, obs)
+            {
+                temporal_spatial_obs.fill(0.);
+                nontemporal_spatial_obs.fill(0.);
+                temporal_global_obs.fill(0.);
+                nontemporal_global_obs.fill(0.);
+
+                mem[0].update(&obs, &actions, &FIXED_PARAMS, &params);
+                write_obs_arrays(
+                    temporal_spatial_obs.view_mut(),
+                    nontemporal_spatial_obs.view_mut(),
+                    temporal_global_obs.view_mut(),
+                    nontemporal_global_obs.view_mut(),
+                    &[obs],
+                    mem,
+                    &params,
+                );
+                // It's okay if corner values have outliers (such as stacks of units)
+                let top_left_slice = s![.., .., 0, 0];
+                let bottom_right_slice = s![
+                    ..,
+                    ..,
+                    FIXED_PARAMS.map_width - 1,
+                    FIXED_PARAMS.map_height - 1
+                ];
+                temporal_spatial_obs.slice_mut(top_left_slice).fill(0.);
+                temporal_spatial_obs.slice_mut(bottom_right_slice).fill(0.);
+                nontemporal_spatial_obs.slice_mut(top_left_slice).fill(0.);
+                nontemporal_spatial_obs
+                    .slice_mut(bottom_right_slice)
+                    .fill(0.);
+
+                update_ranges(
+                    temporal_spatial_obs
+                        .index_axis(Axis(0), 0)
+                        .view()
+                        .into_dyn(),
+                    &mut temporal_spatial_ranges,
+                );
+                update_ranges(
+                    nontemporal_spatial_obs
+                        .index_axis(Axis(0), 0)
+                        .view()
+                        .into_dyn(),
+                    &mut nontemporal_spatial_ranges,
+                );
+                update_ranges(
+                    temporal_global_obs
+                        .index_axis(Axis(0), 0)
+                        .view()
+                        .into_dyn(),
+                    &mut temporal_global_ranges,
+                );
+                update_ranges(
+                    nontemporal_global_obs
+                        .index_axis(Axis(0), 0)
+                        .view()
+                        .into_dyn(),
+                    &mut nontemporal_global_ranges,
+                )
+            }
+        }
+
+        let bound = 5.;
+        for &[min_val, max_val] in temporal_spatial_ranges
+            .iter()
+            .chain(nontemporal_spatial_ranges.iter())
+            .chain(temporal_global_ranges.iter())
+            .chain(nontemporal_global_ranges.iter())
+        {
+            if min_val >= 0. {
+                assert!(min_val <= 1.);
+                assert!(max_val <= bound);
+            } else {
+                assert!(min_val >= -bound);
+                assert!(max_val <= bound);
+            }
         }
     }
 }
