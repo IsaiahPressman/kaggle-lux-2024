@@ -348,7 +348,11 @@ def train_step(
     cfg: UnitFactorizedPPOConfig,
 ) -> None:
     step_start_time = time.perf_counter()
-    experience, stats = collect_trajectories(env, train_state.model, cfg)
+    with torch.autocast(
+        device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
+    ):
+        experience, stats = collect_trajectories(env, train_state.model, cfg)
+
     scalar_stats = update_model(experience, train_state, cfg)
     array_stats = {}
     if stats:

@@ -3,7 +3,7 @@ optimizer_kwargs:
   lr: 8e-5
   eps: 0.000_3
 lr_schedule:
-  steps: 200_000
+  steps: 150_000
   min_factor: 0.25
 steps_per_update: 32
 epochs_per_update: 1
@@ -18,7 +18,7 @@ loss_coefficients:
   policy: 1.0
   value: 0.5
   entropy: 1e-4
-  # TODO: continue tuning teacher_kl coefficient
+  # TODO: continue tuning teacher_kl coefficient, and/or teacher KL decay
   teacher_kl: 5e-4
 
 env_config:
