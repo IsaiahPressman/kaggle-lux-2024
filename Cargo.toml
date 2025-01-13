@@ -19,7 +19,6 @@ serde = { version = "1.0.215", features = ["derive"] }
 rayon = "1.10.0"
 strum_macros = "0.26.4"
 strum = { version = "0.26.3", features = ["derive"] }
-rstest_reuse = "0.7.0"
 
 [features]
 extension-module = ["pyo3/extension-module"]

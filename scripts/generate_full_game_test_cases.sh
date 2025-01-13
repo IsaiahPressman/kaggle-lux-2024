@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare -a seeds=("6155879" "4086850" "2462211601")
+declare -a seeds=("0" "6155879" "4086850" "2462211601")
 
 for seed in "${seeds[@]}"
 do

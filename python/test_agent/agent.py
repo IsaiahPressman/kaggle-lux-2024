@@ -71,7 +71,7 @@ class Agent:
         observed_relic_nodes_mask = np.array(
             obs["relic_nodes_mask"]
         )  # shape (max_relic_nodes, )
-        _team_points = np.array(
+        team_points = np.array(
             obs["team_points"]
         )  # points of each team, team_points[self.team_id] is your team's points
         team_wins = np.array(obs["team_wins"])
@@ -108,7 +108,9 @@ class Agent:
                 action = self.get_normal_action(unit_id, unit_positions[unit_id], step)
             else:
                 action = self.get_combat_action(
-                    unit_positions[unit_id], opp_unit_positions[opp_unit_mask]
+                    unit_positions[unit_id],
+                    opp_unit_positions[opp_unit_mask],
+                    should_sap=team_points.sum() % 2 == 0,
                 )
 
             actions[unit_id] = action
@@ -156,10 +158,11 @@ class Agent:
         self,
         unit_pos: npt.NDArray[np.int_],
         opp_unit_positions: npt.NDArray[np.int_],
+        should_sap: bool,
     ) -> list[int]:
         # If sap available, then sap
         for opp_unit in opp_unit_positions:
-            if np.abs(opp_unit - unit_pos).max() <= self.unit_sap_range:
+            if np.abs(opp_unit - unit_pos).max() <= self.unit_sap_range and should_sap:
                 dx, dy = opp_unit - unit_pos
                 return [5, dx, dy]
 

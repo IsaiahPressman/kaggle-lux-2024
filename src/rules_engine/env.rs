@@ -901,7 +901,7 @@ mod tests {
     use serde::Deserialize;
     use std::fs;
     use std::iter::once;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[test]
     #[should_panic(expected = "Game over")]
@@ -1983,20 +1983,11 @@ mod tests {
     }
 
     #[rstest]
-    // Two energy nodes
-    #[case("processed_replay_6155879.json")]
-    // Four energy nodes
-    #[case("processed_replay_4086850.json")]
-    // Six energy nodes
-    #[case("processed_replay_2462211601.json")]
     #[ignore = "slow"]
-    fn test_full_game(#[case] file_name: &str) {
-        let path = Path::new(file!())
-            .parent()
-            .unwrap()
-            .join("test_data")
-            .join("processed_replays")
-            .join(file_name);
+    fn test_full_game(
+        #[files("src/rules_engine/test_data/processed_replays/*.json")]
+        path: PathBuf,
+    ) {
         let json_data = fs::read_to_string(path).unwrap();
         let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
         let all_states = full_replay.get_states();

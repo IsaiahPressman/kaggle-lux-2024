@@ -147,16 +147,10 @@ mod tests {
     use itertools::Itertools;
     use numpy::ndarray::{ArrayView2, Zip};
     use rstest::rstest;
-    use rstest_reuse::{self, *};
     use std::fs;
-    use std::path::Path;
+    use std::path::PathBuf;
 
-    fn load_replay(file_name: &str) -> FullReplay {
-        let path = Path::new(file!())
-            .parent()
-            .unwrap()
-            .join("test_data")
-            .join(file_name);
+    fn load_replay(path: PathBuf) -> FullReplay {
         let json_data = fs::read_to_string(path).unwrap();
         let full_replay: FullReplay = serde_json::from_str(&json_data).unwrap();
         assert_eq!(full_replay.params.fixed, FIXED_PARAMS);
@@ -205,16 +199,12 @@ mod tests {
         true
     }
 
-    #[template]
     #[rstest]
-    // TODO: Figure out a better way to make these tests
-    #[case("processed_replay_0.json")]
     #[ignore = "slow"]
-    fn memory_replay_files(#[case] file_name: &str) {}
-
-    #[apply(memory_replay_files)]
-    fn test_energy_field_memory(#[case] file_name: &str) {
-        let full_replay = load_replay(file_name);
+    fn test_energy_field_memory(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = load_replay(path);
         let variable_params = &full_replay.params.variable;
         let known_params = KnownVariableParams::from(variable_params.clone());
 
@@ -288,9 +278,12 @@ mod tests {
         }
     }
 
-    #[apply(memory_replay_files)]
-    fn test_hidden_parameter_memory(#[case] file_name: &str) {
-        let full_replay = load_replay(file_name);
+    #[rstest]
+    #[ignore = "slow"]
+    fn test_hidden_parameter_memory(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = load_replay(path);
         let variable_params = &full_replay.params.variable;
         let known_params = KnownVariableParams::from(variable_params.clone());
 
@@ -339,9 +332,12 @@ mod tests {
         }
     }
 
-    #[apply(memory_replay_files)]
-    fn test_relic_node_memory(#[case] file_name: &str) {
-        let full_replay = load_replay(file_name);
+    #[rstest]
+    #[ignore = "slow"]
+    fn test_relic_node_memory(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = load_replay(path);
         let variable_params = &full_replay.params.variable;
         let known_params = KnownVariableParams::from(variable_params.clone());
 
@@ -422,9 +418,12 @@ mod tests {
         }
     }
 
-    #[apply(memory_replay_files)]
-    fn test_space_obstacle_memory(#[case] file_name: &str) {
-        let full_replay = load_replay(file_name);
+    #[rstest]
+    #[ignore = "slow"]
+    fn test_space_obstacle_memory(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = load_replay(path);
         let variable_params = &full_replay.params.variable;
         let known_params = KnownVariableParams::from(variable_params.clone());
 
