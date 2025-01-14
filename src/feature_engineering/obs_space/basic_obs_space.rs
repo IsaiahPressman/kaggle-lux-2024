@@ -1,6 +1,6 @@
 use crate::feature_engineering::memory::Memory;
 use crate::izip_eq;
-use crate::rules_engine::env::get_spawn_position;
+use crate::rules_engine::env::{estimate_vision_power_map, get_spawn_position};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Unit};
@@ -16,6 +16,7 @@ use strum_macros::EnumIter;
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum TemporalSpatialFeature {
     Visible,
+    EstimatedVisionPower,
     MyUnitCount,
     OppUnitCount,
     MyUnitEnergy,
@@ -83,6 +84,12 @@ enum NontemporalGlobalFeature {
 }
 
 // Normalizing constants
+static VISION_NORM: LazyLock<f32> = LazyLock::new(|| {
+    let max_sensor_range =
+        *PARAM_RANGES.unit_sensor_range.iter().max().unwrap();
+    let norm = 4 * (max_sensor_range + 1);
+    norm as f32
+});
 const UNIT_COUNT_NORM: f32 = 4.;
 const UNIT_ENERGY_NORM: f32 = FIXED_PARAMS.max_unit_energy as f32;
 const UNIT_ENERGY_MIN_BASELINE: f32 = 0.1;
@@ -145,7 +152,7 @@ pub fn write_obs_arrays(
         temporal_global_out.outer_iter_mut(),
         nontemporal_global_out.outer_iter_mut(),
     ) {
-        write_temporal_spatial_out(temporal_spatial_out, obs);
+        write_temporal_spatial_out(temporal_spatial_out, obs, mem, params);
         write_nontemporal_spatial_out(
             nontemporal_spatial_out,
             obs,
@@ -160,6 +167,8 @@ pub fn write_obs_arrays(
 fn write_temporal_spatial_out(
     mut temporal_spatial_out: ArrayViewMut3<f32>,
     obs: &Observation,
+    mem: &Memory,
+    params: &KnownVariableParams,
 ) {
     use TemporalSpatialFeature::*;
 
@@ -168,9 +177,33 @@ fn write_temporal_spatial_out(
     {
         match sf {
             Visible => {
-                slice.assign(
-                    &obs.sensor_mask.map(|v| if *v { 1.0 } else { 0.0 }),
+                Zip::from(&mut slice).and(&obs.sensor_mask).for_each(
+                    |out, &visible| *out = if visible { 1.0 } else { 0.0 },
                 );
+            },
+            EstimatedVisionPower => {
+                let mut estimated_vision_power_map = estimate_vision_power_map(
+                    obs.get_my_units(),
+                    FIXED_PARAMS.map_size,
+                    params.unit_sensor_range,
+                );
+                // Pessimistically estimate nebula tile vision reduction
+                let nebula_vision_cost = mem
+                    .iter_unmasked_nebula_tile_vision_reduction_options()
+                    .max()
+                    .unwrap();
+                for nebula in &obs.nebulae {
+                    estimated_vision_power_map[nebula.as_index()] -=
+                        nebula_vision_cost;
+                }
+                Zip::from(&mut slice)
+                    .and(&estimated_vision_power_map)
+                    .and(&obs.sensor_mask)
+                    .for_each(|out, &vision_estimate, &visible| {
+                        let vision_power =
+                            if visible { vision_estimate.max(0) } else { 0 };
+                        *out = vision_power as f32 / *VISION_NORM;
+                    })
             },
             MyUnitCount => {
                 write_alive_unit_counts(slice, obs.get_my_units());
@@ -293,8 +326,7 @@ fn write_nontemporal_spatial_out(
             EnergyField => {
                 // Optimistically estimate nebula tile energy reduction
                 let nebula_cost = mem
-                    .iter_nebula_tile_energy_reduction_options()
-                    .copied()
+                    .iter_unmasked_nebula_tile_energy_reduction_options()
                     .min()
                     .unwrap();
                 Zip::from(&mut slice)
@@ -765,6 +797,7 @@ mod tests {
             .chain(temporal_global_ranges.iter())
             .chain(nontemporal_global_ranges.iter())
         {
+            println!("{:?}", (min_val, bound, max_val));
             if min_val >= 0. {
                 assert!(min_val <= 1.);
                 assert!(max_val <= bound);

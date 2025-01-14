@@ -81,7 +81,15 @@ impl Memory {
             .get_weighted_possibilities()
     }
 
-    pub fn iter_nebula_tile_energy_reduction_options(
+    pub fn iter_unmasked_nebula_tile_vision_reduction_options(
+        &self,
+    ) -> impl Iterator<Item = &i32> {
+        self.hidden_parameter
+            .nebula_tile_vision_reduction
+            .iter_unmasked_options()
+    }
+
+    pub fn iter_unmasked_nebula_tile_energy_reduction_options(
         &self,
     ) -> impl Iterator<Item = &i32> {
         self.hidden_parameter
