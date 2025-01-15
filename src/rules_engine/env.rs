@@ -567,12 +567,8 @@ pub fn just_respawned(
     team_id: usize,
     fixed_params: &FixedParams,
 ) -> bool {
-    let pos = match team_id {
-        0 => Pos::new(0, 0),
-        1 => Pos::new(fixed_params.map_width - 1, fixed_params.map_height - 1),
-        _ => unreachable!(),
-    };
-    unit.energy == fixed_params.init_unit_energy && unit.pos == pos
+    let spawn_pos = get_spawn_position(team_id, fixed_params.map_size);
+    unit.energy == fixed_params.init_unit_energy && unit.pos == spawn_pos
 }
 
 pub fn estimate_vision_power_map(

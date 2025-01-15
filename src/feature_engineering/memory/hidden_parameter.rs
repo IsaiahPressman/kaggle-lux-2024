@@ -16,7 +16,7 @@ pub struct HiddenParameterMemory {
     pub nebula_tile_vision_reduction: MaskedPossibilities<i32>,
     pub nebula_tile_energy_reduction: MaskedPossibilities<i32>,
     pub unit_sap_dropoff_factor: MaskedPossibilities<f32>,
-    // pub unit_energy_void_factor: MaskedPossibilities<f32>,
+    pub unit_energy_void_factor: MaskedPossibilities<f32>,
     last_obs_data: LastObservationData,
 }
 
@@ -29,7 +29,7 @@ impl HiddenParameterMemory {
                 .copied()
                 .sorted()
                 .dedup()
-                .collect_vec(),
+                .collect(),
         );
         let nebula_tile_energy_reduction = MaskedPossibilities::from_options(
             param_ranges
@@ -38,7 +38,7 @@ impl HiddenParameterMemory {
                 .copied()
                 .sorted()
                 .dedup()
-                .collect_vec(),
+                .collect(),
         );
         let unit_sap_dropoff_factor = MaskedPossibilities::from_options(
             param_ranges
@@ -47,22 +47,23 @@ impl HiddenParameterMemory {
                 .copied()
                 .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                 .dedup()
-                .collect_vec(),
+                .collect(),
         );
-        // let unit_energy_void_factor = MaskedPossibilities::from_options(
-        //     param_ranges
-        //         .unit_energy_void_factor
-        //         .iter()
-        //         .copied()
-        //         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
-        //         .dedup()
-        //         .collect_vec(),
-        // );
+        let unit_energy_void_factor = MaskedPossibilities::from_options(
+            param_ranges
+                .unit_energy_void_factor
+                .iter()
+                .copied()
+                .sorted_by(|a, b| a.partial_cmp(b).unwrap())
+                .dedup()
+                .collect(),
+        );
         let last_obs_data = LastObservationData::default();
         Self {
             nebula_tile_vision_reduction,
             nebula_tile_energy_reduction,
             unit_sap_dropoff_factor,
+            unit_energy_void_factor,
             last_obs_data,
         }
     }
@@ -97,14 +98,14 @@ impl HiddenParameterMemory {
                 variable_params,
             );
         }
+        let sap_count_maps = compute_sap_count_maps(
+            &self.last_obs_data.my_units,
+            last_actions,
+            fixed_params.map_size,
+        );
         if self.unit_sap_dropoff_factor.still_unsolved()
             && !new_match_just_started
         {
-            let sap_count_maps = compute_sap_count_maps(
-                &self.last_obs_data.my_units,
-                last_actions,
-                fixed_params.map_size,
-            );
             determine_unit_sap_dropoff_factor(
                 &mut self.unit_sap_dropoff_factor,
                 obs,
@@ -114,6 +115,9 @@ impl HiddenParameterMemory {
                 fixed_params,
                 variable_params,
             );
+        }
+        if self.unit_energy_void_factor.still_unsolved() && !new_match_just_started {
+            determine_unit_energy_void_factor()
         }
         self.last_obs_data = LastObservationData::copy_from_obs(obs);
     }
@@ -315,7 +319,7 @@ fn determine_unit_sap_dropoff_factor(
     // - Move nebulae and energy nodes
     // Therefore, whenever we are comparing energies, we take the current unit's energy and
     // position and compare it to last turn's nebulae and energy field, minus any sap actions.
-    //  Confusingly enough, last turn's energy field is provided in this turn's observation.
+    // Confusingly enough, last turn's energy field is provided in this turn's observation.
     let (sap_count_map, adjacent_sap_count_map) = sap_count_maps;
     // NB: Assumes that units don't take invalid energy-wasting actions, like moving off the map
     let id_to_opp_unit_now: BTreeMap<usize, Unit> =
@@ -462,38 +466,163 @@ fn get_expected_energy(
     }
 }
 
-// fn determine_unit_energy_void_factor(
-//     unit_energy_void_factor: &mut MaskedPossibilities<f32>,
-//     unit_sap_dropoff_factor: Option<f32>,
-//     obs: &Observation,
-//     last_obs_data: &LastObservationData,
-//     sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
-//     params: &KnownVariableParams,
-// ) {
-//     let (sap_count_map, adjacent_sap_count_map) = sap_count_maps;
-//     let opp_unit_count_map = get_unit_counts_map(obs.get_opp_units());
-//     let id_to_opp_unit: BTreeMap<usize, Unit> =
-//         obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
-//     let my_units = obs.get_my_units();
-//     for (opp_unit_last_turn, opp_unit_now, energy_void_base) in last_obs_data
-//         .opp_units_last_turn
-//         .iter()
-//         .filter_map(|u_last_turn| {
-//             id_to_opp_unit
-//                 .get(&u_last_turn.id)
-//                 .map(|u_now| (u_last_turn, u_now))
-//         })
-//         // NB: This won't always filter correctly if dead units are removed from observation,
-//         //  since they could apply an energy void and die in the same step
-//         // TODO: calculate my unit energies after moving but before sapping for energy void base
-//         // .filter_map(|(opp_unit_last_turn, opp_unit_now)| {
-//         //     my_units.iter().filter(|my_unit| {
-//         //         ENERGY_VOID_DELTAS
-//         //             .contains(&opp_unit_now.pos.subtract(my_unit.pos))
-//         //     }).map(|u| u.energy)
-//         // })
-//     {}
-// }
+fn determine_unit_energy_void_factor(
+    unit_energy_void_factor: &mut MaskedPossibilities<f32>,
+    unit_sap_dropoff_factor: Option<f32>,
+    obs: &Observation,
+    last_obs_data: &LastObservationData,
+    last_actions: &[Action],
+    sap_count_maps: &(BTreeMap<Pos, i32>, BTreeMap<Pos, i32>),
+    fixed_params: &FixedParams,
+    params: &KnownVariableParams,
+) {
+    // Note that the environment resolution order goes:
+    // - Move units
+    // - Resolve sap actions
+    // - Resolve energy field
+    // - Move nebulae and energy nodes
+    // Therefore, whenever we are comparing energies, we take the current unit's energy and
+    // position and compare it to last turn's nebulae and energy field, minus any sap actions.
+    // Confusingly enough, last turn's energy field is provided in this turn's observation.
+    let (sap_count_map, adjacent_sap_count_map) = sap_count_maps;
+    // NB: Assumes that units don't take invalid energy-wasting actions, like moving off the map
+    let id_to_opp_unit_now: BTreeMap<usize, Unit> =
+        obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
+    // TODO: calculate my unit energies after moving but before sapping for energy void base
+    let id_to_my_energy_void_base: BTreeMap<usize, i32> = last_obs_data.my_units.iter().map(|u| {
+        let energy_void_base = match last_actions[u.id] {
+            NoOp | Sap(_) => u.energy,
+            Up | Right | Down | Left => (u.energy - params.unit_move_cost).max(0),
+        };
+        (u.id, energy_void_base)
+    }).collect();
+    for (opp_unit_last_turn, opp_unit_now, adj_sap_count, energy_field_delta) in
+        last_obs_data
+            .opp_units
+            .iter()
+            .filter_map(|u_last_turn| {
+                id_to_opp_unit_now
+                    .get(&u_last_turn.id)
+                    .map(|u_now| (u_last_turn, u_now))
+            })
+            // Skip units that could have just respawned
+            .filter(|(_, u_now)| {
+                !just_respawned(u_now, obs.opp_team_id(), fixed_params)
+            })
+            // Skip units in nebulae or that could be in nebulae
+            .filter(|(_, u_now)| {
+                !last_obs_data.nebulae.contains(&u_now.pos)
+                    && last_obs_data.sensor_mask[u_now.pos.as_index()]
+            })
+            .filter_map(|(u_last_turn, u_now)| {
+                adjacent_sap_count_map
+                    .get(&u_now.pos)
+                    .map(|&count| (u_last_turn, u_now, count))
+            })
+            // Skip units that have lost energy to energy void
+            .filter(|(_, opp_unit_now, _)| {
+                obs.get_my_units().iter().all(|my_unit| {
+                    !ENERGY_VOID_DELTAS
+                        .contains(&opp_unit_now.pos.subtract(my_unit.pos))
+                })
+            })
+            // Skip units that have lost energy to energy void of now-dead units of mine
+            .filter(|(_, opp_unit_now, _)| {
+                last_obs_data.my_units.iter().all(|my_unit| {
+                    let last_action = last_actions[my_unit.id];
+                    let new_pos = my_unit
+                        .pos
+                        .maybe_translate(
+                            last_action.as_move_delta().unwrap_or([0, 0]),
+                            fixed_params.map_size,
+                        )
+                        .expect("One of my units took an illegal move action");
+                    !ENERGY_VOID_DELTAS
+                        .contains(&opp_unit_now.pos.subtract(new_pos))
+                })
+            })
+            .filter_map(|(u_last_turn, u_now, sap_count)| {
+                obs.energy_field[u_now.pos.as_index()].map(|energy_delta| {
+                    (u_last_turn, u_now, sap_count, energy_delta)
+                })
+            })
+    {
+        let direct_sap_loss = sap_count_map
+            .get(&opp_unit_now.pos)
+            .map_or(0, |count| *count * params.unit_sap_cost);
+        for (&sap_dropoff_factor, mask) in
+            unit_energy_void_factor.iter_unmasked_options_mut_mask()
+        {
+            let adj_sap_loss = ((adj_sap_count * params.unit_sap_cost) as f32
+                * sap_dropoff_factor) as i32;
+            if opp_unit_now.pos.subtract(opp_unit_last_turn.pos) == [0, 0] {
+                // NoOp or Sap action was taken
+                let expected_energy_noop = get_expected_energy(
+                    opp_unit_last_turn.energy - direct_sap_loss - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
+                let expected_energy_sap = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_sap_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
+                if expected_energy_noop != opp_unit_now.energy
+                    && expected_energy_sap != opp_unit_now.energy
+                {
+                    *mask = false;
+                }
+            } else {
+                // Move action was taken
+                let expected_energy = get_expected_energy(
+                    opp_unit_last_turn.energy
+                        - params.unit_move_cost
+                        - direct_sap_loss
+                        - adj_sap_loss,
+                    energy_field_delta,
+                    fixed_params,
+                );
+                if expected_energy != opp_unit_now.energy {
+                    *mask = false;
+                }
+            }
+        }
+    }
+
+    if unit_energy_void_factor.all_masked() {
+        let unit_energy_field = obs
+            .get_opp_units()
+            .iter()
+            .map(|u| obs.energy_field[u.pos.as_index()])
+            .collect_vec();
+        // TODO: For game-time build, don't panic and instead just fail to update mask
+        panic!(
+            "unit_sap_dropoff_factor mask is all false.
+            My units last turn: {:?}
+            My units now: {:?}
+            Opp units last turn: {:?}
+            Opp units now: {:?}
+            Move cost / sap cost: {:?} / {:?}
+            Nebulae: {:?}
+            Energy field: {:?}
+            Direct saps: {:?}
+            Adjacent saps: {:?}",
+            last_obs_data.my_units,
+            obs.get_my_units(),
+            last_obs_data.opp_units,
+            obs.get_opp_units(),
+            params.unit_move_cost,
+            params.unit_sap_cost,
+            last_obs_data.nebulae,
+            unit_energy_field,
+            sap_count_map,
+            adjacent_sap_count_map,
+        );
+    }
+}
 
 #[allow(dead_code)]
 fn get_unit_counts_map(units: &[Unit]) -> BTreeMap<Pos, u8> {

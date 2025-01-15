@@ -33,7 +33,7 @@ impl SpaceObstacleMemory {
                 .copied()
                 .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                 .dedup()
-                .collect_vec(),
+                .collect(),
         );
         Self {
             known_asteroids: Array2::default(map_size),

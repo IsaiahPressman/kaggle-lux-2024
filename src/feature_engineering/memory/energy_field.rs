@@ -23,7 +23,7 @@ impl EnergyFieldMemory {
                 .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                 .filter(|&speed| speed != IRRELEVANT_ENERGY_NODE_DRIFT_SPEED)
                 .dedup()
-                .collect_vec(),
+                .collect(),
         );
         EnergyFieldMemory {
             energy_field: Array2::default(map_size),
