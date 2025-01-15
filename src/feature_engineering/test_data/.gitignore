@@ -2,3 +2,5 @@
 *
 # Except this .gitignore file
 !.gitignore
+# And one replay file
+!processed_replay_0.json
