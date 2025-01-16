@@ -347,7 +347,7 @@ fn resolve_collisions_and_energy_void_fields(
             }
             // Apply energy void fields
             let void_field_loss = (params.unit_energy_void_factor
-                * unit_aggregate_energy_void_map[[opp, x, y]]
+                * unit_aggregate_energy_void_map[[opp, x, y]] as f32
                 / unit_counts_map[[team, x, y]] as f32)
                 as i32;
             unit.energy -= void_field_loss;
@@ -366,7 +366,7 @@ fn get_unit_aggregate_energy_void_map(
     units: &[Vec<Unit>; P],
     unit_energies: &[Vec<i32>; P],
     map_size: [usize; 2],
-) -> Array3<f32> {
+) -> Array3<i32> {
     let mut result = Array3::zeros((P, map_size[0], map_size[1]));
     for ((team, unit, energy), delta) in units
         .iter()
@@ -384,7 +384,7 @@ fn get_unit_aggregate_energy_void_map(
         else {
             continue;
         };
-        result[[team, x, y]] += energy as f32;
+        result[[team, x, y]] += energy;
     }
     result
 }
@@ -1149,8 +1149,7 @@ mod tests {
                 Unit::with_pos_and_energy(Pos::new(0, 1), 30),
             ],
         ];
-        let expected_result =
-            arr3(&[[[0., 3.], [3., 0.]], [[30., 4.], [4., 30.]]]);
+        let expected_result = arr3(&[[[0, 3], [3, 0]], [[30, 4], [4, 30]]]);
         let unit_energies = get_unit_energies(&units);
         let result =
             get_unit_aggregate_energy_void_map(&units, &unit_energies, [2, 2]);
