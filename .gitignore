@@ -1,4 +1,5 @@
 *.lock
+!requirements.lock
 replay.json
 hall_of_fame/
 wandb/
