@@ -299,6 +299,11 @@ mod tests {
                     .unit_sap_dropoff_factor
                     .iter_unmasked_options()
                     .any(|&sd| sd == variable_params.unit_sap_dropoff_factor));
+                assert!(mem
+                    .hidden_parameter
+                    .unit_energy_void_factor
+                    .iter_unmasked_options()
+                    .any(|&sd| sd == variable_params.unit_energy_void_factor));
             }
         }
 
@@ -306,6 +311,7 @@ mod tests {
             assert!(mem.hidden_parameter.nebula_tile_vision_reduction.solved());
             assert!(mem.hidden_parameter.nebula_tile_energy_reduction.solved());
             assert!(mem.hidden_parameter.unit_sap_dropoff_factor.solved());
+            assert!(mem.hidden_parameter.unit_energy_void_factor.solved());
         }
     }
 

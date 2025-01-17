@@ -330,6 +330,7 @@ fn compute_aggregate_energy_void_map(
     let mut result = Array2::<i32>::zeros(map_size);
     for ((pos, void_energy), delta) in units_last_turn
         .iter()
+        .filter(|u| u.alive())
         .map(|u| (u, last_actions[u.id]))
         .map(|(unit, action)| match action {
             NoOp | Sap(_) => (unit.pos, unit.energy),
@@ -348,10 +349,7 @@ fn compute_aggregate_energy_void_map(
         let Some(void_pos) = pos.maybe_translate(delta, map_size) else {
             continue;
         };
-        assert!(
-            void_energy >= 0,
-            "Got move action for unit without enough energy"
-        );
+        assert!(void_energy >= 0, "void_energy < 0");
         result[void_pos.as_index()] += void_energy;
     }
     result
@@ -441,33 +439,15 @@ fn determine_unit_sap_dropoff_factor(
                 - energy_void_delta
                 - direct_sap_loss
                 - adj_sap_loss;
-            if opp_unit_now.pos.subtract(opp_unit_last_turn.pos) == [0, 0] {
-                // NoOp or Sap action was taken
-                let expected_energy_noop = get_expected_energy(
-                    energy_after_combat,
-                    energy_field_delta,
-                    fixed_params,
-                );
-                let expected_energy_sap = get_expected_energy(
-                    energy_after_combat - params.unit_sap_cost,
-                    energy_field_delta,
-                    fixed_params,
-                );
-                if expected_energy_noop != opp_unit_now.energy
-                    && expected_energy_sap != opp_unit_now.energy
-                {
-                    *mask = false;
-                }
-            } else {
-                // Move action was taken
-                let expected_energy = get_expected_energy(
-                    energy_after_combat - params.unit_move_cost,
-                    energy_field_delta,
-                    fixed_params,
-                );
-                if expected_energy != opp_unit_now.energy {
-                    *mask = false;
-                }
+            if !is_possible_energy_level(
+                *opp_unit_now,
+                opp_unit_last_turn.pos,
+                energy_after_combat,
+                energy_field_delta,
+                fixed_params,
+                params,
+            ) {
+                *mask = false;
             }
         }
     }
@@ -518,7 +498,40 @@ fn get_expected_energy(
     }
 }
 
-#[allow(clippy::too_many_arguments, unused_variables)]
+fn is_possible_energy_level(
+    unit_now: Unit,
+    pos_last_turn: Pos,
+    energy_after_combat: i32,
+    energy_field_delta: i32,
+    fixed_params: &FixedParams,
+    params: &KnownVariableParams,
+) -> bool {
+    if unit_now.pos.subtract(pos_last_turn) == [0, 0] {
+        // NoOp or Sap action was taken
+        let expected_energy_noop = get_expected_energy(
+            energy_after_combat,
+            energy_field_delta,
+            fixed_params,
+        );
+        let expected_energy_sap = get_expected_energy(
+            energy_after_combat - params.unit_sap_cost,
+            energy_field_delta,
+            fixed_params,
+        );
+        expected_energy_noop == unit_now.energy
+            || expected_energy_sap == unit_now.energy
+    } else {
+        // Move action was taken
+        let expected_energy = get_expected_energy(
+            energy_after_combat - params.unit_move_cost,
+            energy_field_delta,
+            fixed_params,
+        );
+        expected_energy == unit_now.energy
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn determine_unit_energy_void_factor(
     unit_energy_void_factor: &mut MaskedPossibilities<f32>,
     unit_sap_dropoff_factor: Option<f32>,
@@ -546,7 +559,7 @@ fn determine_unit_energy_void_factor(
         opp_unit_last_turn,
         opp_unit_now,
         agg_energy_void,
-        adj_sap_delta,
+        adj_sap_loss,
         energy_field_delta,
     ) in last_obs_data
         .opp_units
@@ -580,97 +593,53 @@ fn determine_unit_energy_void_factor(
                 (None, _) => Some((u_last_turn, u_now, agg_energy_void, 0)),
                 (_, None) => None,
                 (Some(&sap_count), Some(sap_dropoff_factor)) => {
-                    let sap_delta = sap_count as f32 * sap_dropoff_factor;
+                    let adj_sap_loss = (sap_count * params.unit_sap_cost)
+                        as f32
+                        * sap_dropoff_factor;
                     Some((
                         u_last_turn,
                         u_now,
                         agg_energy_void,
-                        sap_delta as i32,
+                        adj_sap_loss as i32,
                     ))
                 },
             }
         })
-        .filter_map(|(u_last_turn, u_now, energy_void, adj_sap_delta)| {
+        .filter_map(|(u_last_turn, u_now, energy_void, adj_sap_loss)| {
             obs.energy_field[u_now.pos.as_index()].map(|energy_delta| {
-                (u_last_turn, u_now, energy_void, adj_sap_delta, energy_delta)
+                (u_last_turn, u_now, energy_void, adj_sap_loss, energy_delta)
             })
         })
     {
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        for (&sap_dropoff_factor, mask) in
+        for (&void_factor, mask) in
             unit_energy_void_factor.iter_unmasked_options_mut_mask()
         {
-            todo!()
-            // let adj_sap_loss = ((adj_sap_count * params.unit_sap_cost) as f32
-            //     * sap_dropoff_factor) as i32;
-            // if opp_unit_now.pos.subtract(opp_unit_last_turn.pos) == [0, 0] {
-            //     // NoOp or Sap action was taken
-            //     let expected_energy_noop = get_expected_energy(
-            //         opp_unit_last_turn.energy - direct_sap_loss - adj_sap_loss,
-            //         energy_field_delta,
-            //         fixed_params,
-            //     );
-            //     let expected_energy_sap = get_expected_energy(
-            //         opp_unit_last_turn.energy
-            //             - params.unit_sap_cost
-            //             - direct_sap_loss
-            //             - adj_sap_loss,
-            //         energy_field_delta,
-            //         fixed_params,
-            //     );
-            //     if expected_energy_noop != opp_unit_now.energy
-            //         && expected_energy_sap != opp_unit_now.energy
-            //     {
-            //         *mask = false;
-            //     }
-            // } else {
-            //     // Move action was taken
-            //     let expected_energy = get_expected_energy(
-            //         opp_unit_last_turn.energy
-            //             - params.unit_move_cost
-            //             - direct_sap_loss
-            //             - adj_sap_loss,
-            //         energy_field_delta,
-            //         fixed_params,
-            //     );
-            //     if expected_energy != opp_unit_now.energy {
-            //         *mask = false;
-            //     }
-            // }
+            let energy_void_loss = (agg_energy_void as f32 * void_factor
+                / unit_counts_map[&opp_unit_now.pos] as f32)
+                as i32;
+            let energy_after_combat = opp_unit_last_turn.energy
+                - energy_void_loss
+                - direct_sap_loss
+                - adj_sap_loss;
+            if !is_possible_energy_level(
+                *opp_unit_now,
+                opp_unit_last_turn.pos,
+                energy_after_combat,
+                energy_field_delta,
+                fixed_params,
+                params,
+            ) {
+                *mask = false;
+            }
         }
     }
 
     if unit_energy_void_factor.all_masked() {
-        let unit_energy_field = obs
-            .get_opp_units()
-            .iter()
-            .map(|u| obs.energy_field[u.pos.as_index()])
-            .collect_vec();
         // TODO: For game-time build, don't panic and instead just fail to update mask
-        panic!(
-            "unit_sap_dropoff_factor mask is all false.
-            My units last turn: {:?}
-            My units now: {:?}
-            Opp units last turn: {:?}
-            Opp units now: {:?}
-            Move cost / sap cost: {:?} / {:?}
-            Nebulae: {:?}
-            Energy field: {:?}
-            Direct saps: {:?}
-            Adjacent saps: {:?}",
-            last_obs_data.my_units,
-            obs.get_my_units(),
-            last_obs_data.opp_units,
-            obs.get_opp_units(),
-            params.unit_move_cost,
-            params.unit_sap_cost,
-            last_obs_data.nebulae,
-            unit_energy_field,
-            sap_count_map,
-            adjacent_sap_count_map,
-        );
+        panic!("unit_energy_void_factor mask is all false")
     }
 }
 
@@ -976,8 +945,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Got move action for unit without enough energy")]
-    fn test_compute_aggregate_energy_void_map_panics_without_enough_energy() {
+    #[should_panic(expected = "void_energy < 0")]
+    fn test_compute_aggregate_energy_void_map_panics_with_negative_energy() {
         let units = vec![Unit::new(Pos::new(0, 0), 4, 0)];
         let actions = vec![Down];
         compute_aggregate_energy_void_map(
@@ -1091,8 +1060,14 @@ mod tests {
     )]
     // Considers both NoOp and Sap actions for opposing units
     #[case(
-        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
-        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![
+            Unit::new(Pos::new(4, 4), 10, 0),
+            Unit::new(Pos::new(4, 4), 10, 1),
+        ],
+        vec![
+            Unit::new(Pos::new(4, 4), 10, 0),
+            Unit::new(Pos::new(4, 4), 10, 1),
+        ],
         vec![Sap([-3, -3]), Sap([-3, -3])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 80, 0)],
@@ -1101,8 +1076,14 @@ mod tests {
     )]
     // Hit by direct and adjacent sap
     #[case(
-        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
-        vec![Unit::new(Pos::new(4, 4), 10, 0), Unit::new(Pos::new(4, 4), 10, 1)],
+        vec![
+            Unit::new(Pos::new(4, 4), 10, 0),
+            Unit::new(Pos::new(4, 4), 10, 1),
+        ],
+        vec![
+            Unit::new(Pos::new(4, 4), 10, 0),
+            Unit::new(Pos::new(4, 4), 10, 1),
+        ],
         vec![Sap([-3, -3]), Sap([-4, -4])],
         vec![Unit::new(Pos::new(0, 0), 100, 0)],
         vec![Unit::new(Pos::new(0, 0), 85, 0)],
@@ -1220,6 +1201,201 @@ mod tests {
         );
     }
 
+    #[rstest]
+    // Not affected
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![Unit::new(Pos::new(0, 0), 10, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(1, 1), 100, 0)],
+        vec![Unit::new(Pos::new(1, 1), 100, 0)],
+        None,
+        vec![true, true, true],
+    )]
+    // Hit by one unit's void factor
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 25, 0)],
+        None,
+        vec![false, false, true],
+    )]
+    // Void factor rounds down
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 38, 0)],
+        None,
+        vec![false, true, false],
+    )]
+    // Hit by multiple void factors
+    #[case(
+        vec![
+            Unit::new(Pos::new(0, 0), 100, 0),
+            Unit::new(Pos::new(0, 0), 50, 1),
+        ],
+        vec![
+            Unit::new(Pos::new(0, 0), 100, 0),
+            Unit::new(Pos::new(0, 0), 50, 1),
+        ],
+        vec![NoOp, NoOp],
+        vec![Unit::new(Pos::new(1, 0), 100, 0)],
+        vec![Unit::new(Pos::new(1, 0), 85, 0)],
+        None,
+        vec![true, false, false],
+    )]
+    // Damage is shared between units
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 52, 0)],
+        vec![Unit::new(Pos::new(0, 0), 52, 0)],
+        vec![NoOp],
+        vec![
+            Unit::new(Pos::new(1, 0), 50, 0),
+            Unit::new(Pos::new(1, 0), 50, 1),
+        ],
+        vec![
+            Unit::new(Pos::new(1, 0), 37, 0),
+            Unit::new(Pos::new(1, 0), 37, 1),
+        ],
+        None,
+        vec![false, false, true],
+    )]
+    // Includes energy field
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(0, 1), 50, 0)],
+        vec![Unit::new(Pos::new(0, 1), 26, 0)],
+        None,
+        vec![false, false, true],
+    )]
+    // Goes into negative energy after damage
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(0, 1), 23, 0)],
+        vec![Unit::new(Pos::new(0, 1), -2, 0)],
+        None,
+        vec![false, false, true],
+    )]
+    // Ignore units in nebulae
+    #[case(
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![Unit::new(Pos::new(0, 1), 10, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(0, 2), 100, 0)],
+        vec![Unit::new(Pos::new(0, 2), 75, 0)],
+        None,
+        vec![true, true, true],
+    )]
+    // Include direct sap damage
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Sap([1, 0])],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 35, 0)],
+        None,
+        vec![true, false, false],
+    )]
+    // Ignore units hit by adjacent sap
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Sap([1, 1])],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 35, 0)],
+        None,
+        vec![true, true, true],
+    )]
+    // Include units hit by adjacent sap if unit_sap_dropoff_factor is known
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Sap([1, 1])],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 35, 0)],
+        Some(1.),
+        vec![true, false, false],
+    )]
+    // Counts move action cost
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![Unit::new(Pos::new(0, 0), 50, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(1, 1), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 23, 0)],
+        None,
+        vec![false, false, true],
+    )]
+    // Considers both NoOp and Sap actions for opposing units
+    #[case(
+        vec![Unit::new(Pos::new(0, 0), 25, 0)],
+        vec![Unit::new(Pos::new(0, 0), 25, 0)],
+        vec![NoOp],
+        vec![Unit::new(Pos::new(1, 0), 50, 0)],
+        vec![Unit::new(Pos::new(1, 0), 38, 0)],
+        None,
+        vec![true, false, true],
+    )]
+    fn test_determine_unit_energy_void_factor(
+        #[case] my_units_last_turn: Vec<Unit>,
+        #[case] my_units: Vec<Unit>,
+        #[case] last_actions: Vec<Action>,
+        #[case] opp_units_last_turn: Vec<Unit>,
+        #[case] opp_units: Vec<Unit>,
+        #[case] unit_sap_dropoff_factor: Option<f32>,
+        #[case] expected_result: Vec<bool>,
+    ) {
+        // These aren't the real values, but are easier to write tests for
+        let mut possibilities =
+            MaskedPossibilities::from_options(vec![0.1, 0.25, 0.5]);
+        let obs = Observation {
+            units: [my_units, opp_units],
+            energy_field: arr2(&[[Some(0), Some(1), Some(2)]; 3]),
+            ..Default::default()
+        };
+        let last_obs_data = LastObservationData {
+            my_units: my_units_last_turn,
+            opp_units: opp_units_last_turn,
+            nebulae: vec![Pos::new(0, 2)],
+            sensor_mask: Array2::from_elem(FIXED_PARAMS.map_size, true),
+        };
+        let params = KnownVariableParams {
+            unit_move_cost: 2,
+            unit_sap_cost: 10,
+            ..Default::default()
+        };
+        let sap_count_maps = compute_sap_count_maps(
+            &last_obs_data.my_units,
+            &last_actions,
+            FIXED_PARAMS.map_size,
+        );
+        let aggregate_energy_void_map = compute_aggregate_energy_void_map(
+            &last_obs_data.my_units,
+            &last_actions,
+            FIXED_PARAMS.map_size,
+            params.unit_move_cost,
+        );
+        determine_unit_energy_void_factor(
+            &mut possibilities,
+            unit_sap_dropoff_factor,
+            &obs,
+            &last_obs_data,
+            &sap_count_maps,
+            &aggregate_energy_void_map,
+            &FIXED_PARAMS,
+            &params,
+        );
+        assert_eq!(possibilities.get_mask(), expected_result);
+    }
+
     #[test]
     fn test_get_unit_counts_map() {
         let units = vec![
@@ -1229,9 +1405,13 @@ mod tests {
             Unit::with_pos(Pos::new(0, 0)),
             Unit::with_pos(Pos::new(0, 1)),
             Unit::with_pos(Pos::new(0, 1)),
+            Unit::with_pos(Pos::new(1, 0)),
         ];
-        let expected_result =
-            BTreeMap::from([(Pos::new(0, 0), 2), (Pos::new(0, 1), 3)]);
+        let expected_result = BTreeMap::from([
+            (Pos::new(0, 0), 2),
+            (Pos::new(0, 1), 3),
+            (Pos::new(1, 0), 1),
+        ]);
         let result = get_unit_counts_map(&units);
         assert_eq!(result, expected_result);
     }
