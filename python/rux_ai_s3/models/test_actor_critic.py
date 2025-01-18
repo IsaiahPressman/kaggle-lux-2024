@@ -13,8 +13,8 @@ class TestActorCriticOut:
                 [Action.NO_OP.value, Action.UP.value],
                 [Action.RIGHT.value, Action.DOWN.value],
                 [Action.LEFT.value, Action.SAP.value],
-                [Action.SAP.value, Action.SAP.value],
-                [Action.SAP.value, Action.SAP.value],
+                [Action.SAP.value + 1, Action.SAP.value + 2],
+                [Action.SAP.value + 3, Action.SAP.value + 5],
             ]
         )
         sap_actions = torch.tensor(

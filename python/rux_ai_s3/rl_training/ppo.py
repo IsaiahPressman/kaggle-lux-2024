@@ -71,11 +71,25 @@ def merge_log_probs(
     main_log_probs: torch.Tensor,
     sap_log_probs: torch.Tensor,
 ) -> torch.Tensor:
-    assert main_log_probs.shape[-1] - 1 == Action.SAP.value
+    main_sap_log_probs = main_log_probs[..., Action.SAP.value :]
+    if torch.any(main_sap_log_probs.isneginf().logical_not().sum(dim=-1) > 1):
+        raise ValueError("Got multiple unmasked sap actions")
+
+    can_sap = main_sap_log_probs.isneginf().logical_not().any(dim=-1)
+    main_sap_log_probs_masked_zeroed = torch.where(
+        main_sap_log_probs.isneginf(),
+        torch.zeros_like(main_sap_log_probs),
+        main_sap_log_probs,
+    ).sum(dim=-1, keepdim=True)
+    merged_sap_log_probs = torch.where(
+        can_sap.unsqueeze(-1),
+        main_sap_log_probs_masked_zeroed + sap_log_probs,
+        torch.zeros_like(sap_log_probs) - torch.inf,
+    )
     return torch.cat(
         [
-            main_log_probs[..., :-1],
-            main_log_probs[..., -1].unsqueeze(dim=-1) + sap_log_probs,
+            main_log_probs[..., : Action.SAP.value],
+            merged_sap_log_probs,
         ],
         dim=-1,
     )

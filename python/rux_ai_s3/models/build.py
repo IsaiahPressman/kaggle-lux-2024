@@ -88,6 +88,7 @@ def build_factorized_critic_head(
 def build_actor_critic(
     spatial_in_channels: int,
     global_in_channels: int,
+    n_main_actions: int,
     reward_space: RewardSpace,
     config: ActorCriticConfig,
     model_type: type[_ModelT] = nn.Module,  # type: ignore[assignment]
@@ -104,6 +105,7 @@ def build_actor_critic(
     actor_head = BasicActorHead(
         d_model=config.d_model,
         activation=activation,
+        n_main_actions=n_main_actions,
     )
     model: nn.Module
     match config.critic_mode:

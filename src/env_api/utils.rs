@@ -4,6 +4,7 @@ use crate::feature_engineering::memory::Memory;
 use crate::feature_engineering::obs_space::basic_obs_space::write_obs_arrays;
 use crate::feature_engineering::unit_features::write_unit_features;
 use crate::rules_engine::action::Action;
+use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS, P};
 use crate::rules_engine::state::Observation;
 use itertools::Itertools;
@@ -64,6 +65,7 @@ pub fn update_memories_and_write_output_arrays(
         observations,
         &known_valuable_points_maps,
         params,
+        &PARAM_RANGES,
     );
     write_unit_features(
         action_info_slice.unit_indices.view_mut(),

@@ -88,9 +88,11 @@ class Agent:
         example_obs = self.fe_env.get_frame_stacked_obs()
         spatial_in_channels = example_obs.spatial_obs.shape[1]
         global_in_channels = example_obs.global_obs.shape[1]
+        n_main_actions = self.fe_env.last_out.action_info.main_mask.shape[-1]
         model: ModelTypes = build_actor_critic(
             spatial_in_channels=spatial_in_channels,
             global_in_channels=global_in_channels,
+            n_main_actions=n_main_actions,
             reward_space=self.train_config.env_config.reward_space,
             config=self.train_config.rl_model_config,
         )

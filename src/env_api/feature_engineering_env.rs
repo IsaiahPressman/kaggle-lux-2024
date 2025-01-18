@@ -4,12 +4,13 @@ use crate::env_api::env_data::{
 use crate::env_api::utils::{
     player_action_array_to_vec, update_memories_and_write_output_arrays,
 };
+use crate::feature_engineering::action_space::get_main_action_count;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_nontemporal_global_feature_count,
     get_nontemporal_spatial_feature_count, get_temporal_global_feature_count,
     get_temporal_spatial_feature_count,
 };
-use crate::rules_engine::action::Action;
+use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::LuxPlayerObservation;
 use numpy::ndarray::{Array2, Array3, Array4};
@@ -17,7 +18,6 @@ use numpy::{IntoPyArray, PyArray2, PyArray3, PyArray4, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::Bound;
-use strum::EnumCount;
 
 type PyEnvOutputs<'py> = (
     (
@@ -137,8 +137,11 @@ impl EnvOutputs {
             Array2::zeros((1, get_temporal_global_feature_count()));
         let nontemporal_global_obs =
             Array2::zeros((1, get_nontemporal_global_feature_count()));
-        let action_mask =
-            Array3::default((1, FIXED_PARAMS.max_units, Action::COUNT));
+        let action_mask = Array3::default((
+            1,
+            FIXED_PARAMS.max_units,
+            get_main_action_count(&PARAM_RANGES),
+        ));
         let sap_mask = Array4::default((
             1,
             FIXED_PARAMS.max_units,

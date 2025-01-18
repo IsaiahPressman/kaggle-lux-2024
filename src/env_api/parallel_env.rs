@@ -4,6 +4,7 @@ use crate::env_api::env_data::{
 use crate::env_api::utils::{
     action_array_to_vec, update_memories_and_write_output_arrays,
 };
+use crate::feature_engineering::action_space::get_main_action_count;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_nontemporal_global_feature_count,
     get_nontemporal_spatial_feature_count, get_temporal_global_feature_count,
@@ -34,7 +35,6 @@ use pyo3::prelude::*;
 use rand::rngs::ThreadRng;
 use rayon::prelude::*;
 use std::collections::HashMap;
-use strum::EnumCount;
 
 type PyStatsOutputs<'py> = (
     HashMap<String, f32>,
@@ -460,8 +460,12 @@ impl ParallelEnvOutputs {
             Array3::zeros((n_envs, P, get_temporal_global_feature_count()));
         let nontemporal_global_obs =
             Array3::zeros((n_envs, P, get_nontemporal_global_feature_count()));
-        let action_mask =
-            Array4::default((n_envs, P, FIXED_PARAMS.max_units, Action::COUNT));
+        let action_mask = Array4::default((
+            n_envs,
+            P,
+            FIXED_PARAMS.max_units,
+            get_main_action_count(&PARAM_RANGES),
+        ));
         let sap_mask = Array5::default((
             n_envs,
             P,

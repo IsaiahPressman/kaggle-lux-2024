@@ -2,8 +2,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from rux_ai_s3.types import Action
-
 from .types import ActivationFactory, TorchActionInfo
 from .utils import get_unit_slices
 from .weight_initialization import orthogonal_initialization_
@@ -13,6 +11,7 @@ class BasicActorHead(nn.Module):
     def __init__(
         self,
         d_model: int,
+        n_main_actions: int,
         activation: ActivationFactory,
     ) -> None:
         super().__init__()
@@ -24,7 +23,7 @@ class BasicActorHead(nn.Module):
             activation(),
             nn.Linear(
                 in_features=d_model,
-                out_features=len(Action),
+                out_features=n_main_actions,
             ),
         )
         self.sap_actor_conv = nn.Sequential(

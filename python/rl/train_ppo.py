@@ -407,9 +407,11 @@ def build_model(
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
     global_in_channels = example_obs.global_obs.shape[2]
+    n_main_actions = env.last_out.action_info.main_mask.shape[-1]
     return build_actor_critic(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
+        n_main_actions=n_main_actions,
         reward_space=env.reward_space,
         config=config,
         model_type=ActorCritic,

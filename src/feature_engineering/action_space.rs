@@ -1,6 +1,8 @@
+use crate::feature_engineering::utils::one_hot_bool_encode_param_range;
 use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
+use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Pos, Unit};
 use itertools::Itertools;
@@ -9,7 +11,11 @@ use numpy::ndarray::{
     Zip,
 };
 use std::collections::BTreeSet;
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
+
+pub fn get_main_action_count(param_ranges: &ParamRanges) -> usize {
+    Action::COUNT - 1 + param_ranges.unit_sap_range.len()
+}
 
 /// Writes into action_mask of shape (teams, n_units, n_actions) and
 /// sap_mask of shape (teams, n_units, map_width, map_height)
@@ -19,6 +25,7 @@ pub fn write_basic_action_space(
     observations: &[Observation],
     known_valuable_points_map: &[ArrayView2<bool>],
     params: &KnownVariableParams,
+    param_ranges: &ParamRanges,
 ) {
     for (obs, team_action_mask, team_sap_mask, known_valuable_points_map) in izip_eq!(
         observations.iter(),
@@ -32,6 +39,7 @@ pub fn write_basic_action_space(
             obs,
             known_valuable_points_map.view(),
             params,
+            param_ranges,
         );
     }
 }
@@ -42,6 +50,7 @@ fn write_team_actions(
     obs: &Observation,
     known_valuable_points_map: ArrayView2<bool>,
     params: &KnownVariableParams,
+    param_ranges: &ParamRanges,
 ) {
     if obs.is_new_match() {
         return;
@@ -58,13 +67,11 @@ fn write_team_actions(
             *unit,
             params,
         );
-        for (action, is_legal) in Action::iter()
-            .zip_eq(action_mask.index_axis_mut(Axis(0), unit.id).iter_mut())
-        {
+        let mut unit_action_mask =
+            vec![false; get_main_action_count(param_ranges)];
+        for (idx, action) in Action::iter().enumerate() {
             match action {
-                NoOp => {
-                    *is_legal = true;
-                },
+                NoOp => unit_action_mask[idx] = true,
                 Up | Right | Down | Left => {
                     if unit.energy < params.unit_move_cost {
                         continue;
@@ -79,13 +86,25 @@ fn write_team_actions(
                         continue;
                     }
 
-                    *is_legal = true;
+                    unit_action_mask[idx] = true;
                 },
                 Sap(_) => {
-                    *is_legal = can_sap;
+                    if can_sap {
+                        unit_action_mask[idx..].copy_from_slice(
+                            &one_hot_bool_encode_param_range(
+                                params.unit_sap_range,
+                                &param_ranges.unit_sap_range,
+                            ),
+                        )
+                    }
                 },
             }
         }
+        action_mask
+            .index_axis_mut(Axis(0), unit.id)
+            .iter_mut()
+            .zip_eq(unit_action_mask)
+            .for_each(|(out, v)| *out = v);
     }
 }
 
@@ -186,10 +205,15 @@ fn might_have_sap_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::param_ranges::PARAM_RANGES;
     use crate::rules_engine::state::Pos;
     use numpy::ndarray::{arr2, arr3, Array3};
     use pretty_assertions::assert_eq;
-    use strum::EnumCount;
+
+    #[test]
+    fn test_sap_action_last() {
+        assert!(matches!(Action::iter().last(), Some(Sap(_))));
+    }
 
     #[test]
     fn test_write_team_actions() {
@@ -199,9 +223,14 @@ mod tests {
             unit_sap_range: 1,
             ..Default::default()
         };
+        let param_ranges = ParamRanges {
+            unit_sap_range: vec![0, 1, 2],
+            ..PARAM_RANGES.clone()
+        };
         let max_units = 8;
         let [map_width, map_height] = [5, 5];
-        let mut action_mask = Array2::default((max_units, Action::COUNT));
+        let mut action_mask =
+            Array2::default((max_units, get_main_action_count(&param_ranges)));
         let mut sap_mask = Array3::default((max_units, map_width, map_height));
         let obs = Observation {
             units: [
@@ -245,16 +274,17 @@ mod tests {
             &obs,
             known_valuable_points_map.view(),
             &variable_params,
+            &param_ranges,
         );
         let expected_action_mask = arr2(&[
-            [true, false, true, true, false, false],
-            [true, true, false, false, true, true],
-            [false; 6],
-            [true, false, false, false, false, false],
-            [true, true, true, false, true, false],
-            [true, true, true, true, false, true],
-            [true; 6],
-            [false; 6],
+            [true, false, true, true, false, false, false, false],
+            [true, true, false, false, true, false, true, false],
+            [false; 8],
+            [true, false, false, false, false, false, false, false],
+            [true, true, true, false, true, false, false, false],
+            [true, true, true, true, false, false, true, false],
+            [true, true, true, true, true, false, true, false],
+            [false; 8],
         ]);
         let expected_sap_mask = arr3(&[
             [[false; 5]; 5],

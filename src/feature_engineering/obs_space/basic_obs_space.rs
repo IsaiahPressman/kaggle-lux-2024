@@ -1,4 +1,5 @@
 use crate::feature_engineering::memory::Memory;
+use crate::feature_engineering::utils::one_hot_float_encode_param_range;
 use crate::izip_eq;
 use crate::rules_engine::env::{estimate_vision_power_map, get_spawn_position};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
@@ -398,7 +399,7 @@ fn write_nontemporal_global_out(
             },
             UnitMoveCost => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &one_hot_encode_param_range(
+                    &one_hot_float_encode_param_range(
                         params.unit_move_cost,
                         &PARAM_RANGES.unit_move_cost,
                     ),
@@ -411,7 +412,7 @@ fn write_nontemporal_global_out(
             },
             UnitSapRange => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &one_hot_encode_param_range(
+                    &one_hot_float_encode_param_range(
                         params.unit_sap_range,
                         &PARAM_RANGES.unit_sap_range,
                     ),
@@ -419,7 +420,7 @@ fn write_nontemporal_global_out(
             },
             UnitSensorRange => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
-                    &one_hot_encode_param_range(
+                    &one_hot_float_encode_param_range(
                         params.unit_sensor_range,
                         &PARAM_RANGES.unit_sensor_range,
                     ),
@@ -518,15 +519,6 @@ fn discretize_team_wins(wins: u32) -> [f32; 3] {
         1 => [0., 1., 0.],
         2.. => [0., 0., 1.],
     }
-}
-
-fn one_hot_encode_param_range<T>(val: T, range: &[T]) -> Vec<f32>
-where
-    T: Copy + Eq,
-{
-    let mut encoded = vec![0.0; range.len()];
-    encoded[range.iter().position(|&v| v == val).unwrap()] = 1.0;
-    encoded
 }
 
 #[cfg(test)]
