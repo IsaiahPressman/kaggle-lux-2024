@@ -201,8 +201,20 @@ pub struct EnergyNode {
 }
 
 impl EnergyNode {
-    pub fn new(pos: Pos, func_id: u8, xyz: [f32; 3]) -> Self {
-        let [x, y, z] = xyz;
+    pub fn new(pos: Pos, func_id: u8, [x, y, z]: [f32; 3]) -> Self {
+        EnergyNode {
+            pos,
+            func_id,
+            x,
+            y,
+            z,
+        }
+    }
+
+    pub fn from_pos_and_energy_fn(
+        pos: Pos,
+        (func_id, x, y, z): (u8, f32, f32, f32),
+    ) -> Self {
         EnergyNode {
             pos,
             func_id,

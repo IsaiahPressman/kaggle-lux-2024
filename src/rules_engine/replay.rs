@@ -88,6 +88,19 @@ impl FullReplay {
             .collect()
     }
 
+    pub fn get_energy_fields(&self) -> Vec<Array2<i32>> {
+        self.observations
+            .iter()
+            .map(|obs| {
+                Array2::from_shape_vec(
+                    self.get_map_size(),
+                    obs.map_features.energy.iter().flatten().copied().collect(),
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
     fn get_energy_nodes(&self, locations: &[[i16; 2]]) -> Vec<EnergyNode> {
         let mask = Array1::from_elem(locations.len(), true);
         get_energy_nodes(

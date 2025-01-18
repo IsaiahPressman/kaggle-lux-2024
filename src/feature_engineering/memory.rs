@@ -1,3 +1,4 @@
+mod cached_energy_fields;
 mod energy_field;
 mod hidden_parameter;
 mod masked_possibilities;
@@ -6,7 +7,6 @@ pub mod probabilities;
 mod relic_node;
 mod space_obstacle;
 
-use crate::feature_engineering::memory::space_obstacle::SpaceObstacleMemory;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
@@ -15,6 +15,7 @@ use energy_field::EnergyFieldMemory;
 use hidden_parameter::HiddenParameterMemory;
 use numpy::ndarray::Array2;
 use relic_node::RelicNodeMemory;
+use space_obstacle::SpaceObstacleMemory;
 
 pub struct Memory {
     energy_field: EnergyFieldMemory,
@@ -192,6 +193,7 @@ mod tests {
         ];
         let mut known_pcts = Vec::new();
         let mut incorrect_speed_count = 0.;
+        let mut uncached_count = 0;
         for (state, actions, obs, _next_state) in run_replay(&full_replay) {
             let mut known_count = 0;
             let mut unknown_count = 0;
@@ -227,33 +229,27 @@ mod tests {
                     incorrect_speed_count += 1.;
                 }
                 assert!(is_symmetrical(mem.energy_field.energy_field.view()));
+                if mem.energy_field.energy_field_uncached() {
+                    uncached_count += 1;
+                }
             }
             known_pcts.push(
                 known_count as f32 / (known_count + unknown_count) as f32,
             );
         }
+
         let mean_known_pct =
             known_pcts.iter().sum::<f32>() / known_pcts.len() as f32;
         let max_known_pct = *known_pcts
             .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
-        match variable_params.unit_sensor_range {
-            2 => {
-                assert!(mean_known_pct >= 0.4);
-                assert!(max_known_pct >= 0.65);
-            },
-            3 => {
-                assert!(mean_known_pct >= 0.45);
-                assert!(max_known_pct >= 0.7);
-            },
-            4 => {
-                assert!(mean_known_pct >= 0.6);
-                assert!(max_known_pct >= 0.8);
-            },
-            n => panic!("Unrecognized unit_sensor_range {}", n),
-        }
-
+        let uncached_pct = uncached_count as f32
+            / P as f32
+            / FIXED_PARAMS.get_max_steps_in_game() as f32;
+        assert!(mean_known_pct >= 0.99);
+        assert_eq!(max_known_pct, 1.);
+        assert!(uncached_pct <= 1. / FIXED_PARAMS.max_steps_in_match as f32);
         assert!(
             incorrect_speed_count
                 / (FIXED_PARAMS.get_max_steps_in_game() * P as u32) as f32

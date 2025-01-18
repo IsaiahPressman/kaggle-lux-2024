@@ -6,13 +6,7 @@ pub struct MaskedPossibilities<T> {
     pub mask: Vec<bool>,
 }
 
-#[allow(dead_code)]
 impl<T> MaskedPossibilities<T> {
-    pub fn new(options: Vec<T>, mask: Vec<bool>) -> Self {
-        assert_eq!(options.len(), mask.len());
-        Self { options, mask }
-    }
-
     pub fn from_options(options: Vec<T>) -> Self {
         let mask = vec![true; options.len()];
         Self { options, mask }
@@ -66,12 +60,19 @@ impl<T> MaskedPossibilities<T> {
     pub fn get_options(&self) -> &[T] {
         &self.options
     }
+}
+
+#[cfg(test)]
+impl<T> MaskedPossibilities<T> {
+    pub fn new(options: Vec<T>, mask: Vec<bool>) -> Self {
+        assert_eq!(options.len(), mask.len());
+        Self { options, mask }
+    }
 
     pub fn get_mask(&self) -> &[bool] {
         &self.mask
     }
 
-    #[cfg(test)]
     pub fn solved(&self) -> bool {
         !self.still_unsolved()
     }

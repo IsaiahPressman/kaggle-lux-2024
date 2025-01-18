@@ -1,3 +1,4 @@
+use crate::feature_engineering::memory::cached_energy_fields::CACHED_ENERGY_FIELDS;
 use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
 use crate::rules_engine::param_ranges::{
     ParamRanges, IRRELEVANT_ENERGY_NODE_DRIFT_SPEED,
@@ -11,6 +12,8 @@ use numpy::ndarray::{Array2, ArrayView2, ArrayViewMut2, Zip};
 pub struct EnergyFieldMemory {
     pub energy_field: Array2<Option<i32>>,
     pub energy_node_drift_speed: MaskedPossibilities<f32>,
+    full_energy_field_cached: bool,
+    use_cache: bool,
 }
 
 impl EnergyFieldMemory {
@@ -28,6 +31,8 @@ impl EnergyFieldMemory {
         EnergyFieldMemory {
             energy_field: Array2::default(map_size),
             energy_node_drift_speed,
+            full_energy_field_cached: false,
+            use_cache: true,
         }
     }
 
@@ -53,10 +58,14 @@ impl EnergyFieldMemory {
             // nodes have moved, so we reset the known energy field and start
             // over from the current observation
             self.energy_field.fill(None);
+            self.full_energy_field_cached = false;
             update_energy_field(
                 self.energy_field.view_mut(),
                 obs.energy_field.view(),
             );
+        }
+        if !self.full_energy_field_cached && self.use_cache {
+            self.update_energy_field_from_cache()
         }
         // Subtract 2 steps: 1 for the delay in the observed energy field
         // and 1 because the energy field is moved before step is
@@ -71,6 +80,44 @@ impl EnergyFieldMemory {
                 energy_field_moved,
             );
         }
+    }
+
+    fn update_energy_field_from_cache(&mut self) {
+        let mut candidate_cached_field = None;
+        for (_, cached_field) in
+            CACHED_ENERGY_FIELDS.iter().filter(|(_, cached_field)| {
+                Zip::from(&self.energy_field).and(cached_field).all(
+                    |known, &cached| known.is_none_or(|known| cached == known),
+                )
+            })
+        {
+            if candidate_cached_field.is_some() {
+                return;
+            }
+            candidate_cached_field = Some(cached_field);
+        }
+        let Some(cached_field) = candidate_cached_field else {
+            // TODO: For game-time build, don't panic
+            panic!("No matching energy field found in CACHED_ENERGY_FIELDS")
+        };
+        Zip::from(&mut self.energy_field)
+            .and(cached_field)
+            .for_each(|e, &cached_e| *e = Some(cached_e));
+        self.full_energy_field_cached = true;
+    }
+}
+
+#[cfg(test)]
+impl EnergyFieldMemory {
+    fn new_no_cache(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
+        let mut result = Self::new(param_ranges, map_size);
+        result.use_cache = false;
+        result
+    }
+
+    pub fn energy_field_uncached(&self) -> bool {
+        assert!(self.use_cache);
+        !self.full_energy_field_cached
     }
 }
 
@@ -158,8 +205,10 @@ mod tests {
 
     #[test]
     fn test_all_movement_schedules_included() {
-        let memory =
-            EnergyFieldMemory::new(&PARAM_RANGES, FIXED_PARAMS.map_size);
+        let memory = EnergyFieldMemory::new_no_cache(
+            &PARAM_RANGES,
+            FIXED_PARAMS.map_size,
+        );
         assert!(
             memory.energy_node_drift_speed.mask.len()
                 < PARAM_RANGES.energy_node_drift_speed.len()
@@ -233,7 +282,7 @@ mod tests {
         #[case] obs_energy_field: Array2<Option<i32>>,
         #[case] expected_result: Array2<Option<i32>>,
     ) {
-        let mut memory = EnergyFieldMemory::new(&PARAM_RANGES, [4, 4]);
+        let mut memory = EnergyFieldMemory::new_no_cache(&PARAM_RANGES, [4, 4]);
         memory.energy_field = known_energy_field;
         let obs = Observation {
             energy_field: obs_energy_field,
@@ -334,7 +383,7 @@ mod tests {
         #[case] expected_result: Vec<bool>,
     ) {
         let mut energy_node_drift_speed =
-            EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
+            EnergyFieldMemory::new_no_cache(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
         update_energy_node_drift_speed(
             &mut energy_node_drift_speed,
@@ -352,7 +401,7 @@ mod tests {
     #[case([true, true, true, false])]
     fn test_update_energy_node_drift_speed_resets(#[case] mask: [bool; 4]) {
         let mut energy_node_drift_speed =
-            EnergyFieldMemory::new(&PARAM_RANGES, [24, 24])
+            EnergyFieldMemory::new_no_cache(&PARAM_RANGES, [24, 24])
                 .energy_node_drift_speed;
         energy_node_drift_speed.mask = mask.to_vec();
         update_energy_node_drift_speed(&mut energy_node_drift_speed, 120, true);
