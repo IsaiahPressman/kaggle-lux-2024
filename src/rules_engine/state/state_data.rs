@@ -1,6 +1,8 @@
+use crate::izip_eq;
 use crate::rules_engine::params::{FIXED_PARAMS, P};
+#[cfg(test)]
 use itertools::Itertools;
-use numpy::ndarray::{Array2, ArrayView3};
+use numpy::ndarray::Array2;
 use std::array::TryFromSliceError;
 use std::cmp::{max, min};
 use std::num::TryFromIntError;
@@ -245,6 +247,23 @@ impl EnergyNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+pub struct RelicSpawn {
+    pub spawn_step: u32,
+    pub pos: Pos,
+    pub config: Array2<bool>,
+}
+
+impl RelicSpawn {
+    pub fn new(spawn_step: u32, pos: Pos, config: Array2<bool>) -> Self {
+        Self {
+            spawn_step,
+            pos,
+            config,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct State {
     pub units: [Vec<Unit>; P],
     pub asteroids: Vec<Pos>,
@@ -253,6 +272,7 @@ pub struct State {
     pub energy_field: Array2<i32>,
     pub relic_node_locations: Vec<Pos>,
     pub relic_node_points_map: Array2<bool>,
+    pub relic_node_spawn_schedule: Vec<RelicSpawn>,
     pub team_points: [u32; P],
     pub team_wins: [u32; P],
     pub total_steps: u32,
@@ -261,36 +281,31 @@ pub struct State {
 }
 
 impl State {
-    pub fn set_relic_nodes(
+    pub fn initialize_relic_nodes(
         &mut self,
+        spawn_steps: Vec<u32>,
         locations: Vec<Pos>,
-        configs: ArrayView3<bool>,
+        configs: Vec<Array2<bool>>,
         map_size: [usize; 2],
-        config_size: usize,
     ) {
-        assert_eq!(config_size % 2, 1);
-
-        self.relic_node_locations = locations;
+        self.relic_node_locations = Vec::with_capacity(locations.len());
         self.relic_node_points_map = Array2::default(map_size);
 
-        let offset = (config_size / 2) as isize;
-        for (pos, points_mask) in self
-            .relic_node_locations
-            .iter()
-            .copied()
-            .zip_eq(configs.outer_iter())
-        {
-            for point_pos in points_mask
-                .indexed_iter()
-                .filter_map(|((x, y), &p)| {
-                    p.then_some([x as isize - offset, y as isize - offset])
+        self.relic_node_spawn_schedule =
+            izip_eq!(spawn_steps, locations, configs,)
+                .map(|(spawn, pos, points_mask)| {
+                    RelicSpawn::new(spawn, pos, points_mask)
                 })
-                .filter_map(|deltas| pos.maybe_translate(deltas, map_size))
-            {
-                self.relic_node_points_map[point_pos.as_index()] = true;
-            }
-        }
+                .collect();
     }
+
+    pub fn set_relic_nodes(
+        &mut self,
+        spawn_steps: Vec<u32>,
+        locations: Vec<Pos>,
+        configs: Vec<Array2<bool>>,
+        map_size: [usize; 2],
+    )
 }
 
 #[cfg(test)]
@@ -426,7 +441,6 @@ impl Observation {
 mod tests {
     use super::*;
     use crate::rules_engine::params::FIXED_PARAMS;
-    use numpy::ndarray::{arr2, arr3};
 
     #[test]
     fn test_pos_wrapped_translate() {
@@ -505,43 +519,5 @@ mod tests {
         assert_eq!(p1.manhattan_distance(Pos::new(8, 10)), 2);
         assert_eq!(p1.manhattan_distance(Pos::new(10, 12)), 2);
         assert_eq!(p1.manhattan_distance(Pos::new(7, 15)), 8);
-    }
-
-    #[test]
-    fn test_set_relic_nodes() {
-        let map_size = [5, 5];
-        let relic_config_size = 3;
-        let mut state = State {
-            relic_node_locations: vec![Pos::new(1, 1)],
-            relic_node_points_map: arr2(&[
-                [true, true, true, false, false],
-                [true, true, true, false, false],
-                [true, true, true, false, false],
-                [false; 5],
-                [false; 5],
-            ]),
-            ..Default::default()
-        };
-
-        let new_locations = vec![Pos::new(0, 0), Pos::new(3, 3)];
-        let configs = arr3(&[
-            [[true; 3], [true, true, false], [false, false, true]],
-            [[false; 3], [true, true, false], [true, true, false]],
-        ]);
-        state.set_relic_nodes(
-            new_locations.clone(),
-            configs.view(),
-            map_size,
-            relic_config_size,
-        );
-        assert_eq!(state.relic_node_locations, new_locations);
-        let expected_points_map = arr2(&[
-            [true, false, false, false, false],
-            [false, true, false, false, false],
-            [false, false, false, false, false],
-            [false, false, true, true, false],
-            [false, false, true, true, false],
-        ]);
-        assert_eq!(state.relic_node_points_map, expected_points_map);
     }
 }

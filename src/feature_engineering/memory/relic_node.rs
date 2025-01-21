@@ -9,6 +9,7 @@ const RELIC_WINDOW: isize = FIXED_PARAMS.relic_config_size as isize / 2;
 /// Tracks everything known by a player so far about relic nodes
 #[derive(Debug)]
 pub struct RelicNodeMemory {
+    // TODO: Overhaul this with new ruleset
     pub relic_nodes: Vec<Pos>,
     pub explored_nodes_map: Array2<bool>,
     pub known_and_explored_points_map: Array2<bool>,

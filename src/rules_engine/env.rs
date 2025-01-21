@@ -1,7 +1,9 @@
 use super::action::Action;
 use super::game_stats::StepStats;
 use super::params::{FixedParams, VariableParams, FIXED_PARAMS, P};
-use super::state::{EnergyNode, GameResult, Observation, Pos, State, Unit};
+use super::state::{
+    EnergyNode, GameResult, Observation, Pos, RelicSpawn, State, Unit,
+};
 use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Array3, ArrayView2, ArrayView3, Axis, Zip};
 use rand::distributions::{Distribution, Uniform};
@@ -49,6 +51,14 @@ pub fn step(
         state.units = [Vec::new(), Vec::new()];
     }
     remove_dead_units(&mut state.units);
+    spawn_relic_nodes(
+        &mut state.relic_node_spawn_schedule,
+        &mut state.relic_node_locations,
+        &mut state.relic_node_points_map,
+        state.total_steps,
+        FIXED_PARAMS.relic_config_size,
+        FIXED_PARAMS.map_size,
+    );
     let actions = get_relevant_actions(actions, &state.units);
     let (noop_count, move_count, sap_count) = move_units(
         &mut state.units,
@@ -163,6 +173,53 @@ pub fn step(
 fn remove_dead_units(units: &mut [Vec<Unit>; P]) {
     units[0].retain(|u| u.alive());
     units[1].retain(|u| u.alive());
+}
+
+fn spawn_relic_nodes(
+    spawn_schedule: &mut Vec<RelicSpawn>,
+    relic_node_locations: &mut Vec<Pos>,
+    relic_node_points_map: &mut Array2<bool>,
+    total_steps: u32,
+    relic_config_size: usize,
+    map_size: [usize; 2],
+) {
+    spawn_schedule.retain(|rs| {
+        !maybe_spawn_relic_node(
+            rs,
+            relic_node_locations,
+            relic_node_points_map,
+            total_steps,
+            relic_config_size,
+            map_size,
+        )
+    });
+}
+
+fn maybe_spawn_relic_node(
+    relic_spawn: &RelicSpawn,
+    relic_node_locations: &mut Vec<Pos>,
+    relic_node_points_map: &mut Array2<bool>,
+    total_steps: u32,
+    relic_config_size: usize,
+    map_size: [usize; 2],
+) -> bool {
+    if total_steps < relic_spawn.spawn_step {
+        return false;
+    }
+
+    relic_node_locations.push(relic_spawn.pos);
+    let offset = (relic_config_size / 2) as isize;
+    for point_pos in relic_spawn
+        .config
+        .indexed_iter()
+        .filter_map(|((x, y), p)| {
+            p.then_some([x as isize - offset, y as isize - offset])
+        })
+        .filter_map(|deltas| relic_spawn.pos.maybe_translate(deltas, map_size))
+    {
+        relic_node_points_map[point_pos.as_index()] = true;
+    }
+    true
 }
 
 fn get_relevant_actions(
@@ -917,6 +974,68 @@ mod tests {
             FinalStep,
             None,
         );
+    }
+
+    #[test]
+    fn test_spawn_relic_nodes() {
+        let map_size = [5, 5];
+        let relic_config_size = 3;
+        let orig_spawn_schedule = vec![
+            RelicSpawn::new(
+                10,
+                Pos::new(0, 0),
+                arr2(&[[true; 3], [true, true, false], [false, false, true]]),
+            ),
+            RelicSpawn::new(
+                10,
+                Pos::new(3, 3),
+                arr2(&[[false; 3], [true, true, false], [true, true, false]]),
+            ),
+            RelicSpawn::new(
+                11,
+                Pos::new(1, 1),
+                Array2::from_elem([relic_config_size; 2], true),
+            ),
+            RelicSpawn::new(
+                11,
+                Pos::new(2, 2),
+                Array2::from_elem([relic_config_size; 2], true),
+            ),
+        ];
+        let mut spawn_schedule = orig_spawn_schedule.clone();
+        let mut relic_node_locations = Vec::new();
+        let mut relic_node_points_map = Array2::default(map_size);
+
+        spawn_relic_nodes(
+            &mut spawn_schedule,
+            &mut relic_node_locations,
+            &mut relic_node_points_map,
+            9,
+            relic_config_size,
+            map_size,
+        );
+        assert_eq!(spawn_schedule, orig_spawn_schedule);
+        assert!(relic_node_locations.is_empty());
+        assert!(!relic_node_points_map.iter().any(|&p| p));
+
+        spawn_relic_nodes(
+            &mut spawn_schedule,
+            &mut relic_node_locations,
+            &mut relic_node_points_map,
+            9,
+            relic_config_size,
+            map_size,
+        );
+        assert_eq!(&spawn_schedule, &orig_spawn_schedule[2..]);
+        assert_eq!(relic_node_locations, vec![Pos::new(0, 0), Pos::new(3, 3)]);
+        let expected_points_map = arr2(&[
+            [true, false, false, false, false],
+            [false, true, false, false, false],
+            [false, false, false, false, false],
+            [false, false, true, true, false],
+            [false, false, true, true, false],
+        ]);
+        assert_eq!(relic_node_points_map, expected_points_map);
     }
 
     #[test]

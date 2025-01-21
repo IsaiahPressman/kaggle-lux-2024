@@ -6,4 +6,6 @@ mod state_data;
 pub use from_lux::{
     LuxMapFeatures, LuxPlayerObservation, LuxPlayerObservationUnits,
 };
-pub use state_data::{EnergyNode, GameResult, Observation, Pos, State, Unit};
+pub use state_data::{
+    EnergyNode, GameResult, Observation, Pos, RelicSpawn, State, Unit,
+};

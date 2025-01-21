@@ -24,9 +24,7 @@ use crate::rules_engine::state::from_array::{
 };
 use crate::rules_engine::state::{Pos, State};
 use itertools::Itertools;
-use numpy::ndarray::{
-    stack, Array1, Array2, Array3, Array4, Array5, ArrayView2, Axis,
-};
+use numpy::ndarray::{Array1, Array2, Array3, Array4, Array5};
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyArray3, PyArray4, PyArray5,
     PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3, PyReadonlyArray4,
@@ -124,12 +122,13 @@ impl ParallelEnv {
         &mut self,
         output_arrays: PyEnvOutputs<'py>,
         tile_type: PyReadonlyArray3<'py, i32>,
-        energy_nodes: PyReadonlyArray3<'py, i16>,
+        energy_nodes: PyReadonlyArray3<'py, i32>,
         energy_node_fns: PyReadonlyArray3<'py, f32>,
         energy_nodes_mask: PyReadonlyArray2<'py, bool>,
-        relic_nodes: PyReadonlyArray3<'py, i16>,
+        relic_nodes: PyReadonlyArray3<'py, i32>,
         relic_node_configs: PyReadonlyArray4<'py, bool>,
         relic_nodes_mask: PyReadonlyArray2<'py, bool>,
+        relic_spawn_schedule: PyReadonlyArray2<'py, i32>,
     ) {
         let mut rng = rand::thread_rng();
         let (
@@ -153,6 +152,7 @@ impl ParallelEnv {
             relic_nodes,
             relic_node_configs,
             relic_nodes_mask,
+            relic_spawn_schedule,
         ) in izip_eq!(
             izip_eq!(
                 temporal_spatial_obs
@@ -223,6 +223,7 @@ impl ParallelEnv {
             relic_nodes.as_array().outer_iter(),
             relic_node_configs.as_array().outer_iter(),
             relic_nodes_mask.as_array().outer_iter(),
+            relic_spawn_schedule.as_array().outer_iter(),
         ) {
             let mut state = State {
                 asteroids: get_asteroids(tile_type),
@@ -234,19 +235,30 @@ impl ParallelEnv {
                 ),
                 ..Default::default()
             };
-            let (locations, configs): (_, Vec<ArrayView2<bool>>) = relic_nodes
-                .mapv(|x| x as usize)
-                .outer_iter()
-                .map(|pos| Pos::try_from(pos.as_slice().unwrap()).unwrap())
-                .zip_eq(relic_node_configs.outer_iter())
+            let ((spawn_steps, locations), configs): (
+                (Vec<_>, Vec<_>),
+                Vec<Array2<bool>>,
+            ) = relic_spawn_schedule
+                .iter()
+                .zip_eq(
+                    relic_nodes.mapv(|x| x as usize).outer_iter().map(|pos| {
+                        Pos::try_from(pos.as_slice().unwrap()).unwrap()
+                    }),
+                )
+                .zip_eq(
+                    relic_node_configs.outer_iter().map(|arr| arr.to_owned()),
+                )
                 .zip_eq(relic_nodes_mask.iter())
                 .filter_map(|(data, mask)| mask.then_some(data))
                 .unzip();
-            state.set_relic_nodes(
+            state.initialize_relic_nodes(
+                spawn_steps
+                    .into_iter()
+                    .map(|&s| u32::try_from(s).unwrap())
+                    .collect(),
                 locations,
-                stack(Axis(0), &configs).unwrap().view(),
+                configs,
                 FIXED_PARAMS.map_size,
-                FIXED_PARAMS.relic_config_size,
             );
             state.energy_field =
                 get_energy_field(&state.energy_nodes, &FIXED_PARAMS);

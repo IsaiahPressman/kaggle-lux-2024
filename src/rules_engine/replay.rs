@@ -17,6 +17,7 @@ pub struct FullReplay {
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
+    relic_spawn_schedule: Vec<i32>,
     #[serde(default)]
     player_observations: Option<[Vec<LuxPlayerObservation>; P]>,
 }
@@ -24,10 +25,6 @@ pub struct FullReplay {
 impl FullReplay {
     fn get_map_size(&self) -> [usize; 2] {
         self.params.fixed.map_size
-    }
-
-    fn get_relic_config_size(&self) -> usize {
-        self.params.fixed.relic_config_size
     }
 
     pub fn get_states(&self) -> Vec<State> {
@@ -53,7 +50,9 @@ impl FullReplay {
                 done: game_over,
                 ..Default::default()
             };
-            state.set_relic_nodes(
+            // TODO: Left off here - how to add relic nodes + spawn
+            //  schedule to state
+            state.initialize_relic_nodes(
                 obs.relic_nodes
                     .iter()
                     .copied()
@@ -61,7 +60,6 @@ impl FullReplay {
                     .collect(),
                 arr3(&obs.relic_node_configs).view(),
                 self.get_map_size(),
-                self.get_relic_config_size(),
             );
             state.sort();
             // In the replay file, each observed energy field is from the previous
@@ -101,7 +99,7 @@ impl FullReplay {
             .collect()
     }
 
-    fn get_energy_nodes(&self, locations: &[[i16; 2]]) -> Vec<EnergyNode> {
+    fn get_energy_nodes(&self, locations: &[[i32; 2]]) -> Vec<EnergyNode> {
         let mask = Array1::from_elem(locations.len(), true);
         get_energy_nodes(
             arr2(locations).view(),
@@ -173,7 +171,7 @@ impl ReplayPlayerActions {
 struct ReplayObservation {
     units: ReplayUnits,
     units_mask: [Vec<bool>; P],
-    energy_nodes: Vec<[i16; 2]>,
+    energy_nodes: Vec<[i32; 2]>,
     relic_nodes: Vec<[isize; 2]>,
     relic_node_configs: Vec<[[bool; 5]; 5]>,
     map_features: LuxMapFeatures,
