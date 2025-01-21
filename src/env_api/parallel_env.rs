@@ -122,10 +122,10 @@ impl ParallelEnv {
         &mut self,
         output_arrays: PyEnvOutputs<'py>,
         tile_type: PyReadonlyArray3<'py, i32>,
-        energy_nodes: PyReadonlyArray3<'py, i32>,
+        energy_nodes: PyReadonlyArray3<'py, i16>,
         energy_node_fns: PyReadonlyArray3<'py, f32>,
         energy_nodes_mask: PyReadonlyArray2<'py, bool>,
-        relic_nodes: PyReadonlyArray3<'py, i32>,
+        relic_nodes: PyReadonlyArray3<'py, i16>,
         relic_node_configs: PyReadonlyArray4<'py, bool>,
         relic_nodes_mask: PyReadonlyArray2<'py, bool>,
         relic_spawn_schedule: PyReadonlyArray2<'py, i32>,
@@ -244,11 +244,9 @@ impl ParallelEnv {
                 relic_nodes_mask.iter(),
             )
             .filter_map(|(spawn_step, pos, config, mask)| {
-                mask.then_some(RelicSpawn::new(
-                    spawn_step.try_into().unwrap(),
-                    pos,
-                    config,
-                ))
+                mask.then(|| {
+                    RelicSpawn::new(spawn_step.try_into().unwrap(), pos, config)
+                })
             })
             .collect();
             state.initialize_relic_nodes(

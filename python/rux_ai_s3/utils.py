@@ -1,11 +1,21 @@
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Final, NamedTuple, TypeVar
 
 import numpy as np
 import yaml
+from luxai_s3.params import EnvParams
 from pydantic import BaseModel
 
 _BaseModelT = TypeVar("_BaseModelT", bound=BaseModel)
+
+
+class RequiredParams(NamedTuple):
+    max_steps_in_match: int
+
+
+GEN_MAP_MOCK_PARAMS: Final[RequiredParams] = RequiredParams(
+    max_steps_in_match=EnvParams().max_steps_in_match,
+)
 
 
 def to_json(obj: Any) -> Any:

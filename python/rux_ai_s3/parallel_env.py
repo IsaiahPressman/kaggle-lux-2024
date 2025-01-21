@@ -14,6 +14,7 @@ from rux_ai_s3.lowlevel import RewardSpace
 from rux_ai_s3.types import ActionArray, FrameStackedObs
 
 from .types import Obs, ParallelEnvOut
+from .utils import GEN_MAP_MOCK_PARAMS
 
 
 class EnvConfig(BaseModel):
@@ -78,7 +79,7 @@ class ParallelEnv:
         self._raw_gen_map_vmapped = jax.vmap(
             functools.partial(
                 gen_map,
-                params=None,
+                params=GEN_MAP_MOCK_PARAMS,
                 map_type=fixed_params.map_type,
                 map_height=fixed_params.map_height,
                 map_width=fixed_params.map_width,
@@ -128,6 +129,7 @@ class ParallelEnv:
             relic_nodes=np.asarray(new_map_dict["relic_nodes"]),
             relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"]),
         )
 
     def _update_frame_history(self) -> None:

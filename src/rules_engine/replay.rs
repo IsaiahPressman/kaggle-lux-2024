@@ -142,7 +142,7 @@ impl FullReplay {
             .collect()
     }
 
-    fn get_energy_nodes(&self, locations: &[[i32; 2]]) -> Vec<EnergyNode> {
+    fn get_energy_nodes(&self, locations: &[[i16; 2]]) -> Vec<EnergyNode> {
         let mask = Array1::from_elem(locations.len(), true);
         get_energy_nodes(
             arr2(locations).view(),
@@ -214,7 +214,7 @@ impl ReplayPlayerActions {
 struct ReplayObservation {
     units: ReplayUnits,
     units_mask: [Vec<bool>; P],
-    energy_nodes: Vec<[i32; 2]>,
+    energy_nodes: Vec<[i16; 2]>,
     relic_nodes: Vec<[isize; 2]>,
     relic_node_configs: Vec<[[bool; 5]; 5]>,
     map_features: LuxMapFeatures,

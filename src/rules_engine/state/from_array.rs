@@ -44,7 +44,7 @@ fn filter_map_tile(
 }
 
 pub fn get_energy_nodes(
-    locations: ArrayView2<i32>,
+    locations: ArrayView2<i16>,
     node_fns: ArrayView2<f32>,
     mask: ArrayView1<bool>,
 ) -> Vec<EnergyNode> {

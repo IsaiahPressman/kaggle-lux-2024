@@ -16,7 +16,7 @@ from rux_ai_s3.lowlevel import (
     RewardSpace,
 )
 from rux_ai_s3.types import FeatureEngineeringOut, ParallelEnvOut
-from rux_ai_s3.utils import to_json
+from rux_ai_s3.utils import GEN_MAP_MOCK_PARAMS, to_json
 
 _MAP_SIZE = (24, 24)
 _N_ENVS = 8
@@ -46,6 +46,7 @@ class TestParallelEnv:
             relic_nodes=np.asarray(new_map_dict["relic_nodes"]),
             relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"]),
         )
         actions = np.zeros((_N_ENVS, 2, 16, 3), dtype=int)
         env.par_step(actions)
@@ -78,6 +79,9 @@ class TestParallelEnv:
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"])[
                 : len(envs_behind_one_step)
             ],
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"])[
+                : len(envs_behind_one_step)
+            ],
         )
         assert env.get_new_match_envs() == envs_behind_one_step
         assert env.get_new_game_envs() == envs_behind_one_step
@@ -107,6 +111,7 @@ class TestParallelEnv:
             relic_nodes=np.asarray(new_map_dict["relic_nodes"]),
             relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"]),
         )
 
         actions = np.zeros((_N_ENVS, 2, 16, 3), dtype=int)
@@ -138,6 +143,7 @@ class TestParallelEnv:
             relic_nodes=np.asarray(new_map_dict["relic_nodes"]),
             relic_node_configs=np.asarray(new_map_dict["relic_node_configs"]),
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"]),
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"]),
         )
         for obs_array in env_out.obs:
             assert np.all(obs_array != _FLOAT_FLAG)
@@ -183,6 +189,9 @@ class TestParallelEnv:
             relic_nodes_mask=np.asarray(new_map_dict["relic_nodes_mask"])[
                 : len(reset_env_ids)
             ],
+            relic_spawn_schedule=np.asarray(new_map_dict["relic_spawn_schedule"])[
+                : len(reset_env_ids)
+            ],
         )
 
         for obs_array in env_out.obs:
@@ -214,7 +223,7 @@ class TestParallelEnv:
         gen_map_vmapped = jax.vmap(
             functools.partial(
                 gen_map,
-                params=None,
+                params=GEN_MAP_MOCK_PARAMS,
                 map_type=1,
                 map_height=map_height,
                 map_width=map_width,
