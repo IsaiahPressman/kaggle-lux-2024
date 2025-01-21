@@ -45,6 +45,7 @@ enum NontemporalSpatialFeature {
     // They also don't seem needed for more than the current frame
     Asteroid,
     Nebula,
+    // TODO: Future asteroid / nebula position predictions
     TileExplored,
     RelicNode,
     RelicNodeExplored,
@@ -76,12 +77,13 @@ enum NontemporalGlobalFeature {
     UnitSapRange = 13,
     UnitSensorRange = 18,
     // Estimated / inferred features
-    UnitSapDropoffFactor = 21,
-    NebulaTileVisionReduction = 24,
-    NebulaTileEnergyReduction = 28,
-    NebulaTileDriftSpeed = 31,
-    EnergyNodeDriftSpeed = 35,
-    End = 39,
+    UnitSapDropoffFactor = 22,
+    NebulaTileVisionReduction = 25,
+    NebulaTileEnergyReduction = 33,
+    NebulaTileDriftSpeed = 39,
+    NebulaTileDriftDirection = 43,
+    EnergyNodeDriftSpeed = 45,
+    End = 50,
 }
 
 // Normalizing constants
@@ -446,6 +448,11 @@ fn write_nontemporal_global_out(
                     &mem.get_nebula_tile_drift_speed_weights(),
                 );
             },
+            NebulaTileDriftDirection => {
+                global_result[gf as usize..next_gf as usize].copy_from_slice(
+                    &mem.get_nebula_tile_drift_direction_weights(),
+                )
+            },
             EnergyNodeDriftSpeed => {
                 global_result[gf as usize..next_gf as usize].copy_from_slice(
                     &mem.get_energy_node_drift_speed_weights(),
@@ -526,9 +533,7 @@ mod tests {
     use super::*;
     use crate::feature_engineering::replay;
     use crate::feature_engineering::replay::run_replay;
-    use crate::rules_engine::param_ranges::{
-        IRRELEVANT_ENERGY_NODE_DRIFT_SPEED, PARAM_RANGES,
-    };
+    use crate::rules_engine::param_ranges::PARAM_RANGES;
     use numpy::ndarray::{s, Array2, Array4, ArrayViewD, Axis};
     use rstest::rstest;
     use std::cmp::Ordering;
@@ -625,6 +630,7 @@ mod tests {
                     let option_count = PARAM_RANGES
                         .nebula_tile_drift_speed
                         .iter()
+                        .map(|s| s.abs())
                         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
                         .dedup()
                         .count();
@@ -633,14 +639,14 @@ mod tests {
                         option_count as isize
                     );
                 },
+                NebulaTileDriftDirection => {
+                    assert_eq!(next_feature as isize - feature as isize, 2,);
+                },
                 EnergyNodeDriftSpeed => {
                     let option_count = PARAM_RANGES
                         .energy_node_drift_speed
                         .iter()
                         .sorted_by(|a, b| a.partial_cmp(b).unwrap())
-                        .filter(|&&speed| {
-                            speed != IRRELEVANT_ENERGY_NODE_DRIFT_SPEED
-                        })
                         .dedup()
                         .count();
                     assert_eq!(

@@ -11,6 +11,7 @@ use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos};
 use energy_field::EnergyFieldMemory;
 use hidden_parameter::HiddenParameterMemory;
+use itertools::Itertools;
 use numpy::ndarray::Array2;
 use relic_node::RelicNodeMemory;
 use space_obstacle::SpaceObstacleMemory;
@@ -135,9 +136,36 @@ impl Memory {
     }
 
     pub fn get_nebula_tile_drift_speed_weights(&self) -> Vec<f32> {
-        self.space_obstacle
+        let full_weights = self
+            .space_obstacle
             .nebula_tile_drift_speed
-            .get_weighted_possibilities()
+            .get_weighted_possibilities();
+
+        let (first, second) = full_weights.split_at(full_weights.len() / 2);
+        first
+            .iter()
+            .zip_eq(second.iter().rev())
+            .map(|(a, b)| a + b)
+            .collect()
+    }
+
+    pub fn get_nebula_tile_drift_direction_weights(&self) -> [f32; 2] {
+        let negative_drift_possible = self
+            .space_obstacle
+            .nebula_tile_drift_speed
+            .iter_unmasked_options()
+            .any(|&s| s < 0.0);
+        let positive_drift_possible = self
+            .space_obstacle
+            .nebula_tile_drift_speed
+            .iter_unmasked_options()
+            .any(|&s| s > 0.0);
+        match (negative_drift_possible, positive_drift_possible) {
+            (true, true) => [0.5, 0.5],
+            (true, false) => [1.0, 0.0],
+            (false, true) => [0.0, 1.0],
+            (false, false) => unreachable!(),
+        }
     }
 }
 
@@ -153,6 +181,49 @@ mod tests {
     use rstest::rstest;
     use std::path::PathBuf;
 
+    #[test]
+    fn test_nebula_tile_drift_speed_weights_assumptions() {
+        let drift_speeds = PARAM_RANGES.nebula_tile_drift_speed.clone();
+        assert_eq!(drift_speeds.len() % 2, 0);
+        let (first, second) = drift_speeds.split_at(drift_speeds.len() / 2);
+        let first = first.iter().map(|s| s.abs()).collect_vec();
+        let second = second.iter().rev().copied().collect_vec();
+        assert_eq!(first, second);
+    }
+
+    #[rstest]
+    #[case(vec![true; 6], vec![1. / 3.; 3])]
+    #[case(vec![false, false, false, true, true, true], vec![1. / 3.; 3])]
+    #[case(
+        vec![true, false, false, false, false, false],
+        vec![1., 0., 0.],
+    )]
+    #[case(
+        vec![true, false, false, false, false, true],
+        vec![1., 0., 0.],
+    )]
+    #[case(
+        vec![true, false, false, false, true, false],
+        vec![0.5, 0.5, 0.],
+    )]
+    #[case(
+        vec![true, false, false, false, true, true],
+        vec![2. / 3., 1. / 3., 0.],
+    )]
+    fn test_nebula_tile_drift_speed_weights(
+        #[case] mask: Vec<bool>,
+        #[case] expected_weights: Vec<f32>,
+    ) {
+        let mut mem = Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size);
+        mem.space_obstacle.nebula_tile_drift_speed.mask = mask;
+        assert_eq!(mem.get_nebula_tile_drift_speed_weights(), expected_weights);
+    }
+
+    #[test]
+    fn test_nebula_tile_drift_direction_assumptions() {
+        assert!(!PARAM_RANGES.nebula_tile_drift_speed.contains(&0.));
+    }
+
     fn is_symmetrical<T>(arr: ArrayView2<T>) -> bool
     where
         T: Copy + PartialEq,
@@ -165,15 +236,6 @@ mod tests {
             }
         }
         true
-    }
-
-    fn should_drift(step: u32, speed: f32) -> bool {
-        step as f32 * speed % 1.0 == 0.0
-    }
-
-    fn drift_speed_equal(speed: f32, other: f32) -> bool {
-        (0..FIXED_PARAMS.get_max_steps_in_game())
-            .all(|step| should_drift(step, speed) == should_drift(step, other))
     }
 
     #[rstest]
@@ -218,10 +280,7 @@ mod tests {
                     .energy_node_drift_speed
                     .iter_unmasked_options()
                     .any(|&speed| {
-                        drift_speed_equal(
-                            speed,
-                            variable_params.energy_node_drift_speed,
-                        )
+                        speed == variable_params.energy_node_drift_speed
                     })
                 {
                     incorrect_speed_count += 1.;

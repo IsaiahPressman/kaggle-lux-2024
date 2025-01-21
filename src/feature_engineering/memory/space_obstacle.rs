@@ -1,6 +1,6 @@
 use crate::feature_engineering::memory::masked_possibilities::MaskedPossibilities;
 use crate::feature_engineering::utils::memory_error;
-use crate::rules_engine::env::estimate_vision_power_map;
+use crate::rules_engine::env::{estimate_vision_power_map, should_drift};
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Pos};
@@ -259,10 +259,6 @@ impl SpaceObstacleMemory {
         apply_drift(&mut self.known_nebulae, drift);
         apply_drift(&mut self.explored_tiles, drift);
     }
-}
-
-fn should_drift(step: u32, speed: f32) -> bool {
-    step as f32 * speed % 1.0 == 0.0
 }
 
 fn should_negative_drift(step: u32, speed: f32) -> bool {

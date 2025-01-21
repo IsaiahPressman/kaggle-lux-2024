@@ -645,9 +645,7 @@ fn move_space_objects(
     params: &VariableParams,
     fixed_params: &FixedParams,
 ) -> Option<Array2<i32>> {
-    if state.total_steps as f32 * params.nebula_tile_drift_speed % 1.0 == 0.0
-        && params.nebula_tile_drift_speed != 0.0
-    {
+    if should_drift(state.total_steps, params.nebula_tile_drift_speed) {
         let deltas = [
             params.nebula_tile_drift_speed.signum() as isize,
             -params.nebula_tile_drift_speed.signum() as isize,
@@ -657,7 +655,7 @@ fn move_space_objects(
         }
     }
 
-    if state.total_steps as f32 * params.energy_node_drift_speed % 1.0 == 0.0 {
+    if should_drift(state.total_steps, params.energy_node_drift_speed) {
         let energy_node_deltas = energy_node_deltas.unwrap_or_else(|| {
             get_random_energy_node_deltas(rng, state.energy_nodes.len(), params)
         });
@@ -678,6 +676,12 @@ fn move_space_objects(
     } else {
         None
     }
+}
+
+pub fn should_drift(step: u32, speed: f32) -> bool {
+    let step = step as f32;
+    let speed = speed.abs();
+    (step - 1.) * speed % 1. > step * speed % 1.
 }
 
 fn get_random_energy_node_deltas(
@@ -1589,6 +1593,7 @@ mod tests {
                 // Stops at edge of board
                 EnergyNode::new_at(Pos::new(1, 2)),
             ],
+            total_steps: 100,
             ..Default::default()
         };
         let energy_node_deltas = vec![[-3, 4], [3, 3]];
