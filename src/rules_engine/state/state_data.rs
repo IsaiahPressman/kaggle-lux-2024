@@ -1,4 +1,3 @@
-use crate::izip_eq;
 use crate::rules_engine::params::{FIXED_PARAMS, P};
 #[cfg(test)]
 use itertools::Itertools;
@@ -283,29 +282,34 @@ pub struct State {
 impl State {
     pub fn initialize_relic_nodes(
         &mut self,
-        spawn_steps: Vec<u32>,
-        locations: Vec<Pos>,
-        configs: Vec<Array2<bool>>,
+        relic_node_spawn_schedule: Vec<RelicSpawn>,
         map_size: [usize; 2],
     ) {
-        self.relic_node_locations = Vec::with_capacity(locations.len());
+        self.relic_node_locations =
+            Vec::with_capacity(relic_node_spawn_schedule.len());
         self.relic_node_points_map = Array2::default(map_size);
-
-        self.relic_node_spawn_schedule =
-            izip_eq!(spawn_steps, locations, configs,)
-                .map(|(spawn, pos, points_mask)| {
-                    RelicSpawn::new(spawn, pos, points_mask)
-                })
-                .collect();
+        self.relic_node_spawn_schedule = relic_node_spawn_schedule;
     }
 
-    pub fn set_relic_nodes(
+    pub fn add_relic_node(
         &mut self,
-        spawn_steps: Vec<u32>,
-        locations: Vec<Pos>,
-        configs: Vec<Array2<bool>>,
+        pos: Pos,
+        config: &Array2<bool>,
+        relic_config_size: usize,
         map_size: [usize; 2],
-    )
+    ) {
+        self.relic_node_locations.push(pos);
+        let offset = (relic_config_size / 2) as isize;
+        for point_pos in config
+            .indexed_iter()
+            .filter_map(|((x, y), p)| {
+                p.then_some([x as isize - offset, y as isize - offset])
+            })
+            .filter_map(|deltas| pos.maybe_translate(deltas, map_size))
+        {
+            self.relic_node_points_map[point_pos.as_index()] = true;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +331,8 @@ impl State {
         self.asteroids.sort();
         self.nebulae.sort();
         self.relic_node_locations.sort();
+        self.relic_node_spawn_schedule
+            .sort_by_key(|rs| (rs.spawn_step, rs.pos));
     }
 }
 

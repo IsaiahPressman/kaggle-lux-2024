@@ -49,6 +49,9 @@ def main() -> None:
     validate_seed(state, replay)
 
     replay["energy_node_fns"] = state.energy_node_fns[state.energy_nodes_mask].tolist()
+    replay["relic_spawn_schedule"] = state.relic_spawn_schedule[
+        state.relic_spawn_schedule != -1
+    ].tolist()
     replay["player_observations"] = observations or None
     output_path = args.path / f"processed_replay_{seed}.json"
     with open(output_path, "w") as f:
@@ -70,17 +73,6 @@ def validate_seed(state: EnvState, replay: dict[str, Any]) -> None:
         raise RuntimeError(
             f"{state.map_features.tile_type.tolist()} != {replay_tile_type}"
         )
-
-
-def dump_test_case(state: EnvState, seed: int, path: Path) -> None:
-    to_dump = {
-        "seed": seed,
-        "energy_nodes": state.energy_nodes[state.energy_nodes_mask].tolist(),
-        "energy_node_fns": state.energy_node_fns[state.energy_nodes_mask].tolist(),
-        "energy_field": state.map_features.energy.tolist(),
-    }
-    with open(path, "w") as f:
-        json.dump(to_dump, f)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,15 @@
+use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::params::{FixedParams, VariableParams, P};
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
 use crate::rules_engine::state::{
-    EnergyNode, LuxMapFeatures, LuxPlayerObservation, Observation, Pos, State,
-    Unit,
+    EnergyNode, LuxMapFeatures, LuxPlayerObservation, Observation, Pos,
+    RelicSpawn, State, Unit,
 };
-use itertools::Itertools;
-use numpy::ndarray::{arr2, arr3, Array1, Array2, Array3};
+use itertools::{Either, Itertools};
+use numpy::ndarray::{arr2, Array1, Array2, Array3};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -17,7 +18,7 @@ pub struct FullReplay {
     actions: Vec<ReplayPlayerActions>,
     observations: Vec<ReplayObservation>,
     energy_node_fns: Vec<[f32; 4]>,
-    relic_spawn_schedule: Vec<i32>,
+    relic_spawn_schedule: Vec<u32>,
     #[serde(default)]
     player_observations: Option<[Vec<LuxPlayerObservation>; P]>,
 }
@@ -27,9 +28,15 @@ impl FullReplay {
         self.params.fixed.map_size
     }
 
+    fn get_relic_config_size(&self) -> usize {
+        self.params.fixed.relic_config_size
+    }
+
     pub fn get_states(&self) -> Vec<State> {
         let mut result: Vec<State> =
             Vec::with_capacity(self.observations.len());
+        let all_relic_nodes = self.get_all_relic_nodes();
+        let all_relic_node_configs = self.get_all_relic_node_configs();
         for obs in &self.observations {
             let game_over = obs.team_wins.iter().sum::<u32>()
                 >= self.params.fixed.match_count_per_episode;
@@ -50,17 +57,32 @@ impl FullReplay {
                 done: game_over,
                 ..Default::default()
             };
-            // TODO: Left off here - how to add relic nodes + spawn
-            //  schedule to state
-            state.initialize_relic_nodes(
-                obs.relic_nodes
-                    .iter()
-                    .copied()
-                    .map(|pos| Pos::try_from(pos).unwrap())
-                    .collect(),
-                arr3(&obs.relic_node_configs).view(),
-                self.get_map_size(),
-            );
+            // Set up active relic nodes + spawn schedule
+            let (spawn_schedule, active_nodes): (Vec<_>, Vec<_>) = izip_eq!(
+                self.relic_spawn_schedule.iter(),
+                all_relic_nodes.iter(),
+                all_relic_node_configs.iter(),
+            )
+            .partition_map(|(&spawn_step, &pos, config)| {
+                if state.total_steps <= spawn_step {
+                    Either::Left(RelicSpawn::new(
+                        spawn_step,
+                        pos,
+                        config.clone(),
+                    ))
+                } else {
+                    Either::Right((pos, config))
+                }
+            });
+            state.initialize_relic_nodes(spawn_schedule, self.get_map_size());
+            active_nodes.into_iter().for_each(|(pos, config)| {
+                state.add_relic_node(
+                    pos,
+                    config,
+                    self.get_relic_config_size(),
+                    self.get_map_size(),
+                )
+            });
             state.sort();
             // In the replay file, each observed energy field is from the previous
             // step's computed energy field
@@ -96,6 +118,27 @@ impl FullReplay {
                 )
                 .unwrap()
             })
+            .collect()
+    }
+
+    fn get_all_relic_nodes(&self) -> Vec<Pos> {
+        self.observations
+            .last()
+            .unwrap()
+            .relic_nodes
+            .iter()
+            .copied()
+            .map(|pos| Pos::try_from(pos).unwrap())
+            .collect()
+    }
+
+    fn get_all_relic_node_configs(&self) -> Vec<Array2<bool>> {
+        self.observations
+            .last()
+            .unwrap()
+            .relic_node_configs
+            .iter()
+            .map(|config| arr2(config))
             .collect()
     }
 

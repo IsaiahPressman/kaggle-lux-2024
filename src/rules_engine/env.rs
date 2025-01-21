@@ -52,10 +52,7 @@ pub fn step(
     }
     remove_dead_units(&mut state.units);
     spawn_relic_nodes(
-        &mut state.relic_node_spawn_schedule,
-        &mut state.relic_node_locations,
-        &mut state.relic_node_points_map,
-        state.total_steps,
+        state,
         FIXED_PARAMS.relic_config_size,
         FIXED_PARAMS.map_size,
     );
@@ -176,50 +173,34 @@ fn remove_dead_units(units: &mut [Vec<Unit>; P]) {
 }
 
 fn spawn_relic_nodes(
-    spawn_schedule: &mut Vec<RelicSpawn>,
-    relic_node_locations: &mut Vec<Pos>,
-    relic_node_points_map: &mut Array2<bool>,
-    total_steps: u32,
+    state: &mut State,
     relic_config_size: usize,
     map_size: [usize; 2],
 ) {
+    let mut spawn_schedule = mem::take(&mut state.relic_node_spawn_schedule);
     spawn_schedule.retain(|rs| {
-        !maybe_spawn_relic_node(
-            rs,
-            relic_node_locations,
-            relic_node_points_map,
-            total_steps,
-            relic_config_size,
-            map_size,
-        )
+        !maybe_spawn_relic_node(state, rs, relic_config_size, map_size)
     });
+    state.relic_node_spawn_schedule = spawn_schedule;
 }
 
 fn maybe_spawn_relic_node(
+    state: &mut State,
     relic_spawn: &RelicSpawn,
-    relic_node_locations: &mut Vec<Pos>,
-    relic_node_points_map: &mut Array2<bool>,
-    total_steps: u32,
     relic_config_size: usize,
     map_size: [usize; 2],
 ) -> bool {
-    if total_steps < relic_spawn.spawn_step {
-        return false;
+    if state.total_steps < relic_spawn.spawn_step {
+        false
+    } else {
+        state.add_relic_node(
+            relic_spawn.pos,
+            &relic_spawn.config,
+            relic_config_size,
+            map_size,
+        );
+        true
     }
-
-    relic_node_locations.push(relic_spawn.pos);
-    let offset = (relic_config_size / 2) as isize;
-    for point_pos in relic_spawn
-        .config
-        .indexed_iter()
-        .filter_map(|((x, y), p)| {
-            p.then_some([x as isize - offset, y as isize - offset])
-        })
-        .filter_map(|deltas| relic_spawn.pos.maybe_translate(deltas, map_size))
-    {
-        relic_node_points_map[point_pos.as_index()] = true;
-    }
-    true
 }
 
 fn get_relevant_actions(
@@ -270,15 +251,15 @@ fn move_units(
         if unit.energy < params.unit_move_cost {
             continue;
         };
-        // This behavior is almost certainly a bug in the main simulator
-        if deltas[0] < 0 || deltas[1] < 0 {
-            let wrapped_pos = unit.pos.wrapped_translate(deltas, map_size);
-            if asteroid_mask[wrapped_pos.as_index()] {
-                continue;
-            }
-        };
         let new_pos = unit.pos.bounded_translate(deltas, map_size);
-        if asteroid_mask[new_pos.as_index()] {
+        // This is_blocked behavior seems to be a small edge-case bug in the main simulator
+        let is_blocked = if deltas[0] < 0 || deltas[1] < 0 {
+            let wrapped_pos = unit.pos.wrapped_translate(deltas, map_size);
+            asteroid_mask[wrapped_pos.as_index()]
+        } else {
+            asteroid_mask[new_pos.as_index()]
+        };
+        if is_blocked {
             continue;
         }
         unit.pos = new_pos;
@@ -736,7 +717,7 @@ fn move_space_objects(
 pub fn should_drift(step: u32, speed: f32) -> bool {
     let step = step as f32;
     let speed = speed.abs();
-    (step - 1.) * speed % 1. > step * speed % 1.
+    ((step - 1.) * speed).rem_euclid(1.) > (step * speed).rem_euclid(1.)
 }
 
 fn get_random_energy_node_deltas(
@@ -1002,32 +983,26 @@ mod tests {
                 Array2::from_elem([relic_config_size; 2], true),
             ),
         ];
-        let mut spawn_schedule = orig_spawn_schedule.clone();
-        let mut relic_node_locations = Vec::new();
-        let mut relic_node_points_map = Array2::default(map_size);
+        let mut state = State {
+            relic_node_locations: Vec::new(),
+            relic_node_points_map: Array2::default(map_size),
+            relic_node_spawn_schedule: orig_spawn_schedule.clone(),
+            total_steps: 9,
+            ..Default::default()
+        };
 
-        spawn_relic_nodes(
-            &mut spawn_schedule,
-            &mut relic_node_locations,
-            &mut relic_node_points_map,
-            9,
-            relic_config_size,
-            map_size,
-        );
-        assert_eq!(spawn_schedule, orig_spawn_schedule);
-        assert!(relic_node_locations.is_empty());
-        assert!(!relic_node_points_map.iter().any(|&p| p));
+        spawn_relic_nodes(&mut state, relic_config_size, map_size);
+        assert_eq!(state.relic_node_spawn_schedule, orig_spawn_schedule);
+        assert!(state.relic_node_locations.is_empty());
+        assert!(!state.relic_node_points_map.iter().any(|&p| p));
 
-        spawn_relic_nodes(
-            &mut spawn_schedule,
-            &mut relic_node_locations,
-            &mut relic_node_points_map,
-            9,
-            relic_config_size,
-            map_size,
+        state.total_steps = 10;
+        spawn_relic_nodes(&mut state, relic_config_size, map_size);
+        assert_eq!(&state.relic_node_spawn_schedule, &orig_spawn_schedule[2..]);
+        assert_eq!(
+            state.relic_node_locations,
+            vec![Pos::new(0, 0), Pos::new(3, 3)]
         );
-        assert_eq!(&spawn_schedule, &orig_spawn_schedule[2..]);
-        assert_eq!(relic_node_locations, vec![Pos::new(0, 0), Pos::new(3, 3)]);
         let expected_points_map = arr2(&[
             [true, false, false, false, false],
             [false, true, false, false, false],
@@ -1035,7 +1010,7 @@ mod tests {
             [false, false, true, true, false],
             [false, false, true, true, false],
         ]);
-        assert_eq!(relic_node_points_map, expected_points_map);
+        assert_eq!(state.relic_node_points_map, expected_points_map);
     }
 
     #[test]

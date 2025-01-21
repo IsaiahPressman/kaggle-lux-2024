@@ -22,7 +22,7 @@ use crate::rules_engine::params::{
 use crate::rules_engine::state::from_array::{
     get_asteroids, get_energy_nodes, get_nebulae,
 };
-use crate::rules_engine::state::{Pos, State};
+use crate::rules_engine::state::{Pos, RelicSpawn, State};
 use itertools::Itertools;
 use numpy::ndarray::{Array1, Array2, Array3, Array4, Array5};
 use numpy::{
@@ -235,29 +235,24 @@ impl ParallelEnv {
                 ),
                 ..Default::default()
             };
-            let ((spawn_steps, locations), configs): (
-                (Vec<_>, Vec<_>),
-                Vec<Array2<bool>>,
-            ) = relic_spawn_schedule
-                .iter()
-                .zip_eq(
-                    relic_nodes.mapv(|x| x as usize).outer_iter().map(|pos| {
-                        Pos::try_from(pos.as_slice().unwrap()).unwrap()
-                    }),
-                )
-                .zip_eq(
-                    relic_node_configs.outer_iter().map(|arr| arr.to_owned()),
-                )
-                .zip_eq(relic_nodes_mask.iter())
-                .filter_map(|(data, mask)| mask.then_some(data))
-                .unzip();
+            let relic_node_spawn_schedule = izip_eq!(
+                relic_spawn_schedule.iter().copied(),
+                relic_nodes.mapv(|x| x as usize).outer_iter().map(|pos| {
+                    Pos::try_from(pos.as_slice().unwrap()).unwrap()
+                }),
+                relic_node_configs.outer_iter().map(|arr| arr.to_owned()),
+                relic_nodes_mask.iter(),
+            )
+            .filter_map(|(spawn_step, pos, config, mask)| {
+                mask.then_some(RelicSpawn::new(
+                    spawn_step.try_into().unwrap(),
+                    pos,
+                    config,
+                ))
+            })
+            .collect();
             state.initialize_relic_nodes(
-                spawn_steps
-                    .into_iter()
-                    .map(|&s| u32::try_from(s).unwrap())
-                    .collect(),
-                locations,
-                configs,
+                relic_node_spawn_schedule,
                 FIXED_PARAMS.map_size,
             );
             state.energy_field =
