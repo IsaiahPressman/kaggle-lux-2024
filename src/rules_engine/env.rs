@@ -610,23 +610,21 @@ fn compute_vision_power_map(
 ) -> Array3<i32> {
     let [width, height] = map_size;
     let mut vision_power_map = Array3::zeros((units.len(), width, height));
-    for ((team, x, y), v) in units
-        .iter()
-        .enumerate()
-        .flat_map(|(t, team_units)| {
-            team_units.iter().map(move |u| (t, u.pos.x, u.pos.y))
-        })
-        .cartesian_product(0..=unit_sensor_range)
-    {
-        let range = unit_sensor_range - v;
-        vision_power_map
-            .slice_mut(s![
-                team,
-                x.saturating_sub(range)..(x + range + 1).min(width),
-                y.saturating_sub(range)..(y + range + 1).min(height),
-            ])
-            .iter_mut()
-            .for_each(|value| *value += 1);
+    for (team, x, y) in units.iter().enumerate().flat_map(|(t, team_units)| {
+        team_units.iter().map(move |u| (t, u.pos.x, u.pos.y))
+    }) {
+        for v in 0..=unit_sensor_range {
+            let range = unit_sensor_range - v;
+            vision_power_map
+                .slice_mut(s![
+                    team,
+                    x.saturating_sub(range)..(x + range + 1).min(width),
+                    y.saturating_sub(range)..(y + range + 1).min(height),
+                ])
+                .iter_mut()
+                .for_each(|value| *value += 1);
+        }
+        vision_power_map[[team, x, y]] += 10;
     }
     for (x, y) in nebulae.iter().map(|n| (n.x, n.y)) {
         vision_power_map
@@ -1463,13 +1461,13 @@ mod tests {
             [
                 [0, 0, 0, 0, 0],
                 [0, 1, 1, 1, 0],
-                [0, 1, 2, 1, 0],
+                [0, 1, 12, 1, 0],
                 [0, 1, 1, 1, 0],
                 [0, 0, 0, 0, 0],
             ],
             [
                 [1, 1, 1, 0, 0],
-                [1, 2, 1, 0, 0],
+                [1, 12, 1, 0, 0],
                 [1, 1, 1, 0, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
@@ -1499,8 +1497,8 @@ mod tests {
             vec![Unit::with_pos(Pos::new(2, 2))],
         ];
         let expected_result = arr3(&[
-            [[2, 1, 0], [1, 1, 0], [0, 0, 0]],
-            [[0, 0, 0], [0, 1, 1], [0, 1, 2]],
+            [[12, 1, 0], [1, 1, 0], [0, 0, 0]],
+            [[0, 0, 0], [0, 1, 1], [0, 1, 12]],
         ]);
         assert_eq!(
             compute_vision_power_map_from_params(
@@ -1536,15 +1534,15 @@ mod tests {
         let expected_result = arr3(&[
             [
                 [1, 1, 1, 0, 0],
-                [1, 3 - 5, 2, 1, 0],
-                [1, 2, 3, 1 - 5, 0],
+                [1, 13 - 5, 2, 1, 0],
+                [1, 2, 13, 1 - 5, 0],
                 [0, 1, 1, 1, 0],
                 [0, 0, 0, 0, 0],
             ],
             [
                 [0, 0, 0, 0, 0],
                 [0, 2 - 5, 2, 2, 0],
-                [0, 2, 4, 2 - 5, 0],
+                [0, 2, 24, 2 - 5, 0],
                 [0, 2, 2, 2, 0],
                 [0, 0, 0, 0, 0],
             ],

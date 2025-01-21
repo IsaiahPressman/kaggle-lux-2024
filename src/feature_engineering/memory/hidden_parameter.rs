@@ -639,23 +639,24 @@ mod tests {
     use crate::rules_engine::params::FIXED_PARAMS;
     use crate::rules_engine::state::{Pos, Unit};
     use numpy::ndarray::arr2;
-    use pretty_assertions::assert_eq;
+    use pretty_assertions::assert_eq as pretty_assert_eq;
     use rstest::rstest;
 
     #[test]
     fn test_determine_nebula_tile_vision_reduction() {
         let mut possibilities =
             MaskedPossibilities::from_options(vec![0, 1, 2]);
-        let map_size = [3, 3];
-        let unit_sensor_range = 1;
+        let map_size = [4, 4];
+        let unit_sensor_range = 2;
 
         let obs = Observation {
             sensor_mask: arr2(&[
-                [true, false, true],
-                [false, false, true],
-                [true, true, true],
+                [true, true, true, false],
+                [true, true, true, true],
+                [true, true, true, true],
+                [false, false, false, false],
             ]),
-            units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
+            units: [vec![Unit::with_pos(Pos::new(0, 1))], Vec::new()],
             nebulae: vec![Pos::new(0, 0)],
             ..Default::default()
         };
@@ -680,12 +681,12 @@ mod tests {
         let mut possibilities =
             MaskedPossibilities::new(vec![0, 1, 2], mask.to_vec());
         let map_size = [3, 3];
-        let unit_sensor_range = 1;
+        let unit_sensor_range = 2;
 
         let obs = Observation {
             sensor_mask: arr2(&[
-                [false, false, true],
-                [false, false, true],
+                [true, false, true],
+                [true, true, true],
                 [true, true, true],
             ]),
             units: [vec![Unit::with_pos(Pos::new(0, 0))], Vec::new()],
@@ -859,7 +860,7 @@ mod tests {
             compute_sap_count_maps(&units, &actions, FIXED_PARAMS.map_size);
         let expected_sap_count =
             BTreeMap::from([(Pos::new(2, 2), 1), (Pos::new(0, 0), 2)]);
-        assert_eq!(sap_count, expected_sap_count);
+        pretty_assert_eq!(sap_count, expected_sap_count);
         let expected_adjacent_sap_count = BTreeMap::from([
             (Pos::new(0, 1), 2),
             (Pos::new(1, 0), 2),
@@ -872,7 +873,7 @@ mod tests {
             (Pos::new(3, 2), 1),
             (Pos::new(3, 3), 1),
         ]);
-        assert_eq!(adjacent_sap_count, expected_adjacent_sap_count);
+        pretty_assert_eq!(adjacent_sap_count, expected_adjacent_sap_count);
     }
 
     #[test]
@@ -907,7 +908,7 @@ mod tests {
             [0, 50, 0, 0],
             [0, 0, 0, 0],
         ]);
-        assert_eq!(
+        pretty_assert_eq!(
             aggregate_energy_void_map,
             expected_aggregate_energy_void_map
         );
@@ -1395,6 +1396,6 @@ mod tests {
             (Pos::new(1, 0), 1),
         ]);
         let result = get_unit_counts_map(&units);
-        assert_eq!(result, expected_result);
+        pretty_assert_eq!(result, expected_result);
     }
 }
