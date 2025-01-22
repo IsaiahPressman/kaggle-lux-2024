@@ -111,15 +111,15 @@ impl Memory {
         &self.relic_node.explored_nodes
     }
 
-    pub fn get_relic_known_to_have_points(&self) -> &Array2<bool> {
+    pub fn get_relic_known_to_have_points_map(&self) -> &Array2<bool> {
         &self.relic_node.known_to_have_points
     }
 
-    pub fn get_relic_estimated_unexplored_points(&self) -> &Array2<f32> {
+    pub fn get_relic_estimated_unexplored_points_map(&self) -> &Array2<f32> {
         &self.relic_node.estimated_unexplored_points
     }
 
-    pub fn get_relic_explored_points(&self) -> &Array2<bool> {
+    pub fn get_relic_explored_points_map(&self) -> &Array2<bool> {
         &self.relic_node.explored_points
     }
 
@@ -509,10 +509,14 @@ mod tests {
             Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
             Memory::new(&PARAM_RANGES, FIXED_PARAMS.map_size),
         ];
+        let mut nebula_tile_drift_speed_solve_step = [u32::MAX, u32::MAX];
         for (_state, actions, obs, next_state) in run_replay(&full_replay) {
-            for (mem, obs, last_actions) in
-                izip_eq!(memories.iter_mut(), obs, actions)
-            {
+            for (mem, obs, last_actions, solve_step) in izip_eq!(
+                memories.iter_mut(),
+                obs,
+                actions,
+                nebula_tile_drift_speed_solve_step.iter_mut()
+            ) {
                 mem.update(&obs, &last_actions, &FIXED_PARAMS, &known_params);
                 for (pos, explored) in mem
                     .space_obstacle
@@ -549,6 +553,9 @@ mod tests {
                 assert!(is_symmetrical(
                     mem.space_obstacle.explored_tiles.view()
                 ));
+                if mem.space_obstacle.nebula_tile_drift_speed.solved() {
+                    *solve_step = (*solve_step).min(obs.total_steps);
+                }
             }
         }
         for mem in memories.iter() {
@@ -565,5 +572,18 @@ mod tests {
                 mem.space_obstacle.nebula_tile_drift_speed
             );
         }
+        // Nebula / asteroid drift should be solved by the first time the tiles move
+        let expected_solved_by = (1.0
+            / full_replay.params.variable.nebula_tile_drift_speed)
+            .abs()
+            .ceil() as u32
+            + 1;
+        assert!(
+            nebula_tile_drift_speed_solve_step
+                .into_iter()
+                .all(|step| step <= expected_solved_by),
+            "{:?}",
+            nebula_tile_drift_speed_solve_step
+        );
     }
 }

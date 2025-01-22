@@ -59,9 +59,7 @@ impl SpaceObstacleMemory {
     }
 
     pub fn update(&mut self, obs: &Observation, params: &KnownVariableParams) {
-        if obs.total_steps > 0
-            && self.space_obstacles_could_move(obs.total_steps - 1)
-        {
+        if self.space_obstacles_could_have_just_moved(obs.total_steps) {
             let mut fresh_memory = Self::new_empty_space_obstacles(
                 self.nebula_tile_drift_speed.clone(),
                 self.map_size,
@@ -91,8 +89,14 @@ impl SpaceObstacleMemory {
         obs: &Observation,
         params: &KnownVariableParams,
     ) {
-        self.update_explored_asteroids(&obs.asteroids);
-        self.update_explored_nebulae(&obs.nebulae);
+        for pos in obs.asteroids.iter() {
+            self.known_asteroids[pos.as_index()] = true;
+            self.known_asteroids[pos.reflect(self.map_size).as_index()] = true;
+        }
+        for pos in obs.nebulae.iter() {
+            self.known_nebulae[pos.as_index()] = true;
+            self.known_nebulae[pos.reflect(self.map_size).as_index()] = true;
+        }
 
         let expected_vision_power_map = estimate_vision_power_map(
             obs.get_my_units(),
@@ -113,27 +117,13 @@ impl SpaceObstacleMemory {
                     && !self.space_obstacles_could_move(obs.total_steps - 1)
                 {
                     self.explored_tiles[pos.as_index()] = true;
-                    self.explored_tiles
-                        [pos.reflect(self.map_size).as_index()] = true;
                     self.known_nebulae[pos.as_index()] = true;
-                    self.known_nebulae[pos.reflect(self.map_size).as_index()] =
-                        true;
+
+                    let reflected = pos.reflect(self.map_size);
+                    self.explored_tiles[reflected.as_index()] = true;
+                    self.known_nebulae[reflected.as_index()] = true;
                 }
             });
-    }
-
-    fn update_explored_asteroids(&mut self, asteroids: &[Pos]) {
-        for pos in asteroids.iter() {
-            self.known_asteroids[pos.as_index()] = true;
-            self.known_asteroids[pos.reflect(self.map_size).as_index()] = true;
-        }
-    }
-
-    fn update_explored_nebulae(&mut self, nebulae: &[Pos]) {
-        for pos in nebulae.iter() {
-            self.known_nebulae[pos.as_index()] = true;
-            self.known_nebulae[pos.reflect(self.map_size).as_index()] = true;
-        }
     }
 
     fn handle_space_object_movement(
@@ -155,35 +145,38 @@ impl SpaceObstacleMemory {
                 (pos, observed.get_tile_type_at(pos.as_index()).unwrap())
             })
         {
-            if self
-                .get_tile_type_at(pos.as_index())
-                .is_some_and(|tt| tt != observed_tile)
+            if not_drifting_possible
+                && self
+                    .get_tile_type_at(pos.as_index())
+                    .is_some_and(|tt| tt != observed_tile)
             {
                 not_drifting_possible = false;
             }
 
-            if self
-                .get_tile_type_at(
-                    pos.inverted_wrapped_translate(
-                        negative_drift,
-                        self.map_size,
+            if negative_drift_possible
+                && self
+                    .get_tile_type_at(
+                        pos.inverted_wrapped_translate(
+                            negative_drift,
+                            self.map_size,
+                        )
+                        .as_index(),
                     )
-                    .as_index(),
-                )
-                .is_some_and(|tt| tt != observed_tile)
+                    .is_some_and(|tt| tt != observed_tile)
             {
                 negative_drift_possible = false;
             }
 
-            if self
-                .get_tile_type_at(
-                    pos.inverted_wrapped_translate(
-                        positive_drift,
-                        self.map_size,
+            if positive_drift_possible
+                && self
+                    .get_tile_type_at(
+                        pos.inverted_wrapped_translate(
+                            positive_drift,
+                            self.map_size,
+                        )
+                        .as_index(),
                     )
-                    .as_index(),
-                )
-                .is_some_and(|tt| tt != observed_tile)
+                    .is_some_and(|tt| tt != observed_tile)
             {
                 positive_drift_possible = false;
             }

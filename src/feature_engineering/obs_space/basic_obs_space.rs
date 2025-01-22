@@ -9,7 +9,7 @@ use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
-    s, ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Zip,
+    s, ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Axis, Zip,
 };
 use std::iter::Iterator;
 use std::sync::LazyLock;
@@ -17,6 +17,7 @@ use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
 
 const FEATURE_BOUND: f32 = 5.0;
+const FUTURE_FRAMES: usize = 10;
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum TemporalSpatialFeature {
@@ -49,7 +50,6 @@ enum NontemporalSpatialFeature {
     // They also don't seem needed for more than the current frame
     Asteroid,
     Nebula,
-    // TODO: Future asteroid / nebula position predictions
     TileExplored,
     RelicNode,
     RelicNodeExplored,
@@ -60,6 +60,12 @@ enum NontemporalSpatialFeature {
     // Whether the tile is known to have points or not
     TilePointsExplored,
     EnergyField,
+}
+
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
+enum FutureNontemporalSpatialFeature {
+    AsteroidFuture,
+    NebulaFuture,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
@@ -123,6 +129,7 @@ pub fn get_temporal_spatial_feature_count() -> usize {
 
 pub fn get_nontemporal_spatial_feature_count() -> usize {
     NontemporalSpatialFeature::COUNT
+        + FutureNontemporalSpatialFeature::COUNT * FUTURE_FRAMES
 }
 
 pub fn get_temporal_global_feature_count() -> usize {
@@ -259,10 +266,14 @@ fn write_nontemporal_spatial_out(
     mem: &Memory,
     params: &KnownVariableParams,
 ) {
+    use FutureNontemporalSpatialFeature::*;
     use NontemporalSpatialFeature::*;
 
-    for (sf, mut slice) in NontemporalSpatialFeature::iter()
-        .zip_eq(nontemporal_spatial_out.outer_iter_mut())
+    let (mut main_out, mut future_out) = nontemporal_spatial_out
+        .view_mut()
+        .split_at(Axis(0), NontemporalSpatialFeature::COUNT);
+    for (sf, mut slice) in
+        NontemporalSpatialFeature::iter().zip_eq(main_out.outer_iter_mut())
     {
         match sf {
             DistanceFromSpawn => {
@@ -343,15 +354,15 @@ fn write_nontemporal_spatial_out(
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
             TileKnownPoints => Zip::from(&mut slice)
-                .and(mem.get_relic_known_to_have_points())
+                .and(mem.get_relic_known_to_have_points_map())
                 .for_each(|out, &known_and_explored| {
                     *out = if known_and_explored { 1.0 } else { 0.0 }
                 }),
             TileEstimatedPoints => {
-                slice.assign(mem.get_relic_estimated_unexplored_points())
+                slice.assign(mem.get_relic_estimated_unexplored_points_map())
             },
             TilePointsExplored => Zip::from(&mut slice)
-                .and(mem.get_relic_explored_points())
+                .and(mem.get_relic_explored_points_map())
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
@@ -373,6 +384,17 @@ fn write_nontemporal_spatial_out(
             },
         }
     }
+
+    assert_eq!(future_out.dim().0 % FUTURE_FRAMES, 0);
+    for (sf, mut slice) in FutureNontemporalSpatialFeature::iter()
+        .zip_eq(future_out.axis_chunks_iter_mut(Axis(0), FUTURE_FRAMES))
+    {
+        match sf {
+            AsteroidFuture => {},
+            NebulaFuture => {},
+        }
+    }
+
     clip_corners(nontemporal_spatial_out, FIXED_PARAMS.map_size);
 }
 
