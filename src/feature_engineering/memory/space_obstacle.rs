@@ -320,8 +320,8 @@ fn get_future_space_objects(
     };
 
     let mut result = Vec::with_capacity(space_objects.len() * future_steps);
-    for offset in 0..future_steps {
-        for mut pos in space_objects.iter().copied() {
+    for mut pos in space_objects.iter().copied() {
+        for offset in 0..future_steps {
             let step = current_step + offset as u32;
             if should_drift(step, drift_speed) {
                 pos = pos.wrapped_translate(drift, map_size);
@@ -407,11 +407,67 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules_engine::params::FIXED_PARAMS;
+    use pretty_assertions::assert_eq as pretty_assert_eq;
     use rstest::rstest;
 
-    #[test]
-    fn test_get_future_space_objects() {
-        todo!()
+    #[rstest]
+    #[case(
+        0.05,
+        vec![Pos::new(10, 10)],
+        19,
+        3,
+        vec![(0, Pos::new(10, 10)), (1, Pos::new(11, 9)), (2, Pos::new(11, 9))]
+    )]
+    #[case(
+        0.05,
+        vec![Pos::new(10, 10)],
+        21,
+        2,
+        vec![(0, Pos::new(10, 10)), (1, Pos::new(10, 10))]
+    )]
+    #[case(
+        -0.5,
+        vec![Pos::new(10, 10)],
+        0,
+        3,
+        vec![(0, Pos::new(9, 11)), (1, Pos::new(9, 11)), (2, Pos::new(8, 12))]
+    )]
+    #[case(
+        -0.5,
+        vec![Pos::new(10, 10), Pos::new(0, 0)],
+        1,
+        5,
+        vec![
+            (0, Pos::new(10, 10)),
+            (1, Pos::new(9, 11)),
+            (2, Pos::new(9, 11)),
+            (3, Pos::new(8, 12)),
+            (4, Pos::new(8, 12)),
+            (0, Pos::new(0, 0)),
+            (1, Pos::new(23, 1)),
+            (2, Pos::new(23, 1)),
+            (3, Pos::new(22, 2)),
+            (4, Pos::new(22, 2)),
+        ]
+    )]
+    fn test_get_future_space_objects(
+        #[case] drift_speed: f32,
+        #[case] space_objects: Vec<Pos>,
+        #[case] current_step: u32,
+        #[case] future_steps: usize,
+        #[case] mut expected_result: Vec<(usize, Pos)>,
+    ) {
+        let mut result = get_future_space_objects(
+            drift_speed,
+            space_objects,
+            current_step,
+            future_steps,
+            FIXED_PARAMS.map_size,
+        );
+        result.sort();
+        expected_result.sort();
+        pretty_assert_eq!(result, expected_result);
     }
 
     #[rstest]
