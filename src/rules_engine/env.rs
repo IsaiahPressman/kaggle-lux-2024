@@ -14,6 +14,7 @@ use TerminationMode::{FinalStep, ThirdMatchWin};
 
 pub const ENERGY_VOID_DELTAS: [[isize; 2]; 4] =
     [[-1, 0], [1, 0], [0, -1], [0, 1]];
+pub const UNIT_VISION_BONUS: i32 = 10;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TerminationMode {
@@ -662,7 +663,7 @@ fn compute_vision_power_map(
                 .iter_mut()
                 .for_each(|value| *value += 1);
         }
-        vision_power_map[[team, x, y]] += 10;
+        vision_power_map[[team, x, y]] += UNIT_VISION_BONUS;
     }
     for (x, y) in nebulae.iter().map(|n| (n.x, n.y)) {
         vision_power_map

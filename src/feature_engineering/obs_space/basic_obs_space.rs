@@ -1,18 +1,22 @@
 use crate::feature_engineering::memory::Memory;
 use crate::feature_engineering::utils::one_hot_float_encode_param_range;
 use crate::izip_eq;
-use crate::rules_engine::env::{estimate_vision_power_map, get_spawn_position};
+use crate::rules_engine::env::{
+    estimate_vision_power_map, get_spawn_position, UNIT_VISION_BONUS,
+};
 use crate::rules_engine::param_ranges::PARAM_RANGES;
 use crate::rules_engine::params::{KnownVariableParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Unit};
 use itertools::Itertools;
 use numpy::ndarray::{
-    ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Zip,
+    s, ArrayViewMut1, ArrayViewMut2, ArrayViewMut3, ArrayViewMut4, Zip,
 };
 use std::iter::Iterator;
 use std::sync::LazyLock;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
+
+const FEATURE_BOUND: f32 = 5.0;
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum TemporalSpatialFeature {
@@ -190,15 +194,20 @@ fn write_temporal_spatial_out(
                     FIXED_PARAMS.map_size,
                     params.unit_sensor_range,
                 );
+                // Remove unit vision bonus
+                obs.get_my_units().iter().for_each(|unit| {
+                    estimated_vision_power_map[unit.pos.as_index()] -=
+                        UNIT_VISION_BONUS
+                });
                 // Pessimistically estimate nebula tile vision reduction
                 let nebula_vision_cost = mem
                     .iter_unmasked_nebula_tile_vision_reduction_options()
                     .max()
                     .unwrap();
-                for nebula in &obs.nebulae {
+                obs.nebulae.iter().for_each(|nebula| {
                     estimated_vision_power_map[nebula.as_index()] -=
-                        nebula_vision_cost;
-                }
+                        nebula_vision_cost
+                });
                 Zip::from(&mut slice)
                     .and(&estimated_vision_power_map)
                     .and(&obs.sensor_mask)
@@ -221,6 +230,26 @@ fn write_temporal_spatial_out(
                 write_unit_energies(slice, obs.get_opp_units());
             },
         }
+    }
+    clip_corners(temporal_spatial_out, FIXED_PARAMS.map_size);
+}
+
+fn clip_corners(
+    mut spatial_out: ArrayViewMut3<f32>,
+    [map_height, map_width]: [usize; 2],
+) {
+    // Corner values often have outliers caused by stacks of units
+    for [x, y] in [
+        [0, 0],
+        [0, 1],
+        [1, 0],
+        [map_width - 1, map_height - 1],
+        [map_width - 1, map_height - 2],
+        [map_width - 2, map_height - 1],
+    ] {
+        spatial_out
+            .slice_mut(s![.., x, y])
+            .map_inplace(|v| *v = v.clamp(-FEATURE_BOUND, FEATURE_BOUND));
     }
 }
 
@@ -344,6 +373,7 @@ fn write_nontemporal_spatial_out(
             },
         }
     }
+    clip_corners(nontemporal_spatial_out, FIXED_PARAMS.map_size);
 }
 
 fn write_temporal_global_out(
@@ -534,7 +564,7 @@ mod tests {
     use crate::feature_engineering::replay;
     use crate::feature_engineering::replay::run_replay;
     use crate::rules_engine::param_ranges::PARAM_RANGES;
-    use numpy::ndarray::{s, Array2, Array4, ArrayViewD, Axis};
+    use numpy::ndarray::{arr3, Array2, Array4, ArrayViewD, Axis};
     use rstest::rstest;
     use std::cmp::Ordering;
     use std::path::PathBuf;
@@ -663,6 +693,32 @@ mod tests {
     }
 
     #[test]
+    fn test_clip_corners() {
+        let fill = FEATURE_BOUND + 1.0;
+        let mut array = arr3(&[[[fill; 6]; 6], [[-fill; 6]; 6]]);
+        clip_corners(array.view_mut(), [6, 6]);
+        let expected_array = arr3(&[
+            [
+                [FEATURE_BOUND, FEATURE_BOUND, fill, fill, fill, fill],
+                [FEATURE_BOUND, fill, fill, fill, fill, fill],
+                [fill, fill, fill, fill, fill, fill],
+                [fill, fill, fill, fill, fill, fill],
+                [fill, fill, fill, fill, fill, FEATURE_BOUND],
+                [fill, fill, fill, fill, FEATURE_BOUND, FEATURE_BOUND],
+            ],
+            [
+                [-FEATURE_BOUND, -FEATURE_BOUND, -fill, -fill, -fill, -fill],
+                [-FEATURE_BOUND, -fill, -fill, -fill, -fill, -fill],
+                [-fill, -fill, -fill, -fill, -fill, -fill],
+                [-fill, -fill, -fill, -fill, -fill, -fill],
+                [-fill, -fill, -fill, -fill, -fill, -FEATURE_BOUND],
+                [-fill, -fill, -fill, -fill, -FEATURE_BOUND, -FEATURE_BOUND],
+            ],
+        ]);
+        assert_eq!(array, expected_array);
+    }
+
+    #[test]
     fn test_discretize_team_wins() {
         for wins in 0..=5 {
             let mut expected = [0.; 3];
@@ -742,21 +798,6 @@ mod tests {
                     mem,
                     &params,
                 );
-                // It's okay if corner values have outliers (such as stacks of units)
-                let top_left_slice = s![.., .., 0, 0];
-                let bottom_right_slice = s![
-                    ..,
-                    ..,
-                    FIXED_PARAMS.map_width - 1,
-                    FIXED_PARAMS.map_height - 1
-                ];
-                temporal_spatial_obs.slice_mut(top_left_slice).fill(0.);
-                temporal_spatial_obs.slice_mut(bottom_right_slice).fill(0.);
-                nontemporal_spatial_obs.slice_mut(top_left_slice).fill(0.);
-                nontemporal_spatial_obs
-                    .slice_mut(bottom_right_slice)
-                    .fill(0.);
-
                 update_ranges(
                     temporal_spatial_obs
                         .index_axis(Axis(0), 0)
@@ -788,20 +829,30 @@ mod tests {
             }
         }
 
-        let bound = 5.;
-        for &[min_val, max_val] in temporal_spatial_ranges
-            .iter()
-            .chain(nontemporal_spatial_ranges.iter())
-            .chain(temporal_global_ranges.iter())
-            .chain(nontemporal_global_ranges.iter())
+        for (feature_scope_id, feature_iterable) in [
+            temporal_spatial_ranges.iter().enumerate(),
+            nontemporal_spatial_ranges.iter().enumerate(),
+            temporal_global_ranges.iter().enumerate(),
+            nontemporal_global_ranges.iter().enumerate(),
+        ]
+        .into_iter()
+        .enumerate()
         {
-            println!("{:?}", (min_val, bound, max_val));
-            if min_val >= 0. {
-                assert!(min_val <= 1.);
-                assert!(max_val <= bound);
-            } else {
-                assert!(min_val >= -bound);
-                assert!(max_val <= bound);
+            for (feature_id, &[min_val, max_val]) in feature_iterable {
+                println!(
+                    "{:?}",
+                    (
+                        (feature_scope_id, feature_id),
+                        (-FEATURE_BOUND, min_val, max_val, FEATURE_BOUND),
+                    )
+                );
+                if min_val >= 0. {
+                    assert!(min_val <= 1.);
+                    assert!(max_val <= FEATURE_BOUND);
+                } else {
+                    assert!(min_val >= -FEATURE_BOUND);
+                    assert!(max_val <= FEATURE_BOUND);
+                }
             }
         }
     }

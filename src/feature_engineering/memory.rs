@@ -313,7 +313,11 @@ mod tests {
                 <= 0.1
         );
         for mem in memories.iter() {
-            assert!(mem.energy_field.energy_node_drift_speed.solved());
+            assert!(
+                mem.energy_field.energy_node_drift_speed.solved(),
+                "{:?}",
+                mem.energy_field.energy_node_drift_speed
+            );
         }
     }
 
@@ -361,10 +365,26 @@ mod tests {
         }
 
         for mem in memories.iter() {
-            assert!(mem.hidden_parameter.nebula_tile_vision_reduction.solved());
-            assert!(mem.hidden_parameter.nebula_tile_energy_reduction.solved());
-            assert!(mem.hidden_parameter.unit_sap_dropoff_factor.solved());
-            assert!(mem.hidden_parameter.unit_energy_void_factor.solved());
+            assert!(
+                mem.hidden_parameter.nebula_tile_vision_reduction.solved(),
+                "{:?}",
+                mem.hidden_parameter.nebula_tile_vision_reduction
+            );
+            assert!(
+                mem.hidden_parameter.nebula_tile_energy_reduction.solved(),
+                "{:?}",
+                mem.hidden_parameter.nebula_tile_energy_reduction
+            );
+            assert!(
+                mem.hidden_parameter.unit_sap_dropoff_factor.solved(),
+                "{:?}",
+                mem.hidden_parameter.unit_sap_dropoff_factor
+            );
+            assert!(
+                mem.hidden_parameter.unit_energy_void_factor.solved(),
+                "{:?}",
+                mem.hidden_parameter.unit_energy_void_factor
+            );
         }
     }
 
@@ -528,7 +548,11 @@ mod tests {
                 .mean()
                 .unwrap();
             assert!(explored_pct >= 0.98);
-            assert!(mem.space_obstacle.nebula_tile_drift_speed.solved());
+            assert!(
+                mem.space_obstacle.nebula_tile_drift_speed.solved(),
+                "{:?}",
+                mem.space_obstacle.nebula_tile_drift_speed
+            );
         }
     }
 }
