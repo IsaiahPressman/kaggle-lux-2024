@@ -430,6 +430,11 @@ impl Observation {
         self.team_points[self.team_id]
     }
 
+    #[inline]
+    pub fn get_match(&self) -> u32 {
+        self.team_wins.iter().sum()
+    }
+
     /// Sorts the various elements of the Observation. Unnecessary during simulation,
     /// but useful when testing to ensure the various Vecs of components match up.
     #[cfg(test)]

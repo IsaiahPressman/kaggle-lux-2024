@@ -314,15 +314,15 @@ fn write_nontemporal_spatial_out(
                     *out = if explored { 1.0 } else { 0.0 }
                 }),
             TileKnownPoints => Zip::from(&mut slice)
-                .and(mem.get_relic_known_and_explored_points_map())
+                .and(mem.get_relic_known_to_have_points())
                 .for_each(|out, &known_and_explored| {
                     *out = if known_and_explored { 1.0 } else { 0.0 }
                 }),
             TileEstimatedPoints => {
-                slice.assign(mem.get_relic_estimated_points_map())
+                slice.assign(mem.get_relic_estimated_unexplored_points())
             },
             TilePointsExplored => Zip::from(&mut slice)
-                .and(mem.get_relic_explored_points_map())
+                .and(mem.get_relic_explored_points())
                 .for_each(|out, &explored| {
                     *out = if explored { 1.0 } else { 0.0 }
                 }),

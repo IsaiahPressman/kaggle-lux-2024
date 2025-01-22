@@ -714,6 +714,7 @@ fn move_space_objects(
     }
 }
 
+#[inline]
 pub fn should_drift(step: u32, speed: f32) -> bool {
     let step = step as f32;
     let speed = speed.abs();
