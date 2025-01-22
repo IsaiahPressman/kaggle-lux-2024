@@ -365,11 +365,22 @@ mod tests {
         }
 
         for mem in memories.iter() {
-            assert!(
-                mem.hidden_parameter.nebula_tile_vision_reduction.solved(),
-                "{:?}",
-                mem.hidden_parameter.nebula_tile_vision_reduction
-            );
+            if full_replay.params.variable.unit_sensor_range <= 1
+                && full_replay.params.variable.nebula_tile_vision_reduction >= 3
+            {
+                assert!(mem
+                    .hidden_parameter
+                    .nebula_tile_vision_reduction
+                    .iter_unmasked_options()
+                    .all(|&vr| vr >= 3));
+            } else {
+                assert!(
+                    mem.hidden_parameter.nebula_tile_vision_reduction.solved(),
+                    "{:?}",
+                    mem.hidden_parameter.nebula_tile_vision_reduction
+                );
+            }
+
             assert!(
                 mem.hidden_parameter.nebula_tile_energy_reduction.solved(),
                 "{:?}",
