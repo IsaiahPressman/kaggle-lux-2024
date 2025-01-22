@@ -10,7 +10,7 @@
 5. Activate venv: `. .venv/bin/activate`
 6. Generate full-game test cases: `./scripts/generate_full_game_test_cases.sh`
    - Optionally, generate additional memory module test cases (requires decently strong agent):
-   `./scripts/generate_memory_test_cases.sh`
+   `make build && ./scripts/generate_memory_test_cases.sh`
 7. If everything is working, `make prepare` should now run without errors
 
 
