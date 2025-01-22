@@ -7,7 +7,8 @@ use crate::rules_engine::state::{Observation, Pos};
 use itertools::Itertools;
 use numpy::ndarray::{s, Array2, Zip};
 
-/// Tracks everything known by a player about space obstacle (asteroid and nebulae) locations
+const NEGATIVE_DRIFT: [isize; 2] = [-1, 1];
+const POSITIVE_DRIFT: [isize; 2] = [1, -1];
 
 #[derive(Debug, Clone)]
 pub struct SpaceObstacleMemory {
@@ -74,14 +75,64 @@ impl SpaceObstacleMemory {
         self.update_explored_obstacles(obs, params);
     }
 
-    fn space_obstacles_could_move(&self, step: u32) -> bool {
-        self.nebula_tile_drift_speed
-            .iter_unmasked_options()
-            .any(|&speed| should_drift(step, speed))
+    pub fn space_obstacles_could_have_just_moved(&self, step: u32) -> bool {
+        step > 0
+            && self
+                .nebula_tile_drift_speed
+                .iter_unmasked_options()
+                .any(|&speed| should_drift(step - 1, speed))
     }
 
-    pub fn space_obstacles_could_have_just_moved(&self, step: u32) -> bool {
-        step > 0 && self.space_obstacles_could_move(step - 1)
+    pub fn get_future_asteroids(
+        &self,
+        current_step: u32,
+        future_steps: usize,
+    ) -> Vec<(usize, Pos)> {
+        let Some(&drift_speed) = self.nebula_tile_drift_speed.get_solution()
+        else {
+            return Vec::new();
+        };
+
+        let asteroids = self
+            .known_asteroids
+            .indexed_iter()
+            .filter_map(|(xy, &has_asteroid)| {
+                has_asteroid.then_some(Pos::from(xy))
+            })
+            .collect();
+        get_future_space_objects(
+            drift_speed,
+            asteroids,
+            current_step,
+            future_steps,
+            self.map_size,
+        )
+    }
+
+    pub fn get_future_nebulae(
+        &self,
+        current_step: u32,
+        future_steps: usize,
+    ) -> Vec<(usize, Pos)> {
+        let Some(&drift_speed) = self.nebula_tile_drift_speed.get_solution()
+        else {
+            return Vec::new();
+        };
+
+        let nebulae = self
+            .known_nebulae
+            .indexed_iter()
+            .filter_map(|(xy, &has_asteroid)| {
+                has_asteroid.then_some(Pos::from(xy))
+            })
+            .collect();
+        get_future_space_objects(
+            drift_speed,
+            nebulae,
+            current_step,
+            future_steps,
+            self.map_size,
+        )
     }
 
     fn update_explored_obstacles(
@@ -114,7 +165,8 @@ impl SpaceObstacleMemory {
                         [pos.reflect(self.map_size).as_index()] = true;
                 } else if should_see
                     && !self.known_nebulae[pos.as_index()]
-                    && !self.space_obstacles_could_move(obs.total_steps - 1)
+                    && !self
+                        .space_obstacles_could_have_just_moved(obs.total_steps)
                 {
                     self.explored_tiles[pos.as_index()] = true;
                     self.known_nebulae[pos.as_index()] = true;
@@ -134,8 +186,6 @@ impl SpaceObstacleMemory {
         let mut not_drifting_possible = self.not_drifting_possible(step);
         let mut negative_drift_possible = self.negative_drift_possible(step);
         let mut positive_drift_possible = self.positive_drift_possible(step);
-        let negative_drift = [-1, 1];
-        let positive_drift = [1, -1];
         for (pos, observed_tile) in observed
             .explored_tiles
             .indexed_iter()
@@ -157,7 +207,7 @@ impl SpaceObstacleMemory {
                 && self
                     .get_tile_type_at(
                         pos.inverted_wrapped_translate(
-                            negative_drift,
+                            NEGATIVE_DRIFT,
                             self.map_size,
                         )
                         .as_index(),
@@ -171,7 +221,7 @@ impl SpaceObstacleMemory {
                 && self
                     .get_tile_type_at(
                         pos.inverted_wrapped_translate(
-                            positive_drift,
+                            POSITIVE_DRIFT,
                             self.map_size,
                         )
                         .as_index(),
@@ -201,9 +251,9 @@ impl SpaceObstacleMemory {
             },
             1 => {
                 if negative_drift_possible {
-                    self.apply_drift(negative_drift);
+                    self.apply_drift(NEGATIVE_DRIFT);
                 } else if positive_drift_possible {
-                    self.apply_drift(positive_drift);
+                    self.apply_drift(POSITIVE_DRIFT);
                 }
             },
             2..4 => {
@@ -252,6 +302,35 @@ impl SpaceObstacleMemory {
         apply_drift(&mut self.known_nebulae, drift);
         apply_drift(&mut self.explored_tiles, drift);
     }
+}
+
+fn get_future_space_objects(
+    drift_speed: f32,
+    space_objects: Vec<Pos>,
+    current_step: u32,
+    future_steps: usize,
+    map_size: [usize; 2],
+) -> Vec<(usize, Pos)> {
+    let drift = if drift_speed < 0.0 {
+        NEGATIVE_DRIFT
+    } else if drift_speed > 0.0 {
+        POSITIVE_DRIFT
+    } else {
+        unreachable!()
+    };
+
+    let mut result = Vec::with_capacity(space_objects.len() * future_steps);
+    for offset in 0..future_steps {
+        for mut pos in space_objects.iter().copied() {
+            let step = current_step + offset as u32;
+            if should_drift(step, drift_speed) {
+                pos = pos.wrapped_translate(drift, map_size);
+            }
+
+            result.push((offset, pos));
+        }
+    }
+    result
 }
 
 fn should_negative_drift(step: u32, speed: f32) -> bool {
@@ -330,6 +409,11 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    #[test]
+    fn test_get_future_space_objects() {
+        todo!()
+    }
+
     #[rstest]
     // Basic single impossible option cases
     #[case(false, false, false, 20, [true, true, true, true])]
@@ -384,18 +468,17 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case(Pos::new(0, 0))]
-    #[case(Pos::new(0, 8))]
-    #[case(Pos::new(1, 9))]
-    #[case(Pos::new(3, 5))]
-    #[case(Pos::new(7, 4))]
-    #[case(Pos::new(9, 9))]
-    fn test_apply_drift(#[case] pos: Pos) {
+    #[test]
+    fn test_apply_drift() {
         let base = 2;
         let special = 5;
         let map_size = [10, 10];
-        for drift in [[-1, 1], [1, -1]] {
+        let [w, h] = map_size;
+        for (pos, drift) in (0..w)
+            .cartesian_product(0..h)
+            .map(Pos::from)
+            .cartesian_product([[-1, 1], [1, -1]])
+        {
             let mut arr = Array2::from_elem(map_size, base);
             arr[pos.as_index()] = special;
             apply_drift(&mut arr, drift);

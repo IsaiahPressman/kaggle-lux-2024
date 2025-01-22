@@ -135,6 +135,24 @@ impl Memory {
         &self.space_obstacle.explored_tiles
     }
 
+    pub fn get_future_asteroids(
+        &self,
+        current_step: u32,
+        future_steps: usize,
+    ) -> Vec<(usize, Pos)> {
+        self.space_obstacle
+            .get_future_asteroids(current_step, future_steps)
+    }
+
+    pub fn get_future_nebulae(
+        &self,
+        current_step: u32,
+        future_steps: usize,
+    ) -> Vec<(usize, Pos)> {
+        self.space_obstacle
+            .get_future_nebulae(current_step, future_steps)
+    }
+
     pub fn get_nebula_tile_drift_speed_weights(&self) -> Vec<f32> {
         let full_weights = self
             .space_obstacle
@@ -490,7 +508,8 @@ mod tests {
                 assert!(mem.relic_node.get_all_nodes_registered());
                 assert!(point_explored_pct >= 0.98);
             } else {
-                // TODO: Re-add this check once there's a strong agent
+                // TODO: Re-add this check once there's a strong agent that's properly exploring
+                //  the map after the rules update
                 //  assert!(point_explored_pct >= 0.7);
             }
         }

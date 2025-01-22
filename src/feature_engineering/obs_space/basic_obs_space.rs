@@ -17,7 +17,7 @@ use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::EnumIter;
 
 const FEATURE_BOUND: f32 = 5.0;
-const FUTURE_FRAMES: usize = 10;
+const FUTURE_FRAMES: usize = 5;
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
 enum TemporalSpatialFeature {
@@ -123,20 +123,20 @@ static UNIT_SAP_COST_MIN: LazyLock<i32> =
 static UNIT_SAP_COST_MAX: LazyLock<i32> =
     LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().max().unwrap());
 
-pub fn get_temporal_spatial_feature_count() -> usize {
+pub const fn get_temporal_spatial_feature_count() -> usize {
     TemporalSpatialFeature::COUNT
 }
 
-pub fn get_nontemporal_spatial_feature_count() -> usize {
+pub const fn get_nontemporal_spatial_feature_count() -> usize {
     NontemporalSpatialFeature::COUNT
         + FutureNontemporalSpatialFeature::COUNT * FUTURE_FRAMES
 }
 
-pub fn get_temporal_global_feature_count() -> usize {
+pub const fn get_temporal_global_feature_count() -> usize {
     TemporalGlobalFeature::COUNT
 }
 
-pub fn get_nontemporal_global_feature_count() -> usize {
+pub const fn get_nontemporal_global_feature_count() -> usize {
     NontemporalGlobalFeature::End as usize
 }
 
@@ -390,8 +390,22 @@ fn write_nontemporal_spatial_out(
         .zip_eq(future_out.axis_chunks_iter_mut(Axis(0), FUTURE_FRAMES))
     {
         match sf {
-            AsteroidFuture => {},
-            NebulaFuture => {},
+            AsteroidFuture => {
+                mem.get_future_asteroids(obs.total_steps, FUTURE_FRAMES)
+                    .into_iter()
+                    .for_each(|(step, pos)| {
+                        let [x, y] = pos.as_index();
+                        slice[[step, x, y]] = 1.0;
+                    });
+            },
+            NebulaFuture => {
+                mem.get_future_nebulae(obs.total_steps, FUTURE_FRAMES)
+                    .into_iter()
+                    .for_each(|(step, pos)| {
+                        let [x, y] = pos.as_index();
+                        slice[[step, x, y]] = 1.0;
+                    });
+            },
         }
     }
 
@@ -583,9 +597,10 @@ fn discretize_team_wins(wins: u32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feature_engineering::replay;
-    use crate::feature_engineering::replay::run_replay;
+    use crate::feature_engineering::replay::{load_replay, run_replay};
     use crate::rules_engine::param_ranges::PARAM_RANGES;
+    use crate::rules_engine::replay::FullReplay;
+    use glob::glob;
     use numpy::ndarray::{arr3, Array2, Array4, ArrayViewD, Axis};
     use rstest::rstest;
     use std::cmp::Ordering;
@@ -753,8 +768,8 @@ mod tests {
         a.partial_cmp(b).unwrap()
     }
 
-    fn update_ranges(array: ArrayViewD<f32>, ranges: &mut [[f32; 2]]) {
-        for (slice, [min_val, max_val]) in
+    fn update_ranges(array: ArrayViewD<f32>, ranges: &mut [(f32, f32)]) {
+        for (slice, (min_val, max_val)) in
             array.outer_iter().zip_eq(ranges.iter_mut())
         {
             *min_val =
@@ -764,12 +779,11 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[ignore = "slow"]
-    fn test_observation_ranges(
-        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
-    ) {
-        let full_replay = replay::load_replay(path);
+    type MinMaxRanges = Vec<(f32, f32)>;
+    type AllMinMaxRanges =
+        (MinMaxRanges, MinMaxRanges, MinMaxRanges, MinMaxRanges);
+
+    fn get_observed_ranges(full_replay: &FullReplay) -> AllMinMaxRanges {
         let params =
             KnownVariableParams::from(full_replay.params.variable.clone());
         let mut memories = [
@@ -792,16 +806,17 @@ mod tests {
             Array2::zeros((1, get_temporal_global_feature_count()));
         let mut nontemporal_global_obs =
             Array2::zeros((1, get_nontemporal_global_feature_count()));
-        let mut temporal_spatial_ranges =
-            vec![[0_f32, 0_f32]; get_temporal_spatial_feature_count()];
-        let mut nontemporal_spatial_ranges =
-            vec![[0_f32, 0_f32]; get_nontemporal_spatial_feature_count()];
-        let mut temporal_global_ranges =
-            vec![[0_f32, 0_f32]; get_temporal_global_feature_count()];
-        let mut nontemporal_global_ranges =
-            vec![[0_f32, 0_f32]; get_nontemporal_global_feature_count()];
 
-        for (_state, actions, obs, _next_state) in run_replay(&full_replay) {
+        let mut temporal_spatial_ranges =
+            vec![(0_f32, 0_f32); get_temporal_spatial_feature_count()];
+        let mut nontemporal_spatial_ranges =
+            vec![(0_f32, 0_f32); get_nontemporal_spatial_feature_count()];
+        let mut temporal_global_ranges =
+            vec![(0_f32, 0_f32); get_temporal_global_feature_count()];
+        let mut nontemporal_global_ranges =
+            vec![(0_f32, 0_f32); get_nontemporal_global_feature_count()];
+
+        for (_state, actions, obs, _next_state) in run_replay(full_replay) {
             for (mem, actions, obs) in
                 izip_eq!(memories.iter_mut(), actions, obs)
             {
@@ -851,6 +866,26 @@ mod tests {
             }
         }
 
+        (
+            temporal_spatial_ranges,
+            nontemporal_spatial_ranges,
+            temporal_global_ranges,
+            nontemporal_global_ranges,
+        )
+    }
+
+    #[rstest]
+    #[ignore = "slow"]
+    fn test_observation_range_bounds(
+        #[files("src/feature_engineering/test_data/*.json")] path: PathBuf,
+    ) {
+        let full_replay = load_replay(path);
+        let (
+            temporal_spatial_ranges,
+            nontemporal_spatial_ranges,
+            temporal_global_ranges,
+            nontemporal_global_ranges,
+        ) = get_observed_ranges(&full_replay);
         for (feature_scope_id, feature_iterable) in [
             temporal_spatial_ranges.iter().enumerate(),
             nontemporal_spatial_ranges.iter().enumerate(),
@@ -860,7 +895,7 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            for (feature_id, &[min_val, max_val]) in feature_iterable {
+            for (feature_id, &(min_val, max_val)) in feature_iterable {
                 println!(
                     "{:?}",
                     (
@@ -875,6 +910,66 @@ mod tests {
                     assert!(min_val >= -FEATURE_BOUND);
                     assert!(max_val <= FEATURE_BOUND);
                 }
+            }
+        }
+    }
+
+    fn reduce_range(left: MinMaxRanges, right: MinMaxRanges) -> MinMaxRanges {
+        left.into_iter()
+            .zip_eq(right)
+            .map(|((min_l, max_l), (min_r, max_r))| {
+                (min_l.min(min_r), max_l.max(max_r))
+            })
+            .collect()
+    }
+
+    fn reduce_ranges(
+        (a1, b1, c1, d1): AllMinMaxRanges,
+        (a2, b2, c2, d2): AllMinMaxRanges,
+    ) -> AllMinMaxRanges {
+        (
+            reduce_range(a1, a2),
+            reduce_range(b1, b2),
+            reduce_range(c1, c2),
+            reduce_range(d1, d2),
+        )
+    }
+
+    #[test]
+    #[ignore = "slow"]
+    fn test_observation_range_variation() {
+        let (
+            temporal_spatial_ranges,
+            nontemporal_spatial_ranges,
+            temporal_global_ranges,
+            _nontemporal_global_ranges,
+        ) = glob("src/feature_engineering/test_data/*.json")
+            .unwrap()
+            .map(|path| {
+                let full_replay = load_replay(path.unwrap());
+                get_observed_ranges(&full_replay)
+            })
+            .reduce(reduce_ranges)
+            .unwrap();
+
+        let min_feature_variation = 0.25;
+        for (feature_scope_id, feature_iterable) in [
+            temporal_spatial_ranges.iter().enumerate(),
+            nontemporal_spatial_ranges.iter().enumerate(),
+            temporal_global_ranges.iter().enumerate(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for (feature_id, &(min_val, max_val)) in feature_iterable {
+                println!(
+                    "{:?}",
+                    ((feature_scope_id, feature_id), (min_val, max_val),)
+                );
+                if min_val != 0.0 {
+                    assert!(min_val <= -min_feature_variation);
+                }
+                assert!(max_val >= min_feature_variation);
             }
         }
     }
