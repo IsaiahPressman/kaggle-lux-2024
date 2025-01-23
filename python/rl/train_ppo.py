@@ -401,6 +401,7 @@ def main() -> None:
             WandbInitConfig(
                 project=PROJECT_NAME,
                 group=NAME,
+                config_dict=cfg.model_dump(),
             )
             if args.release
             else None

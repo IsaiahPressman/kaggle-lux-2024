@@ -93,6 +93,7 @@ def save_checkpoint(
 class WandbInitConfig:
     project: str
     group: str
+    config_dict: dict[str, Any]
 
 
 def load_checkpoint(
@@ -115,7 +116,9 @@ def load_checkpoint(
         wandb.init(
             project=wandb_init_config.project,
             group=wandb_init_config.group,
+            config=wandb_init_config.config_dict,
             id=run_id,
+            resume="must",
         )
 
 
