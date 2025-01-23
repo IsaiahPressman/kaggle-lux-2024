@@ -88,8 +88,8 @@ class ZeroSumCriticHead(BaseCriticHead):
 
     def postprocess_value(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Assumes both opposing player observations are passed in at once. \
-        Expects input of shape (batch * 2 [n_players],) \
+        Assumes both opposing player observations are passed in at once.
+        Expects input of shape (batch * 2 [n_players],)
         Returns output of shape (batch * 2 [n_players],)
         """
         return F.softmax(x.view(-1, 2), dim=-1).view(-1) * 2.0 - 1.0

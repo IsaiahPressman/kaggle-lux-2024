@@ -514,9 +514,9 @@ def train_step(
     scalar_stats["env_steps_per_second"] = (
         cfg.env_config.n_envs * cfg.steps_per_update / total_time
     )
-    scalar_stats["data_collection_time"] = data_collection_time
-    scalar_stats["train_time"] = train_time
-    scalar_stats["total_time"] = total_time
+    scalar_stats["update_data_collection_time"] = data_collection_time
+    scalar_stats["update_train_time"] = train_time
+    scalar_stats["update_total_time"] = total_time
     log_results(
         train_state.step,
         scalar_stats,

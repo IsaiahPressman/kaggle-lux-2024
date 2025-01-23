@@ -56,15 +56,11 @@ impl EnergyFieldMemory {
             // If there are any conflicts, that means that some of the energy
             // nodes have moved, so we reset the known energy field and start
             // over from the current observation
-            self.energy_field.fill(None);
-            self.full_energy_field_cached = false;
-            update_energy_field(
-                self.energy_field.view_mut(),
-                obs.energy_field.view(),
-            );
+            self.reset_energy_field_on_move(obs.energy_field.view());
         }
+
         if !self.full_energy_field_cached && self.use_cache {
-            self.update_energy_field_from_cache()
+            self.update_energy_field_from_cache(obs.energy_field.view());
         }
         // Subtract 2 steps: 1 for the delay in the observed energy field
         // and 1 because the energy field is moved before step is
@@ -81,7 +77,26 @@ impl EnergyFieldMemory {
         }
     }
 
-    fn update_energy_field_from_cache(&mut self) {
+    fn update_energy_field_from_cache(
+        &mut self,
+        obs_energy_field: ArrayView2<Option<i32>>,
+    ) {
+        if self.inner_update_energy_field_from_cache().is_ok() {
+            return;
+        }
+
+        if !self.full_energy_field_cached {
+            self.reset_energy_field_on_move(obs_energy_field);
+            if self.inner_update_energy_field_from_cache().is_ok() {
+                return;
+            }
+        }
+
+        memory_error("No matching energy field found in CACHED_ENERGY_FIELDS");
+        self.reset_energy_field_on_move(obs_energy_field);
+    }
+
+    fn inner_update_energy_field_from_cache(&mut self) -> Result<(), ()> {
         let mut candidate_cached_field = None;
         for (_, cached_field) in
             CACHED_ENERGY_FIELDS.iter().filter(|(_, cached_field)| {
@@ -91,20 +106,29 @@ impl EnergyFieldMemory {
             })
         {
             if candidate_cached_field.is_some() {
-                return;
+                return Ok(());
             }
             candidate_cached_field = Some(cached_field);
         }
+
         if let Some(cached_field) = candidate_cached_field {
             Zip::from(&mut self.energy_field)
                 .and(cached_field)
                 .for_each(|e, &cached_e| *e = Some(cached_e));
             self.full_energy_field_cached = true;
+            Ok(())
         } else {
-            memory_error(
-                "No matching energy field found in CACHED_ENERGY_FIELDS",
-            )
-        };
+            Err(())
+        }
+    }
+
+    fn reset_energy_field_on_move(
+        &mut self,
+        obs_energy_field: ArrayView2<Option<i32>>,
+    ) {
+        self.energy_field.fill(None);
+        self.full_energy_field_cached = false;
+        update_energy_field(self.energy_field.view_mut(), obs_energy_field);
     }
 }
 

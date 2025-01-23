@@ -70,8 +70,22 @@ def compute_value_loss(
 def merge_log_probs(
     main_log_probs: torch.Tensor,
     sap_log_probs: torch.Tensor,
+    units_mask: torch.Tensor,
 ) -> torch.Tensor:
+    r"""
+    Combines main_log_probs of shape (\*, units, n_main_actions + n_sap_actions) with
+    sap_log_probs of shape (\*, units, 24 * 24) to get combined (joint) log probs
+    of shape (\*, units, n_main_actions + 24 * 24).
+
+    Results where units_mask == True will behave as expected, but results where
+    units_mask == False will be ill-formed log probs and should be ignored.
+    """
     main_sap_log_probs = main_log_probs[..., Action.SAP.value :]
+    main_sap_log_probs = torch.where(
+        units_mask.unsqueeze(-1),
+        main_sap_log_probs,
+        -torch.inf,
+    )
     if torch.any(main_sap_log_probs.isneginf().logical_not().sum(dim=-1) > 1):
         raise ValueError("Got multiple unmasked sap actions")
 
@@ -100,7 +114,7 @@ def compute_entropy_loss(
     sap_log_probs: torch.Tensor,
     units_mask: torch.Tensor,
 ) -> torch.Tensor:
-    log_policy = merge_log_probs(main_log_probs, sap_log_probs)
+    log_policy = merge_log_probs(main_log_probs, sap_log_probs, units_mask)
     policy = log_policy.exp()
     log_policy_masked_zeroed = torch.where(
         log_policy.isneginf(),
@@ -118,8 +132,12 @@ def compute_teacher_kl_loss(
     teacher_sap_log_probs: torch.Tensor,
     units_mask: torch.Tensor,
 ) -> torch.Tensor:
-    learner_log_probs = merge_log_probs(learner_main_log_probs, learner_sap_log_probs)
-    teacher_log_probs = merge_log_probs(teacher_main_log_probs, teacher_sap_log_probs)
+    learner_log_probs = merge_log_probs(
+        learner_main_log_probs, learner_sap_log_probs, units_mask
+    )
+    teacher_log_probs = merge_log_probs(
+        teacher_main_log_probs, teacher_sap_log_probs, units_mask
+    )
     kl_div = F.kl_div(
         learner_log_probs,
         teacher_log_probs,
