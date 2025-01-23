@@ -3,7 +3,8 @@ use crate::feature_engineering::utils::memory_error;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
 use crate::rules_engine::env::{
-    estimate_vision_power_map, just_respawned, ENERGY_VOID_DELTAS,
+    estimate_vision_power_map, get_spawn_position, just_respawned,
+    ENERGY_VOID_DELTAS,
 };
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
@@ -77,6 +78,12 @@ impl HiddenParameterMemory {
         variable_params: &KnownVariableParams,
         nebulae_could_have_moved: bool,
     ) {
+        let last_actions = get_realized_last_actions(
+            last_actions,
+            &self.last_obs_data.my_units,
+            obs,
+            fixed_params,
+        );
         if self.nebula_tile_vision_reduction.still_unsolved() {
             determine_nebula_tile_vision_reduction(
                 &mut self.nebula_tile_vision_reduction,
@@ -94,19 +101,19 @@ impl HiddenParameterMemory {
                 &mut self.nebula_tile_energy_reduction,
                 obs,
                 &self.last_obs_data,
-                last_actions,
+                &last_actions,
                 fixed_params,
                 variable_params,
             );
         }
         let sap_count_maps = compute_sap_count_maps(
             &self.last_obs_data.my_units,
-            last_actions,
+            &last_actions,
             fixed_params.map_size,
         );
         let aggregate_energy_void_map = compute_aggregate_energy_void_map(
             &self.last_obs_data.my_units,
-            last_actions,
+            &last_actions,
             fixed_params.map_size,
             variable_params.unit_move_cost,
         );
@@ -159,6 +166,59 @@ impl LastObservationData {
             sensor_mask: obs.sensor_mask.clone(),
         }
     }
+}
+
+/// Sometimes, the agent will try to move into an asteroid that it cannot see. In these cases
+/// no energy is spent, so it's functionally the same as a NoOp.
+fn get_realized_last_actions(
+    last_actions: &[Action],
+    units_last_turn: &[Unit],
+    obs: &Observation,
+    fixed_params: &FixedParams,
+) -> Vec<Action> {
+    let id_to_unit_last_turn: BTreeMap<usize, Unit> =
+        units_last_turn.iter().map(|u| (u.id, *u)).collect();
+    let mut updated_actions = last_actions.to_vec();
+    for (unit_last_turn, unit_now, move_action) in obs
+        .get_my_units()
+        .iter()
+        .filter(|u_now| {
+            !just_respawned(u_now, obs.match_steps, obs.team_id, fixed_params)
+        })
+        .filter_map(|u_now| {
+            id_to_unit_last_turn
+                .get(&u_now.id)
+                .map(|u_last| (u_last, u_now))
+        })
+        .filter(|(u_last, u_now)| u_now.pos == u_last.pos)
+        .filter_map(|(u_last, u_now)| match last_actions[u_now.id] {
+            action @ (Up | Right | Down | Left) => {
+                Some((u_last, u_now, action))
+            },
+            NoOp | Sap(_) => None,
+        })
+    {
+        let new_pos = unit_last_turn
+            .pos
+            .maybe_translate(
+                move_action.as_move_delta().unwrap(),
+                fixed_params.map_size,
+            )
+            .unwrap();
+        if obs.sensor_mask[new_pos.as_index()] {
+            assert!(
+                obs.asteroids.contains(&new_pos),
+                "{:?}\n{:?}\n\n{:?}\n{:?}\n{:?}",
+                obs,
+                last_actions,
+                unit_last_turn,
+                unit_now,
+                move_action
+            );
+        }
+        updated_actions[unit_now.id] = NoOp;
+    }
+    updated_actions
 }
 
 fn determine_nebula_tile_vision_reduction(
@@ -242,7 +302,9 @@ fn determine_nebula_tile_energy_reduction(
                 .map(|unit_now| (unit_last_turn, unit_now))
         })
         // Skip units that could have just respawned
-        .filter(|(_, u_now)| !just_respawned(u_now, obs.team_id, fixed_params))
+        .filter(|(_, u_now)| {
+            !just_respawned(u_now, obs.match_steps, obs.team_id, fixed_params)
+        })
         .filter(|(_, unit_now)| {
             last_obs.nebulae.contains(&unit_now.pos)
                 && unit_now.alive()
@@ -401,7 +463,12 @@ fn determine_unit_sap_dropoff_factor(
         })
         // Skip units that could have just respawned
         .filter(|(_, u_now)| {
-            !just_respawned(u_now, obs.opp_team_id(), fixed_params)
+            !just_respawned(
+                u_now,
+                obs.match_steps,
+                obs.opp_team_id(),
+                fixed_params,
+            )
         })
         // Skip units in nebulae or that could be in nebulae
         .filter(|(_, u_now)| {
@@ -427,10 +494,9 @@ fn determine_unit_sap_dropoff_factor(
                 None
             }
         })
-        .filter_map(|(u_last_turn, u_now, sap_count, void_delta)| {
-            obs.energy_field[u_now.pos.as_index()].map(|energy_delta| {
-                (u_last_turn, u_now, sap_count, void_delta, energy_delta)
-            })
+        .map(|(u_last_turn, u_now, sap_count, void_delta)| {
+            let energy_delta = obs.energy_field[u_now.pos.as_index()].unwrap();
+            (u_last_turn, u_now, sap_count, void_delta, energy_delta)
         })
     {
         let direct_sap_loss = sap_count_map
@@ -551,9 +617,14 @@ fn determine_unit_energy_void_factor(
                 .get(&u_last_turn.id)
                 .map(|u_now| (u_last_turn, u_now))
         })
-        // Skip units that could have just respawned
+        // Skip units that could be stacked with units that just respawned
         .filter(|(_, u_now)| {
-            !just_respawned(u_now, obs.opp_team_id(), fixed_params)
+            obs.match_steps.saturating_sub(1) % fixed_params.spawn_rate != 0
+                || u_now.pos
+                    != get_spawn_position(
+                        obs.opp_team_id(),
+                        fixed_params.map_size,
+                    )
         })
         // Skip units in nebulae or that could be in nebulae
         .filter(|(_, u_now)| {
@@ -587,10 +658,9 @@ fn determine_unit_energy_void_factor(
                 },
             }
         })
-        .filter_map(|(u_last_turn, u_now, energy_void, adj_sap_loss)| {
-            obs.energy_field[u_now.pos.as_index()].map(|energy_delta| {
-                (u_last_turn, u_now, energy_void, adj_sap_loss, energy_delta)
-            })
+        .map(|(u_last_turn, u_now, energy_void, adj_sap_loss)| {
+            let energy_delta = obs.energy_field[u_now.pos.as_index()].unwrap();
+            (u_last_turn, u_now, energy_void, adj_sap_loss, energy_delta)
         })
     {
         let direct_sap_loss = sap_count_map
@@ -599,7 +669,7 @@ fn determine_unit_energy_void_factor(
         for (&void_factor, mask) in
             unit_energy_void_factor.iter_unmasked_options_mut_mask()
         {
-            let energy_void_loss = (agg_energy_void as f32 * void_factor
+            let energy_void_loss = (void_factor * agg_energy_void as f32
                 / unit_counts_map[&opp_unit_now.pos] as f32)
                 as i32;
             let energy_after_combat = opp_unit_last_turn.energy
@@ -641,6 +711,50 @@ mod tests {
     use numpy::ndarray::arr2;
     use pretty_assertions::assert_eq as pretty_assert_eq;
     use rstest::rstest;
+
+    #[test]
+    fn test_get_realized_last_actions() {
+        let last_actions = vec![Down, Sap([0, 0]), Down, Sap([0, 0]), Down];
+        let zipped_units = vec![
+            // Base case
+            (
+                Unit::new(Pos::new(1, 1), 100, 0),
+                Unit::new(Pos::new(1, 2), 100, 0),
+            ),
+            // Fails to move - replace with NoOp (and skips id = 1)
+            (
+                Unit::new(Pos::new(1, 1), 100, 2),
+                Unit::new(Pos::new(1, 1), 100, 2),
+            ),
+            // Leaves sap actions as-is
+            (
+                Unit::new(Pos::new(1, 1), 100, 3),
+                Unit::new(Pos::new(1, 1), 100, 3),
+            ),
+            // Ignores units that just respawned
+            (
+                Unit::new(Pos::new(1, 1), 123, 4),
+                Unit::new(Pos::new(0, 0), 100, 4),
+            ),
+        ];
+        let (units_last_turn, units_now): (Vec<_>, Vec<_>) =
+            zipped_units.into_iter().unzip();
+        let obs = Observation {
+            team_id: 0,
+            units: [units_now, Vec::new()],
+            sensor_mask: Array2::default(FIXED_PARAMS.map_size),
+            match_steps: FIXED_PARAMS.spawn_rate + 1,
+            ..Default::default()
+        };
+        let result = get_realized_last_actions(
+            &last_actions,
+            &units_last_turn,
+            &obs,
+            &FIXED_PARAMS,
+        );
+        let expected_result = vec![Down, Sap([0, 0]), NoOp, Sap([0, 0]), Down];
+        assert_eq!(result, expected_result);
+    }
 
     #[test]
     fn test_determine_nebula_tile_vision_reduction() {
