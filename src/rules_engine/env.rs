@@ -603,11 +603,13 @@ pub fn get_spawn_position(
 
 pub fn just_respawned(
     unit: &Unit,
+    match_steps: u32,
     team_id: usize,
     fixed_params: &FixedParams,
 ) -> bool {
-    let spawn_pos = get_spawn_position(team_id, fixed_params.map_size);
-    unit.energy == fixed_params.init_unit_energy && unit.pos == spawn_pos
+    match_steps.saturating_sub(1) % fixed_params.spawn_rate == 0
+        && unit.energy == fixed_params.init_unit_energy
+        && unit.pos == get_spawn_position(team_id, fixed_params.map_size)
 }
 
 pub fn estimate_vision_power_map(
@@ -888,25 +890,25 @@ fn get_observation(
         obs.units[opp] = state.units[opp]
             .iter()
             .filter(|u| obs.sensor_mask[u.pos.as_index()])
-            .cloned()
+            .copied()
             .collect();
         obs.asteroids = state
             .asteroids
             .iter()
-            .copied()
             .filter(|a| obs.sensor_mask[a.as_index()])
+            .copied()
             .collect();
         obs.nebulae = state
             .nebulae
             .iter()
-            .copied()
             .filter(|a| obs.sensor_mask[a.as_index()])
+            .copied()
             .collect();
         obs.relic_node_locations = state
             .relic_node_locations
             .iter()
-            .copied()
             .filter(|a| obs.sensor_mask[a.as_index()])
+            .copied()
             .collect();
     }
     observations
@@ -1524,20 +1526,24 @@ mod tests {
     }
 
     #[rstest]
-    // Team 0 only succeeds at (0, 0) with 100 energy
-    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 100), 0, true)]
-    #[case(Unit::with_pos_and_energy(Pos::new(0, 1), 100), 0, false)]
-    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 101), 0, false)]
+    // Team 0 only succeeds at (0, 0) with 100 energy at a proper step
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 100), 1, 0, true)]
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 100), 2, 0, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 1), 100), 1, 0, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(0, 0), 101), 1, 0, false)]
     // Team 1 only succeeds at (23, 23) with 100 energy
-    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 100), 1, true)]
-    #[case(Unit::with_pos_and_energy(Pos::new(22, 23), 100), 1, false)]
-    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 99), 1, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 100), 1, 1, true)]
+    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 100), 3, 1, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(22, 23), 100), 1, 1, false)]
+    #[case(Unit::with_pos_and_energy(Pos::new(23, 23), 99), 1, 1, false)]
     fn test_just_respawned(
         #[case] unit: Unit,
+        #[case] match_steps: u32,
         #[case] team_id: usize,
         #[case] expected_result: bool,
     ) {
-        let respawned = just_respawned(&unit, team_id, &FIXED_PARAMS);
+        let respawned =
+            just_respawned(&unit, match_steps, team_id, &FIXED_PARAMS);
         assert_eq!(respawned, expected_result);
     }
 

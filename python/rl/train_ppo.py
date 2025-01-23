@@ -547,10 +547,13 @@ def collect_trajectories(
         last_out = env.last_out
         stacked_obs = TorchObs.from_numpy(env.get_frame_stacked_obs(), cfg.device)
         action_info = TorchActionInfo.from_numpy(last_out.action_info, cfg.device)
-        model_out = model(
-            obs=stacked_obs.flatten(start_dim=0, end_dim=1),
-            action_info=action_info.flatten(start_dim=0, end_dim=1),
-        )
+        with torch.autocast(
+            device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
+        ):
+            model_out = model(
+                obs=stacked_obs.flatten(start_dim=0, end_dim=1),
+                action_info=action_info.flatten(start_dim=0, end_dim=1),
+            )
 
         batch_obs.append(stacked_obs.to_device(CPU))
         batch_action_info.append(action_info.to_device(CPU))
@@ -625,8 +628,6 @@ def update_model_on_batch(
     returns: torch.Tensor,
     cfg: PPOConfig,
 ) -> dict[str, float]:
-    # NB: Batch of observations is random, with no association between
-    # trajectories, games, and players
     with torch.autocast(
         device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
     ):
