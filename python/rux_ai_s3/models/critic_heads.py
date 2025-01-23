@@ -27,7 +27,7 @@ class BaseCriticHead(nn.Module, ABC):
             out_channels=1,
             kernel_size=1,
         )
-        # self._init_weights()  # noqa: ERA001
+        self._init_weights()
 
     def _init_weights(self) -> None:
         orthogonal_initialization_(self.conv_base, strict=True)

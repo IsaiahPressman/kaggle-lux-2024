@@ -40,7 +40,7 @@ class ActorCriticBase(nn.Module):
             activation=activation,
             kernel_size=kernel_size,
         )
-        # self._init_weights()  # noqa: ERA001
+        self._init_weights()
 
     def _init_weights(self) -> None:
         self.apply(orthogonal_initialization_)

@@ -39,7 +39,7 @@ class BasicActorHead(nn.Module):
                 kernel_size=1,
             ),
         )
-        # self._init_weights()  # noqa: ERA001
+        self._init_weights()
 
     def _init_weights(self) -> None:
         self.apply(orthogonal_initialization_)
