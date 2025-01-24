@@ -2115,7 +2115,8 @@ mod tests {
             .zip_eq(
                 player_observations[1..]
                     .iter()
-                    .map(|obs| Some(obs.clone()))
+                    .cloned()
+                    .map(Option::from)
                     .chain(once(None)),
             )
         {

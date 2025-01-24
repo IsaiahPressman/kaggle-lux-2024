@@ -6,7 +6,7 @@ lr_schedule:
   steps: 150_000
   min_factor: 0.25
 steps_per_update: 32
-epochs_per_update: 1
+epochs_per_update: 2
 train_batch_size: 128
 use_mixed_precision: true
 teacher_path: null

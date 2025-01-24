@@ -50,7 +50,7 @@ def init_train_dir(
         TRAIN_OUTPUTS_DIR
         / name
         / start_time.strftime("%Y_%m_%d")
-        / start_time.strftime("%H_%M")
+        / start_time.strftime("%H_%M_%S")
     )
     train_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(train_dir)
@@ -63,8 +63,9 @@ def save_checkpoint(
     logger: logging.Logger,
 ) -> None:
     checkpoint_name = f"checkpoint_{str(train_state.step).zfill(6)}"
-    full_path = f"{checkpoint_name}.pt"
-    weights_path = f"{checkpoint_name}_weights.pt"
+    base_path = Path(os.getcwd())
+    full_path = base_path / f"{checkpoint_name}.pt"
+    weights_path = base_path / f"{checkpoint_name}_weights.pt"
     torch.save(
         {
             "step": train_state.step,

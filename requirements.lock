@@ -99,7 +99,7 @@ jinja2==3.1.5
     # via torch
 kiwisolver==1.4.8
     # via matplotlib
-luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3@a0ed0d2c1040550ef342a04799019a5f281fb463#subdirectory=src
+luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3@8188ad5cbb1fe1e6f6a8466ab5d703b38a1e0426#subdirectory=src
     # via rux-ai-s3
 markdown-it-py==3.0.0
     # via rich
