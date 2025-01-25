@@ -60,7 +60,7 @@ CPU: Final[torch.device] = torch.device("cpu")
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-logger = logging.getLogger(NAME.upper())
+logger = logging.getLogger()
 
 
 class UserArgs(BaseModel):
@@ -81,6 +81,13 @@ class UserArgs(BaseModel):
             return DEFAULT_CONFIG_FILE
 
         return get_config_path_from_checkpoint(self.checkpoint)
+
+    @property
+    def checkpoint_dir(self) -> Path | None:
+        if self.checkpoint is None:
+            return None
+
+        return self.checkpoint.parent
 
     @classmethod
     def from_argparse(cls) -> "UserArgs":
@@ -250,10 +257,10 @@ def main() -> None:
     if args.release:
         assert_release_build()
 
-    init_logger(logger=logger)
-    logger.info("Loading config from %s", args.config_file)
     cfg = load_from_yaml(UnitFactorizedPPOConfig, args.config_file)
-    init_train_dir(NAME, cfg.model_dump())
+    init_train_dir(NAME, cfg.model_dump(), checkpoint_dir=args.checkpoint_dir)
+    init_logger(logger=logger)
+    logger.info("Loaded config from %s", args.config_file)
     env = ParallelEnv.from_config(cfg.env_config)
     model = build_model(env, cfg).to(cfg.device).train()
     logger.info(

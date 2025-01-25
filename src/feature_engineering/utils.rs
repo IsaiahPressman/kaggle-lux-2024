@@ -22,9 +22,15 @@ where
     encoded
 }
 
+#[cfg(debug_assertions)]
 pub fn memory_error(msg: &str) {
-    // TODO: For game-time build, don't panic
-    panic!("{}", msg);
+    // TODO: Disable this panic for final release agent build
+    panic!("memory error - {}", msg);
+}
+
+#[cfg(not(debug_assertions))]
+pub fn memory_error(msg: &str) {
+    eprintln!("memory error - {}", msg);
 }
 
 #[cfg(test)]

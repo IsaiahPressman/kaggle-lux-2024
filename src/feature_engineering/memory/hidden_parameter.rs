@@ -183,6 +183,7 @@ fn get_realized_last_actions(
     for (unit_last_turn, unit_now, expected_pos) in last_obs
         .my_units
         .iter()
+        .filter(|u_last| u_last.alive())
         .filter_map(|u_last| match last_actions[u_last.id] {
             move_action @ (Up | Right | Down | Left) => {
                 let new_pos = u_last
@@ -414,7 +415,8 @@ fn compute_aggregate_energy_void_map(
     {
         // A missing action means that we can't determine where the unit was when its
         // energy void was computed
-        let (pos_after_action, void_energy) = match action? {
+        let action = action?;
+        let (pos_after_action, void_energy) = match action {
             NoOp | Sap(_) => (unit.pos, unit.energy),
             direction @ (Up | Right | Down | Left) => (
                 unit.pos
@@ -502,8 +504,8 @@ fn determine_unit_sap_dropoff_factor(
         .filter_map(|(u_last_turn, u_now, adj_sap_count)| {
             let energy_void = aggregate_energy_void_map
                 .as_ref()
-                .map(|void_map| void_map[u_now.pos.as_index()]);
-            if energy_void.is_some_and(|void| void == 0) {
+                .map(|void_map| void_map[u_now.pos.as_index()])?;
+            if energy_void == 0 {
                 Some((u_last_turn, u_now, adj_sap_count, 0))
             } else if stacked_with_just_respawned_unit(
                 *u_now,
@@ -513,11 +515,9 @@ fn determine_unit_sap_dropoff_factor(
                 // Skip units that could be stacked with units that just respawned
                 None
             } else if let Some(void_factor) = unit_energy_void_factor {
-                energy_void.map(|void| {
-                    let void_delta = void_factor * void as f32
-                        / unit_counts_map[&u_now.pos] as f32;
-                    (u_last_turn, u_now, adj_sap_count, void_delta as i32)
-                })
+                let void_delta = void_factor * energy_void as f32
+                    / unit_counts_map[&u_now.pos] as f32;
+                Some((u_last_turn, u_now, adj_sap_count, void_delta as i32))
             } else {
                 // Skip units that have lost energy to energy void if the
                 // unit_energy_void_factor is still unknown
@@ -565,11 +565,12 @@ fn determine_unit_sap_dropoff_factor(
     if unit_sap_dropoff_factor.all_masked() {
         unit_sap_dropoff_factor.mask =
             unit_sap_dropoff_factor_backup_mask.clone();
-        panic!(
-            "{:?}\n{:?}\n\n{:?}",
+        // TODO: Clean up this error message
+        let msg = format!(
+            "unit_sap_dropoff_factor mask is all false\n{:?}\n{:?}\n\n{:?}",
             unit_sap_dropoff_factor, params, relevant_data
         );
-        memory_error("unit_sap_dropoff_factor mask is all false");
+        memory_error(&msg);
         unit_sap_dropoff_factor.mask = unit_sap_dropoff_factor_backup_mask;
     }
 }
@@ -750,11 +751,12 @@ fn determine_unit_energy_void_factor(
     if unit_energy_void_factor.all_masked() {
         unit_energy_void_factor.mask =
             unit_energy_void_factor_backup_mask.clone();
-        panic!(
-            "{:?}\n{:?}\n\n{:?}",
+        // TODO: Clean up this error message
+        let msg = format!(
+            "unit_energy_void_factor mask is all false\n{:?}\n{:?}\n\n{:?}",
             unit_energy_void_factor, params, relevant_data
         );
-        memory_error("unit_energy_void_factor mask is all false");
+        memory_error(&msg);
         unit_energy_void_factor.mask = unit_energy_void_factor_backup_mask;
     }
 }

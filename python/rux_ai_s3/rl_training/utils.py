@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -34,17 +35,28 @@ def count_trainable_params(model: nn.Module) -> int:
 
 
 def init_logger(logger: logging.Logger) -> None:
+    info_file_handler = logging.FileHandler("info.log", mode="a")
+    info_file_handler.setLevel(logging.INFO)
+    logger.addHandler(info_file_handler)
+
     coloredlogs.install(
         level=logging.INFO,
         logger=logger,
         fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
+        stream=sys.stdout,
     )
+    sys.stderr = open("error.log", "a")  # noqa: SIM115
 
 
 def init_train_dir(
     name: str,
     cfg_dict: dict[str, Any],
+    checkpoint_dir: Path | None,
 ) -> None:
+    if checkpoint_dir:
+        os.chdir(checkpoint_dir)
+        return
+
     start_time = datetime.datetime.now()
     train_dir = (
         TRAIN_OUTPUTS_DIR
