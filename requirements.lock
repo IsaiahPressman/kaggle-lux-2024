@@ -193,6 +193,7 @@ packaging==24.2
     # via matplotlib
     # via pytest
 pandas==2.2.3
+    # via rux-ai-s3
     # via seaborn
 pillow==11.1.0
     # via matplotlib

@@ -45,7 +45,6 @@ def init_logger(logger: logging.Logger) -> None:
         fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
         stream=sys.stdout,
     )
-    sys.stderr = open("error.log", "a")  # noqa: SIM115
 
 
 def init_train_dir(

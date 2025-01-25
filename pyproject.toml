@@ -20,6 +20,7 @@ dependencies = [
     "types-pyyaml>=6.0.12.20240917",
     "wandb>=0.19.1",
     "coloredlogs>=15.0.1",
+    "pandas>=2.2.3",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"

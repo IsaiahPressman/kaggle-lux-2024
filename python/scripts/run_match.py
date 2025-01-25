@@ -4,6 +4,7 @@ from pathlib import Path
 import jax
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import torch
 import tqdm
 from pydantic import BaseModel
@@ -59,17 +60,33 @@ def main() -> None:
     p1 = build_model(env, p1_config, args.p1, DEVICE)
     p2 = build_model(env, p2_config, args.p2, DEVICE)
     with torch.autocast(device_type="cuda", dtype=torch.float16):
-        p1_score, p2_score = run_match(
+        (p1_score_norm, p2_score_norm) = run_match(
             env,
             (p1, p2),
-            args.min_games,
+            args.min_games // 2,
+            DEVICE,
+        )
+        (p1_score_rev, p2_score_rev) = run_match(
+            env,
+            (p2, p1),
+            args.min_games // 2,
             DEVICE,
         )
 
-    total = p1_score + p2_score
-    p1_pct = 100.0 * p1_score / total
-    p2_pct = 100.0 * p2_score / total
-    print(f"\nFinal scores: ({p1_score}, {p2_score}) / ({p1_pct:.2f}%, {p2_pct:.2f}%)")
+    results = pd.DataFrame(
+        [[p1_score_norm, p2_score_norm], [p1_score_rev, p2_score_rev]],
+        index=["(0, 0)", "(23, 23)"],
+        columns=["p1", "p2"],
+    )
+    results_normalized = (results / results.sum().sum().item()).round(2)
+    print(f"\nRaw results:\n{results}\n\nNormalized results:\n{results_normalized}")
+
+    (p1_score, p2_score) = results.sum(axis="rows").tolist()
+    (p1_pct, p2_pct) = (results_normalized.sum(axis="rows") * 100.0).tolist()
+    print(
+        f"\nFinal scores after {p1_score + p2_score} games: "
+        f"({p1_score}, {p2_score}) / ({p1_pct:.2f}%, {p2_pct:.2f}%)"
+    )
 
 
 def build_model(

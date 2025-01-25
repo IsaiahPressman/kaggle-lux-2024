@@ -25,12 +25,16 @@ where
 #[cfg(debug_assertions)]
 pub fn memory_error(msg: &str) {
     // TODO: Disable this panic for final release agent build
-    panic!("memory error - {}", msg);
+    panic!("{}", format_memory_error(msg));
 }
 
 #[cfg(not(debug_assertions))]
 pub fn memory_error(msg: &str) {
-    eprintln!("memory error - {}", msg);
+    eprintln!("{}", format_memory_error(msg));
+}
+
+fn format_memory_error(msg: &str) -> String {
+    format!("memory error - {}\n", msg)
 }
 
 #[cfg(test)]

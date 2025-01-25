@@ -525,6 +525,14 @@ def train_step(
     scalar_stats["update_data_collection_time"] = data_collection_time
     scalar_stats["update_train_time"] = train_time
     scalar_stats["update_total_time"] = total_time
+    assert experience.reward.shape[-1] == 2
+    nonzero_reward = experience.reward[experience.reward != 0.0]
+    if len(nonzero_reward) > 0:
+        nonzero_reward = nonzero_reward.reshape(-1, 2)
+        scalar_stats["mean_nonzero_reward"] = nonzero_reward.mean().item()
+        scalar_stats["p1_mean_nonzero_reward"] = nonzero_reward[..., 0].mean().item()
+        scalar_stats["p2_mean_nonzero_reward"] = nonzero_reward[..., 1].mean().item()
+
     log_results(
         train_state.step,
         scalar_stats,
@@ -570,6 +578,7 @@ def collect_trajectories(
         batch_done.append(last_out.done[:, None].repeat(2, axis=1))
         if step < cfg.steps_per_update:
             env.step(model_out.to_player_env_actions(last_out.action_info.unit_indices))
+            # TODO: Stats.merge
             stats = env.last_out.stats or stats
 
     experience = ExperienceBatch.from_lists(
