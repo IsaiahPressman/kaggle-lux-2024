@@ -21,6 +21,12 @@ class TorchObs(NamedTuple):
     def to_device(self, device: torch.device) -> "TorchObs":
         return TorchObs(*(t.to(device) for t in self))
 
+    def index_player(self, p: int) -> "TorchObs":
+        for t in self:
+            assert t.shape[1] == 2
+
+        return TorchObs(*(t[:, p] for t in self))
+
     @classmethod
     def from_numpy(cls, obs: FrameStackedObs, device: torch.device) -> "TorchObs":
         return TorchObs(
@@ -45,6 +51,12 @@ class TorchActionInfo(NamedTuple):
 
     def to_device(self, device: torch.device) -> "TorchActionInfo":
         return TorchActionInfo(*(t.to(device) for t in self))
+
+    def index_player(self, p: int) -> "TorchActionInfo":
+        for t in self:
+            assert t.shape[1] == 2
+
+        return TorchActionInfo(*(t[:, p] for t in self))
 
     @classmethod
     def from_numpy(
