@@ -184,9 +184,9 @@ class TeacherLossSchedule(BaseModel):
 
 
 class LossCoefficients(BaseModel):
-    policy: float
-    value: float
-    entropy: float
+    policy: Annotated[float, Field(ge=0.0, le=1.0)]
+    value: Annotated[float, Field(ge=0.0, le=1.0)]
+    entropy: Annotated[float, Field(ge=0.0, le=1e-3)]
     teacher_policy: TeacherLossSchedule
     teacher_value: TeacherLossSchedule
 
@@ -194,6 +194,20 @@ class LossCoefficients(BaseModel):
         extra="forbid",
         frozen=True,
     )
+
+    def get_weighted_loss_coefficients(
+        self, step: int
+    ) -> tuple[float, float, float, float, float]:
+        teacher_policy = self.teacher_policy.get_coefficient(step)
+        teacher_value = self.teacher_value.get_coefficient(step)
+        total = self.policy + self.value + self.entropy + teacher_policy + teacher_value
+        return (
+            self.policy / total,
+            self.value / total,
+            self.entropy / total,
+            teacher_policy / total,
+            teacher_value / total,
+        )
 
 
 class PPOConfig(TrainConfig):
@@ -672,30 +686,34 @@ def update_model_on_batch(
             .mean()
             .item()
         )
+        (
+            policy_coefficient,
+            value_coefficient,
+            entropy_coefficient,
+            teacher_policy_coefficient,
+            teacher_value_coefficient,
+        ) = cfg.loss_coefficients.get_weighted_loss_coefficients(train_state.step)
         policy_loss = (
             compute_pg_loss(
                 advantages,
                 action_probability_ratio,
                 cfg.clip_coefficient,
             )
-            * cfg.loss_coefficients.policy
+            * policy_coefficient
         )
         value_loss = (
             compute_value_loss(
                 new_out.value,
                 returns,
             )
-            * cfg.loss_coefficients.value
+            * value_coefficient
         )
         negative_entropy = compute_entropy_loss(
             new_out.main_log_probs,
             new_out.sap_log_probs,
             units_mask=experience.action_info.units_mask,
         )
-        entropy_loss = negative_entropy * cfg.loss_coefficients.entropy
-        teacher_policy_coefficient = (
-            cfg.loss_coefficients.teacher_policy.get_coefficient(train_state.step)
-        )
+        entropy_loss = negative_entropy * entropy_coefficient
         teacher_policy_loss = (
             (
                 compute_teacher_kl_loss(
@@ -709,9 +727,6 @@ def update_model_on_batch(
             )
             if train_state.teacher_model
             else torch.zeros_like(policy_loss)
-        )
-        teacher_value_coefficient = cfg.loss_coefficients.teacher_value.get_coefficient(
-            train_state.step
         )
         teacher_value_loss = (
             (
