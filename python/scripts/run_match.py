@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from typing import Any
 
 import jax
 import numpy as np
@@ -33,6 +34,9 @@ class UserArgs(BaseModel):
     def get_p2_config(self) -> TrainConfig:
         return load_from_yaml(TrainConfig, get_config_path_from_checkpoint(self.p2))
 
+    def get_batch_size(self) -> int:
+        return min(self.batch_size, self.min_games // 2)
+
     @classmethod
     def from_argparse(cls) -> "UserArgs":
         parser = argparse.ArgumentParser(
@@ -52,7 +56,7 @@ def main() -> None:
     p2_config = args.get_p2_config()
     assert p1_config.env_config.frame_stack_len == p2_config.env_config.frame_stack_len
     env = ParallelEnv(
-        n_envs=args.batch_size,
+        n_envs=args.get_batch_size(),
         frame_stack_len=p1_config.env_config.frame_stack_len,
         reward_space=RewardSpace.FINAL_WINNER,
         jax_device=jax.devices("cpu")[0],
@@ -60,29 +64,40 @@ def main() -> None:
     p1 = build_model(env, p1_config, args.p1, DEVICE)
     p2 = build_model(env, p2_config, args.p2, DEVICE)
     with torch.autocast(device_type="cuda", dtype=torch.float16):
-        (p1_score_norm, p2_score_norm) = run_match(
+        prog_bar = tqdm.tqdm(total=args.min_games)
+        (p1_score_1, p2_score_2) = run_match(
             env,
             (p1, p2),
             args.min_games // 2,
             DEVICE,
+            prog_bar,
         )
-        (p1_score_rev, p2_score_rev) = run_match(
+        (p2_score_1, p1_score_2) = run_match(
             env,
             (p2, p1),
             args.min_games // 2,
             DEVICE,
+            prog_bar,
         )
 
+    raw_results = np.array([[p1_score_1, p2_score_1], [p1_score_2, p2_score_2]])
+    raw_results_normalized = np.round(100.0 * raw_results / raw_results.sum(), 2)
+    index = ["(0, 0)", "(23, 23)"]
+    columns = ["p1", "p2"]
     results = pd.DataFrame(
-        [[p1_score_norm, p2_score_norm], [p1_score_rev, p2_score_rev]],
-        index=["(0, 0)", "(23, 23)"],
-        columns=["p1", "p2"],
+        raw_results,
+        index=index,
+        columns=columns,
     )
-    results_normalized = (results / results.sum().sum().item()).round(2)
+    results_normalized = pd.DataFrame(
+        raw_results_normalized,
+        index=index,
+        columns=columns,
+    )
     print(f"\nRaw results:\n{results}\n\nNormalized results:\n{results_normalized}")
 
     (p1_score, p2_score) = results.sum(axis="rows").tolist()
-    (p1_pct, p2_pct) = (results_normalized.sum(axis="rows") * 100.0).tolist()
+    (p1_pct, p2_pct) = results_normalized.sum(axis="rows").tolist()
     print(
         f"\nFinal scores after {p1_score + p2_score} games: "
         f"({p1_score}, {p2_score}) / ({p1_pct:.2f}%, {p2_pct:.2f}%)"
@@ -124,13 +139,13 @@ def run_match(
     models: tuple[ActorCritic, ActorCritic],
     min_games: int,
     device: torch.device,
+    prog_bar: Any,
 ) -> tuple[int, int]:
     assert env.reward_space == RewardSpace.FINAL_WINNER
     env.hard_reset()
     p1_model, p2_model = models
 
     scores: npt.NDArray[np.float32] = np.array([0.0, 0.0])
-    prog_bar = tqdm.tqdm(total=min_games)
     while sum(scores) < min_games:
         stacked_obs = TorchObs.from_numpy(env.get_frame_stacked_obs(), device)
         action_info = TorchActionInfo.from_numpy(env.last_out.action_info, device)
