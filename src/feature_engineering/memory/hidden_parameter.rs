@@ -200,28 +200,23 @@ fn get_realized_last_actions(
         // If we could see where we were moving to, then it's known that there was no asteroid
         .filter(|(_, _, new_pos)| !last_obs.sensor_mask[new_pos.as_index()])
     {
-        // If we can now see the tile, we can deduce what happened
-        if obs.sensor_mask[expected_pos.as_index()] {
-            if obs.asteroids.contains(&expected_pos) {
-                updated_actions[unit_last_turn.id] = Some(NoOp);
-            }
-            continue;
-        }
         // If our unit died and was removed on the spot (such as from a collision), then we can't
         // say for sure if the move succeeded or not
         let Some(unit_now) = unit_now else {
             updated_actions[unit_last_turn.id] = None;
             continue;
         };
+        // This is the same case as above
         if just_respawned(unit_now, obs.match_steps, obs.team_id, fixed_params)
         {
             updated_actions[unit_last_turn.id] = None;
             continue;
         }
-        // The move action succeeded
+        // If the move action succeeded, do nothing
         if unit_now.pos == expected_pos {
             continue;
         }
+        // Here, the move action failed and we know it
         assert_eq!(
             unit_now.pos,
             unit_last_turn.pos,
@@ -780,7 +775,7 @@ mod tests {
 
     #[test]
     fn test_get_realized_last_actions() {
-        let last_actions = vec![Down, Sap([0, 0]), Down, Sap([0, 0]), Up, Up];
+        let last_actions = vec![Down, Sap([0, 0]), Down, Sap([0, 0]), Up];
         let zipped_units = vec![
             // Base case
             (
@@ -797,15 +792,10 @@ mod tests {
                 Unit::new(Pos::new(1, 1), 100, 3),
                 Unit::new(Pos::new(1, 1), 100, 3),
             ),
-            // Includes units that just respawned if we can see their move destination
-            (
-                Unit::new(Pos::new(0, 1), 100, 4),
-                Unit::new(Pos::new(0, 0), 100, 4),
-            ),
             // Ignores units that just respawned if they could have run into a hidden asteroid
             (
-                Unit::new(Pos::new(1, 1), 50, 5),
-                Unit::new(Pos::new(0, 0), 100, 5),
+                Unit::new(Pos::new(1, 1), 50, 4),
+                Unit::new(Pos::new(0, 0), 100, 4),
             ),
         ];
         let (units_last_turn, units_now): (Vec<_>, Vec<_>) =
@@ -835,7 +825,6 @@ mod tests {
             Some(Sap([0, 0])),
             Some(NoOp),
             Some(Sap([0, 0])),
-            Some(Up),
             None,
         ];
         assert_eq!(result, expected_result);
