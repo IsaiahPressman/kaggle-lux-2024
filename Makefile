@@ -33,7 +33,7 @@ test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format check test
 prepare-rl: prepare build-release
-# TODO: build-release (without target-cpu=native) for agent
+# TODO: build-release (without target-cpu=native) for agent (and disable memory_error panics)
 prepare-agent: prepare py-test-agent
 
 clean:

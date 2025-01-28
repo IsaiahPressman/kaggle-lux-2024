@@ -24,7 +24,6 @@ where
 
 #[cfg(debug_assertions)]
 pub fn memory_error(msg: &str) {
-    // TODO: Disable this panic for final release agent build
     panic!("{}", format_memory_error(msg));
 }
 
