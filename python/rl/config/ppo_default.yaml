@@ -6,7 +6,7 @@ lr_schedule:
   steps: 150_000
   min_factor: 0.25
 steps_per_update: 32
-epochs_per_update: 2
+epochs_per_update: 1
 train_batch_size: 128
 use_mixed_precision: true
 teacher_path: null
@@ -18,7 +18,6 @@ loss_coefficients:
   policy: 1.0
   value: 0.5
   entropy: 1e-4
-  # TODO: tune teacher loss decay
   # teacher_policy and teacher_value don't have any effect unless
   # teacher_path is set above
   teacher_policy:
