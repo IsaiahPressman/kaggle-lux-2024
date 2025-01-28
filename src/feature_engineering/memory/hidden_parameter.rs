@@ -462,7 +462,6 @@ fn determine_unit_sap_dropoff_factor(
     let id_to_opp_unit_now: BTreeMap<usize, Unit> =
         obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
     let unit_counts_map = get_unit_counts_map(obs.get_opp_units());
-    let mut relevant_data = Vec::new();
     for (
         opp_unit_last_turn,
         opp_unit_now,
@@ -527,14 +526,6 @@ fn determine_unit_sap_dropoff_factor(
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        relevant_data.push((
-            opp_unit_last_turn,
-            opp_unit_now,
-            adj_sap_count,
-            direct_sap_loss,
-            energy_void_delta,
-            energy_field_delta,
-        ));
         for (&sap_dropoff_factor, mask) in
             unit_sap_dropoff_factor.iter_unmasked_options_mut_mask()
         {
@@ -558,14 +549,7 @@ fn determine_unit_sap_dropoff_factor(
     }
 
     if unit_sap_dropoff_factor.all_masked() {
-        unit_sap_dropoff_factor.mask =
-            unit_sap_dropoff_factor_backup_mask.clone();
-        // TODO: Clean up this error message
-        let msg = format!(
-            "unit_sap_dropoff_factor mask is all false\n{:?}\n{:?}\n\n{:?}",
-            unit_sap_dropoff_factor, params, relevant_data
-        );
-        memory_error(&msg);
+        memory_error("unit_sap_dropoff_factor mask is all false");
         unit_sap_dropoff_factor.mask = unit_sap_dropoff_factor_backup_mask;
     }
 }
@@ -653,7 +637,6 @@ fn determine_unit_energy_void_factor(
     let id_to_opp_unit_now: BTreeMap<usize, Unit> =
         obs.get_opp_units().iter().map(|u| (u.id, *u)).collect();
     let unit_counts_map = get_unit_counts_map(obs.get_opp_units());
-    let mut relevant_data = Vec::new();
     for (
         opp_unit_last_turn,
         opp_unit_now,
@@ -712,14 +695,6 @@ fn determine_unit_energy_void_factor(
         let direct_sap_loss = sap_count_map
             .get(&opp_unit_now.pos)
             .map_or(0, |count| *count * params.unit_sap_cost);
-        relevant_data.push((
-            opp_unit_last_turn,
-            opp_unit_now,
-            agg_energy_void,
-            direct_sap_loss,
-            adj_sap_loss,
-            energy_field_delta,
-        ));
         for (&void_factor, mask) in
             unit_energy_void_factor.iter_unmasked_options_mut_mask()
         {
@@ -744,14 +719,7 @@ fn determine_unit_energy_void_factor(
     }
 
     if unit_energy_void_factor.all_masked() {
-        unit_energy_void_factor.mask =
-            unit_energy_void_factor_backup_mask.clone();
-        // TODO: Clean up this error message
-        let msg = format!(
-            "unit_energy_void_factor mask is all false\n{:?}\n{:?}\n\n{:?}",
-            unit_energy_void_factor, params, relevant_data
-        );
-        memory_error(&msg);
+        memory_error("unit_energy_void_factor mask is all false");
         unit_energy_void_factor.mask = unit_energy_void_factor_backup_mask;
     }
 }
