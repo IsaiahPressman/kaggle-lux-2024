@@ -1,8 +1,15 @@
-*.lock
-!requirements.lock
 replay.json
+
+# Saved agents + wandb outputs
 hall_of_fame/
 wandb/
+
+# Most lock files
+*.lock
+!requirements.lock
+
+# Training log files
+*.log
 
 # Submission files
 *.tar.gz
