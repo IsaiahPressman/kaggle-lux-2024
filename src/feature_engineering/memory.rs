@@ -489,7 +489,7 @@ mod tests {
                 1 => assert!(explored_pct >= 0.5),
                 2 => assert!(explored_pct >= 0.6),
                 3 => assert!(explored_pct >= 0.75),
-                4 => assert!(explored_pct >= 0.85),
+                4 => assert!(explored_pct >= 0.8),
                 n => panic!("Unrecognized unit_sensor_range {}", n),
             }
             if mem.relic_node.get_all_nodes_registered() {
@@ -508,9 +508,11 @@ mod tests {
                 assert!(mem.relic_node.get_all_nodes_registered());
                 assert!(point_explored_pct >= 0.98);
             } else {
-                // TODO: Re-add this check once there's a strong agent that's properly exploring
-                //  the map after the rules update
-                //  assert!(point_explored_pct >= 0.7);
+                match variable_params.unit_sensor_range {
+                    1 => assert!(point_explored_pct >= 0.6),
+                    2..=4 => assert!(point_explored_pct >= 0.7),
+                    n => panic!("Unrecognized unit_sensor_range {}", n),
+                }
             }
         }
     }

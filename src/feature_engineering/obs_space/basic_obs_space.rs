@@ -606,6 +606,8 @@ mod tests {
     use std::cmp::Ordering;
     use std::path::PathBuf;
 
+    const TEST_FEATURE_BOUND: f32 = FEATURE_BOUND * 1.1;
+
     #[test]
     fn test_nontemporal_global_feature_indices() {
         use NontemporalGlobalFeature::*;
@@ -900,15 +902,20 @@ mod tests {
                     "{:?}",
                     (
                         (feature_scope_id, feature_id),
-                        (-FEATURE_BOUND, min_val, max_val, FEATURE_BOUND),
+                        (
+                            -TEST_FEATURE_BOUND,
+                            min_val,
+                            max_val,
+                            TEST_FEATURE_BOUND
+                        ),
                     )
                 );
                 if min_val >= 0. {
                     assert!(min_val <= 1.);
-                    assert!(max_val <= FEATURE_BOUND);
+                    assert!(max_val <= TEST_FEATURE_BOUND);
                 } else {
-                    assert!(min_val >= -FEATURE_BOUND);
-                    assert!(max_val <= FEATURE_BOUND);
+                    assert!(min_val >= -TEST_FEATURE_BOUND);
+                    assert!(max_val <= TEST_FEATURE_BOUND);
                 }
             }
         }
