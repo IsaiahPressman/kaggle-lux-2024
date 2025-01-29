@@ -164,6 +164,13 @@ class ActorCritic(nn.Module):
             value=value,
         )
 
+    @staticmethod
+    @torch.no_grad()
+    def log_probs_to_actions(
+        log_probs: torch.Tensor, temperature: float | None
+    ) -> torch.Tensor:
+        return BasicActorHead.log_probs_to_actions(log_probs, temperature)
+
 
 class FactorizedActorCritic(nn.Module):
     __call__: Callable[..., FactorizedActorCriticOut]
@@ -217,3 +224,10 @@ class FactorizedActorCritic(nn.Module):
             baseline_value=baseline_value,
             factorized_value=factorized_value,
         )
+
+    @staticmethod
+    @torch.no_grad()
+    def log_probs_to_actions(
+        log_probs: torch.Tensor, temperature: float | None
+    ) -> torch.Tensor:
+        return BasicActorHead.log_probs_to_actions(log_probs, temperature)

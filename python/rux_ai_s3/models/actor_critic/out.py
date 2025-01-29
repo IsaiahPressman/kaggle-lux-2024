@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from rux_ai_s3.rl_training.constants import MAP_SIZE
+from rux_ai_s3.constants import MAP_SIZE
 from rux_ai_s3.types import Action
 
 
@@ -35,7 +35,7 @@ class ActorCriticOut(NamedTuple):
         unit_indices shape: (batch, units, 2)
         Converts to actions array of shape (batch, units, 3)
         """
-        return _extract_env_actions(
+        return extract_env_actions(
             self.main_actions,
             self.sap_actions,
             unit_indices,
@@ -49,7 +49,7 @@ class ActorCriticOut(NamedTuple):
         unit_indices_shape: (batch / P, P, units, 2)
         Converts to array of per-player actions with shape (batch / P, P, units, 3)
         """
-        return _extract_env_actions(
+        return extract_env_actions(
             _add_player_dim(self.main_actions),
             _add_player_dim(self.sap_actions),
             unit_indices,
@@ -104,7 +104,7 @@ class FactorizedActorCriticOut(NamedTuple):
         unit_indices shape: (batch, units, 2)
         Converts to actions array of shape (batch, units, 3)
         """
-        return _extract_env_actions(
+        return extract_env_actions(
             self.main_actions,
             self.sap_actions,
             unit_indices,
@@ -118,7 +118,7 @@ class FactorizedActorCriticOut(NamedTuple):
         unit_indices_shape: (batch / P, P, units, 2)
         Converts to array of per-player actions with shape (batch / P, P, units, 3)
         """
-        return _extract_env_actions(
+        return extract_env_actions(
             _add_player_dim(self.main_actions),
             _add_player_dim(self.sap_actions),
             unit_indices,
@@ -167,7 +167,7 @@ class FactorizedActorCriticOut(NamedTuple):
         return log_probs
 
 
-def _extract_env_actions(
+def extract_env_actions(
     main_actions: torch.Tensor,
     sap_actions: torch.Tensor,
     unit_indices: npt.NDArray[np.int64],

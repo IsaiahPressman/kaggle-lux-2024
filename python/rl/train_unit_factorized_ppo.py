@@ -15,6 +15,7 @@ import numpy.typing as npt
 import torch
 import wandb
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from rux_ai_s3.constants import MAX_UNITS
 from rux_ai_s3.lowlevel import assert_release_build
 from rux_ai_s3.models.actor_critic import (
     FactorizedActorCritic,
@@ -23,7 +24,7 @@ from rux_ai_s3.models.actor_critic import (
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
-from rux_ai_s3.rl_training.constants import MAX_UNITS, PROJECT_NAME
+from rux_ai_s3.rl_training.constants import PROJECT_NAME
 from rux_ai_s3.rl_training.ppo import (
     bootstrap_value,
     compute_entropy_loss,
