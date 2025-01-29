@@ -210,3 +210,16 @@ class Action(IntEnum):
     DOWN = 3
     LEFT = 4
     SAP = 5
+
+    def as_move_delta(self) -> tuple[int, int]:
+        match self:
+            case Action.UP:
+                return 0, -1
+            case Action.RIGHT:
+                return 1, 0
+            case Action.DOWN:
+                return 0, 1
+            case Action.LEFT:
+                return -1, 0
+            case action:
+                raise ValueError(f"as_move_delta not implemented for {action}")
