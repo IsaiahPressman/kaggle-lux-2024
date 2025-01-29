@@ -23,7 +23,8 @@ from rux_ai_s3.utils import load_from_yaml, to_json
 AGENT_CONFIG_FILE = Path(__file__).parent / "agent_config.yaml"
 TRAIN_CONFIG_FILE = Path(__file__).parent / TRAIN_CONFIG_FILE_NAME
 ModelTypes = ActorCritic | FactorizedActorCritic
-# TODO: DataAugmentation = Literal["rotate_180", "diagonal_reflect"]
+# TODO: DataAugmentation = Literal["rotate_180", "diagonal_reflect",
+#  "other_diagonal_reflect"]
 #  - First need to make sure all features are invariant over player ID
 
 

@@ -80,7 +80,7 @@ def merge_log_probs(
     Results where units_mask == True will behave as expected, but results where
     units_mask == False will be ill-formed log probs and should be ignored.
     """
-    main_sap_log_probs = main_log_probs[..., Action.SAP.value :]
+    main_sap_log_probs = main_log_probs[..., Action.SAP :]
     main_sap_log_probs = torch.where(
         units_mask.unsqueeze(-1),
         main_sap_log_probs,
@@ -102,7 +102,7 @@ def merge_log_probs(
     )
     return torch.cat(
         [
-            main_log_probs[..., : Action.SAP.value],
+            main_log_probs[..., : Action.SAP],
             merged_sap_log_probs,
         ],
         dim=-1,

@@ -123,7 +123,7 @@ class TestParallelEnv:
         assert np.all(env_out.done)
         expected_reward = np.zeros((_N_ENVS, 2), dtype=float)
         expected_reward[:] = [1, -1]
-        assert np.all(env_out.reward == expected_reward)
+        assert np.array_equal(env_out.reward, expected_reward)
         assert env_out.stats is not None
         assert env_out.stats.scalar_stats
         assert env_out.stats.array_stats

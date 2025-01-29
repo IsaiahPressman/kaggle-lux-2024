@@ -10,11 +10,11 @@ class TestActorCriticOut:
     def test_to_env_actions(self) -> None:
         main_actions = torch.tensor(
             [
-                [Action.NO_OP.value, Action.UP.value],
-                [Action.RIGHT.value, Action.DOWN.value],
-                [Action.LEFT.value, Action.SAP.value],
-                [Action.SAP.value + 1, Action.SAP.value + 2],
-                [Action.SAP.value + 3, Action.SAP.value + 5],
+                [Action.NO_OP, Action.UP],
+                [Action.RIGHT, Action.DOWN],
+                [Action.LEFT, Action.SAP],
+                [Action.SAP + 1, Action.SAP + 2],
+                [Action.SAP + 3, Action.SAP + 5],
             ]
         )
         sap_actions = torch.tensor(
@@ -37,11 +37,11 @@ class TestActorCriticOut:
         )
         expected_env_actions = np.array(
             [
-                [[Action.NO_OP.value, 0, 0], [Action.UP.value, 0, 0]],
-                [[Action.RIGHT.value, 0, 0], [Action.DOWN.value, 0, 0]],
-                [[Action.LEFT.value, 0, 0], [Action.SAP.value, 0, 1]],
-                [[Action.SAP.value, -1, 0], [Action.SAP.value, -2, -1]],
-                [[Action.SAP.value, 0, 0], [Action.SAP.value, 22, 22]],
+                [[Action.NO_OP, 0, 0], [Action.UP, 0, 0]],
+                [[Action.RIGHT, 0, 0], [Action.DOWN, 0, 0]],
+                [[Action.LEFT, 0, 0], [Action.SAP, 0, 1]],
+                [[Action.SAP, -1, 0], [Action.SAP, -2, -1]],
+                [[Action.SAP, 0, 0], [Action.SAP, 22, 22]],
             ]
         )
         out = ActorCriticOut(
@@ -51,7 +51,7 @@ class TestActorCriticOut:
             sap_actions=sap_actions,
             value=torch.empty(0),
         )
-        assert np.all(out.to_env_actions(unit_indices) == expected_env_actions)
+        assert np.array_equal(out.to_env_actions(unit_indices), expected_env_actions)
 
     @pytest.mark.parametrize(
         ("index", "expected"),

@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import IntEnum
 from typing import NamedTuple, Union
 
 import numpy as np
@@ -203,7 +203,7 @@ class FrameStackedObs(NamedTuple):
         )
 
 
-class Action(Enum):
+class Action(IntEnum):
     NO_OP = 0
     UP = 1
     RIGHT = 2

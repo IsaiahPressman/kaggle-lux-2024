@@ -71,7 +71,7 @@ class ActorCriticOut(NamedTuple):
             dim=-1, index=self.sap_actions.unsqueeze(-1)
         ).squeeze(-1)
         log_probs = main_log_probs + torch.where(
-            self.main_actions >= Action.SAP.value,
+            self.main_actions >= Action.SAP,
             sap_log_probs,
             torch.zeros_like(sap_log_probs),
         )
@@ -159,7 +159,7 @@ class FactorizedActorCriticOut(NamedTuple):
             dim=-1, index=self.sap_actions.unsqueeze(-1)
         ).squeeze(-1)
         log_probs = main_log_probs + torch.where(
-            self.main_actions >= Action.SAP.value,
+            self.main_actions >= Action.SAP,
             sap_log_probs,
             torch.zeros_like(sap_log_probs),
         )
@@ -173,8 +173,8 @@ def _extract_env_actions(
     unit_indices: npt.NDArray[np.int64],
 ) -> npt.NDArray[np.int64]:
     main_actions = torch.where(
-        main_actions >= Action.SAP.value,
-        Action.SAP.value,
+        main_actions >= Action.SAP,
+        Action.SAP,
         main_actions,
     )
     sap_targets = np.divmod(sap_actions.cpu().numpy(), MAP_SIZE)
