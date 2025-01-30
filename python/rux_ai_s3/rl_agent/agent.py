@@ -20,7 +20,12 @@ from rux_ai_s3.models.actor_critic.out import extract_env_actions
 from rux_ai_s3.models.build import build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.models.utils import remove_compile_prefix
-from rux_ai_s3.rl_agent.data_augmentation import DataAugmenter, Rot180
+from rux_ai_s3.rl_agent.data_augmentation import (
+    DataAugmenter,
+    DriftReflect,
+    PlayerReflect,
+    Rot180,
+)
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME
 from rux_ai_s3.rl_training.train_config import TrainConfig
 from rux_ai_s3.types import ActionArray
@@ -137,7 +142,7 @@ class Agent:
             self.agent_config.main_action_temperature,
         )
         main_actions = torch.where(
-            augmented_action_info.units_mask,
+            torch.from_numpy(action_info.units_mask),
             main_actions,
             torch.zeros_like(main_actions),
         )
@@ -176,7 +181,7 @@ class Agent:
     ) -> torch.Tensor:
         spatial = self.repeat_for_augmentation(spatial)
         for i, augmenter in enumerate(self.data_augmenters, start=1):
-            spatial[i] = augmenter.transform_spatial(spatial[i])
+            spatial[i] = augmenter.transform_spatial(spatial[i]).clone()
 
         return spatial
 
@@ -198,7 +203,7 @@ class Agent:
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        return t.repeat(len(self.data_augmenters) + 1, *(-1 for _ in range(t.ndim - 1)))
+        return t.repeat(len(self.data_augmenters) + 1, *(1 for _ in range(t.ndim - 1)))
 
     def invert_data_augmentations(
         self, model_out: ModelOutTypes
@@ -210,15 +215,18 @@ class Agent:
         if isinstance(model_out, ActorCriticOut):
             new_main_log_probs = model_out.main_log_probs.clone()
             new_sap_log_probs = model_out.sap_log_probs.clone()
+            new_sap_log_probs = new_sap_log_probs.view(
+                *new_sap_log_probs.shape[:-1], MAP_SIZE, MAP_SIZE
+            )
             for i, augmenter in enumerate(self.data_augmenters, start=1):
                 new_main_log_probs[i] = augmenter.inverse_transform_action_space(
-                    model_out.main_log_probs[i]
+                    new_main_log_probs[i]
                 )
                 new_sap_log_probs[i] = augmenter.inverse_transform_spatial(
-                    model_out.sap_log_probs[i]
-                )
+                    new_sap_log_probs[i]
+                ).clone()
 
-            return new_main_log_probs, new_sap_log_probs
+            return new_main_log_probs, new_sap_log_probs.flatten(-2, -1)
 
         if isinstance(model_out, FactorizedActorCriticOut):
             raise NotImplementedError
@@ -235,9 +243,9 @@ class Agent:
                 case "rotate_180":
                     result.append(Rot180())
                 case "player_reflect":
-                    raise NotImplementedError
+                    result.append(PlayerReflect())
                 case "drift_reflect":
-                    raise NotImplementedError
+                    result.append(DriftReflect())
                 case _:
                     assert_never(augment)
 
