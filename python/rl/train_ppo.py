@@ -161,7 +161,7 @@ class LRScheduleConfig(BaseModel):
 class TeacherLossSchedule(BaseModel):
     start: Annotated[float, Field(ge=0.0, le=1.0)]
     end: Annotated[float, Field(ge=0.0, le=1.0)]
-    steps: Annotated[int, Field(ge=1_000, lt=1_000_000)]
+    steps: Annotated[int, Field(ge=100, lt=1_000_000)]
 
     @field_validator("end")
     @classmethod

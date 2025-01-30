@@ -142,7 +142,7 @@ class Agent:
             self.agent_config.main_action_temperature,
         )
         main_actions = torch.where(
-            torch.from_numpy(action_info.units_mask),
+            torch.from_numpy(action_info.units_mask).to(device=self.device),
             main_actions,
             torch.zeros_like(main_actions),
         )
