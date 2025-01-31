@@ -106,7 +106,9 @@ impl ParallelEnv {
     }
 
     /// Resets all environments that are done, leaving active environments as-is. \
-    /// Does not update reward or done arrays.
+    /// Does not update reward or done arrays. \
+    /// This function releases the GIL. DO NOT USE INPUTS in another thread during execution
+    /// or there could be a data race. \
     /// de = envs that are done
     /// P = player count
     /// - obs_arrays: output arrays from self.step()
@@ -120,6 +122,7 @@ impl ParallelEnv {
     #[allow(clippy::too_many_arguments)]
     fn soft_reset<'py>(
         &mut self,
+        py: Python<'py>,
         output_arrays: PyEnvOutputs<'py>,
         tile_type: PyReadonlyArray3<'py, i32>,
         energy_nodes: PyReadonlyArray3<'py, i16>,
@@ -130,7 +133,6 @@ impl ParallelEnv {
         relic_nodes_mask: PyReadonlyArray2<'py, bool>,
         relic_spawn_schedule: PyReadonlyArray2<'py, i32>,
     ) {
-        let mut rng = rand::thread_rng();
         let (
             (
                 temporal_spatial_obs,
@@ -143,8 +145,57 @@ impl ParallelEnv {
             done,
             _,
         ) = output_arrays;
-        for (
-            (mut slice, env_data),
+        let (
+            mut bound_temporal_spatial_obs,
+            mut bound_nontemporal_spatial_obs,
+            mut bound_temporal_global_obs,
+            mut bound_nontemporal_global_obs,
+            mut bound_action_mask,
+            mut bound_sap_mask,
+            mut bound_unit_indices,
+            mut bound_unit_energies,
+            mut bound_units_mask,
+            mut bound_reward,
+            mut bound_done,
+        ) = (
+            temporal_spatial_obs.readwrite(),
+            nontemporal_spatial_obs.readwrite(),
+            temporal_global_obs.readwrite(),
+            nontemporal_global_obs.readwrite(),
+            action_mask.readwrite(),
+            sap_mask.readwrite(),
+            unit_indices.readwrite(),
+            unit_energies.readwrite(),
+            units_mask.readwrite(),
+            reward.readwrite(),
+            done.readwrite(),
+        );
+        let (
+            mut temporal_spatial_obs,
+            mut nontemporal_spatial_obs,
+            mut temporal_global_obs,
+            mut nontemporal_global_obs,
+            mut action_mask,
+            mut sap_mask,
+            mut unit_indices,
+            mut unit_energies,
+            mut units_mask,
+            mut reward,
+            mut done,
+        ) = (
+            bound_temporal_spatial_obs.as_array_mut(),
+            bound_nontemporal_spatial_obs.as_array_mut(),
+            bound_temporal_global_obs.as_array_mut(),
+            bound_nontemporal_global_obs.as_array_mut(),
+            bound_action_mask.as_array_mut(),
+            bound_sap_mask.as_array_mut(),
+            bound_unit_indices.as_array_mut(),
+            bound_unit_energies.as_array_mut(),
+            bound_units_mask.as_array_mut(),
+            bound_reward.as_array_mut(),
+            bound_done.as_array_mut(),
+        );
+        let (
             tile_type,
             energy_nodes,
             energy_node_fns,
@@ -153,127 +204,156 @@ impl ParallelEnv {
             relic_node_configs,
             relic_nodes_mask,
             relic_spawn_schedule,
-        ) in izip_eq!(
+        ) = (
+            tile_type.as_array(),
+            energy_nodes.as_array(),
+            energy_node_fns.as_array(),
+            energy_nodes_mask.as_array(),
+            relic_nodes.as_array(),
+            relic_node_configs.as_array(),
+            relic_nodes_mask.as_array(),
+            relic_spawn_schedule.as_array(),
+        );
+        py.allow_threads(|| {
             izip_eq!(
-                temporal_spatial_obs
-                    .readwrite()
-                    .as_array_mut()
-                    .outer_iter_mut(),
-                nontemporal_spatial_obs
-                    .readwrite()
-                    .as_array_mut()
-                    .outer_iter_mut(),
-                temporal_global_obs
-                    .readwrite()
-                    .as_array_mut()
-                    .outer_iter_mut(),
-                nontemporal_global_obs
-                    .readwrite()
-                    .as_array_mut()
-                    .outer_iter_mut(),
-                action_mask.readwrite().as_array_mut().outer_iter_mut(),
-                sap_mask.readwrite().as_array_mut().outer_iter_mut(),
-                unit_indices.readwrite().as_array_mut().outer_iter_mut(),
-                unit_energies.readwrite().as_array_mut().outer_iter_mut(),
-                units_mask.readwrite().as_array_mut().outer_iter_mut(),
-                reward.readwrite().as_array_mut().outer_iter_mut(),
-                done.readwrite().as_array_mut().iter_mut()
-            )
-            .map(
-                |(
-                    temporal_spatial_obs,
-                    nontemporal_spatial_obs,
-                    temporal_global_obs,
-                    nontemporal_global_obs,
-                    action_mask,
-                    sap_mask,
-                    unit_indices,
-                    unit_energies,
-                    units_mask,
-                    reward,
-                    done,
-                )| {
-                    let obs_arrays = ObsArraysView {
+                izip_eq!(
+                    temporal_spatial_obs.outer_iter_mut(),
+                    nontemporal_spatial_obs.outer_iter_mut(),
+                    temporal_global_obs.outer_iter_mut(),
+                    nontemporal_global_obs.outer_iter_mut(),
+                    action_mask.outer_iter_mut(),
+                    sap_mask.outer_iter_mut(),
+                    unit_indices.outer_iter_mut(),
+                    unit_energies.outer_iter_mut(),
+                    units_mask.outer_iter_mut(),
+                    reward.outer_iter_mut(),
+                    done.iter_mut()
+                )
+                .map(
+                    |(
                         temporal_spatial_obs,
                         nontemporal_spatial_obs,
                         temporal_global_obs,
                         nontemporal_global_obs,
-                    };
-                    let action_info_arrays = ActionInfoArraysView {
                         action_mask,
                         sap_mask,
                         unit_indices,
                         unit_energies,
                         units_mask,
-                    };
-                    SingleEnvView {
-                        obs_arrays,
-                        action_info_arrays,
                         reward,
                         done,
-                    }
-                },
+                    )| {
+                        let obs_arrays = ObsArraysView {
+                            temporal_spatial_obs,
+                            nontemporal_spatial_obs,
+                            temporal_global_obs,
+                            nontemporal_global_obs,
+                        };
+                        let action_info_arrays = ActionInfoArraysView {
+                            action_mask,
+                            sap_mask,
+                            unit_indices,
+                            unit_energies,
+                            units_mask,
+                        };
+                        SingleEnvView {
+                            obs_arrays,
+                            action_info_arrays,
+                            reward,
+                            done,
+                        }
+                    },
+                )
+                .zip_eq(self.env_data.iter_mut())
+                .filter(|(_, ed)| ed.done()),
+                tile_type.outer_iter(),
+                energy_nodes.outer_iter(),
+                energy_node_fns.outer_iter(),
+                energy_nodes_mask.outer_iter(),
+                relic_nodes.outer_iter(),
+                relic_node_configs.outer_iter(),
+                relic_nodes_mask.outer_iter(),
+                relic_spawn_schedule.outer_iter(),
             )
-            .zip_eq(self.env_data.iter_mut())
-            .filter(|(_, ed)| ed.done()),
-            tile_type.as_array().outer_iter(),
-            energy_nodes.as_array().outer_iter(),
-            energy_node_fns.as_array().outer_iter(),
-            energy_nodes_mask.as_array().outer_iter(),
-            relic_nodes.as_array().outer_iter(),
-            relic_node_configs.as_array().outer_iter(),
-            relic_nodes_mask.as_array().outer_iter(),
-            relic_spawn_schedule.as_array().outer_iter(),
-        ) {
-            let mut state = State {
-                asteroids: get_asteroids(tile_type),
-                nebulae: get_nebulae(tile_type),
-                energy_nodes: get_energy_nodes(
+            .par_bridge()
+            .map_init(
+                rand::thread_rng,
+                |rng,
+                 (
+                    (mut slice, env_data),
+                    tile_type,
                     energy_nodes,
                     energy_node_fns,
                     energy_nodes_mask,
-                ),
-                ..Default::default()
-            };
-            let relic_node_spawn_schedule = izip_eq!(
-                relic_spawn_schedule.iter().copied(),
-                relic_nodes.mapv(|x| x as usize).outer_iter().map(|pos| {
-                    Pos::try_from(pos.as_slice().unwrap()).unwrap()
-                }),
-                relic_node_configs.outer_iter().map(|arr| arr.to_owned()),
-                relic_nodes_mask.iter(),
-            )
-            .filter_map(|(spawn_step, pos, config, mask)| {
-                mask.then(|| {
-                    RelicSpawn::new(spawn_step.try_into().unwrap(), pos, config)
-                })
-            })
-            .collect();
-            state.initialize_relic_nodes(
-                relic_node_spawn_schedule,
-                FIXED_PARAMS.map_size,
-            );
-            state.energy_field =
-                get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
-            // We randomly generate params here, as they aren't needed when generating the
-            // initial map state in python
-            let params = PARAM_RANGES.random_params(&mut rng);
-            *env_data = EnvData::from_state_params(state, params);
+                    relic_nodes,
+                    relic_node_configs,
+                    relic_nodes_mask,
+                    relic_spawn_schedule,
+                )| {
+                    let mut state = State {
+                        asteroids: get_asteroids(tile_type),
+                        nebulae: get_nebulae(tile_type),
+                        energy_nodes: get_energy_nodes(
+                            energy_nodes,
+                            energy_node_fns,
+                            energy_nodes_mask,
+                        ),
+                        ..Default::default()
+                    };
+                    let relic_node_spawn_schedule = izip_eq!(
+                        relic_spawn_schedule.iter().copied(),
+                        relic_nodes.mapv(|x| x as usize).outer_iter().map(
+                            |pos| {
+                                Pos::try_from(pos.as_slice().unwrap()).unwrap()
+                            }
+                        ),
+                        relic_node_configs
+                            .outer_iter()
+                            .map(|arr| arr.to_owned()),
+                        relic_nodes_mask.iter(),
+                    )
+                    .filter_map(|(spawn_step, pos, config, mask)| {
+                        mask.then(|| {
+                            RelicSpawn::new(
+                                spawn_step.try_into().unwrap(),
+                                pos,
+                                config,
+                            )
+                        })
+                    })
+                    .collect();
+                    state.initialize_relic_nodes(
+                        relic_node_spawn_schedule,
+                        FIXED_PARAMS.map_size,
+                    );
+                    state.energy_field =
+                        get_energy_field(&state.energy_nodes, &FIXED_PARAMS);
+                    // We randomly generate params here, as they aren't needed when generating
+                    // the initial map state in python
+                    let params = PARAM_RANGES.random_params(rng);
+                    *env_data = EnvData::from_state_params(state, params);
 
-            let obs = get_reset_observation(&env_data.state, &env_data.params);
-            slice.obs_arrays.reset();
-            slice.action_info_arrays.reset();
-            update_memories_and_write_output_arrays(
-                slice.obs_arrays,
-                slice.action_info_arrays,
-                &mut env_data.player_data.memories,
-                &obs,
-                &[Vec::new(), Vec::new()],
-                &env_data.player_data.known_params,
-            );
-        }
+                    let obs = get_reset_observation(
+                        &env_data.state,
+                        &env_data.params,
+                    );
+                    slice.obs_arrays.reset();
+                    slice.action_info_arrays.reset();
+                    update_memories_and_write_output_arrays(
+                        slice.obs_arrays,
+                        slice.action_info_arrays,
+                        &mut env_data.player_data.memories,
+                        &obs,
+                        &[Vec::new(), Vec::new()],
+                        &env_data.player_data.known_params,
+                    );
+                },
+            )
+            .for_each(|_| {});
+        });
     }
 
+    /// Steps the environment given the provided actions
     fn seq_step<'py>(
         &mut self,
         py: Python<'py>,
@@ -302,31 +382,41 @@ impl ParallelEnv {
         out.into_pyarray_bound(py)
     }
 
+    /// Same as seq_step, but uses rust multi-threading and releases the GIL during execution.
     fn par_step<'py>(
         &mut self,
         py: Python<'py>,
         actions: PyReadonlyArray4<'py, isize>,
     ) -> PyEnvOutputs<'py> {
         let actions = actions.as_array();
-        assert_eq!(actions.dim(), (self.n_envs, P, FIXED_PARAMS.max_units, 3));
-        let mut out = ParallelEnvOutputs::new(self.n_envs);
-        self.env_data
-            .iter_mut()
-            .zip_eq(out.iter_env_slices_mut())
-            .zip_eq(actions.outer_iter())
-            .par_bridge()
-            .map_init(rand::thread_rng, |rng, ((env_data, slice), actions)| {
-                let actions = action_array_to_vec(actions);
-                Self::step_env(
-                    env_data,
-                    rng,
-                    slice,
-                    &actions,
-                    self.reward_space,
-                );
-            })
-            .for_each(|_| {});
-        self.write_game_stats(&mut out.stats);
+        let out = py.allow_threads(|| {
+            let mut out = ParallelEnvOutputs::new(self.n_envs);
+            assert_eq!(
+                actions.dim(),
+                (self.n_envs, P, FIXED_PARAMS.max_units, 3)
+            );
+            self.env_data
+                .iter_mut()
+                .zip_eq(out.iter_env_slices_mut())
+                .zip_eq(actions.outer_iter())
+                .par_bridge()
+                .map_init(
+                    rand::thread_rng,
+                    |rng, ((env_data, slice), actions)| {
+                        let actions = action_array_to_vec(actions);
+                        Self::step_env(
+                            env_data,
+                            rng,
+                            slice,
+                            &actions,
+                            self.reward_space,
+                        );
+                    },
+                )
+                .for_each(|_| {});
+            self.write_game_stats(&mut out.stats);
+            out
+        });
         out.into_pyarray_bound(py)
     }
 }

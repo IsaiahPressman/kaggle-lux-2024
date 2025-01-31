@@ -274,6 +274,8 @@ def main() -> None:
     lr_scheduler = build_lr_scheduler(cfg, optimizer)
     train_state = TrainState(
         model=model,
+        # TODO: Use last_best_model
+        last_best_model=model,
         teacher_model=None,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,

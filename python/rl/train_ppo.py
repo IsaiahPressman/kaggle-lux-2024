@@ -4,10 +4,12 @@ import datetime
 import itertools
 import logging
 import math
+import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
+from queue import SimpleQueue
 from typing import Annotated, Final
 
 import numpy as np
@@ -24,12 +26,14 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from rux_ai_s3.lowlevel import assert_release_build
+from rux_ai_s3.lowlevel import RewardSpace, assert_release_build
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
 from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
+from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import PROJECT_NAME
+from rux_ai_s3.rl_training.evaluation import run_match
 from rux_ai_s3.rl_training.ppo import (
     bootstrap_value,
     compute_entropy_loss,
@@ -65,6 +69,7 @@ FILE: Final[Path] = Path(__file__)
 NAME: Final[str] = "ppo"
 DEFAULT_CONFIG_FILE: Final[Path] = FILE.parent / "config" / f"{NAME}_default.yaml"
 CHECKPOINT_FREQ: Final[datetime.timedelta] = datetime.timedelta(minutes=20)
+WIN_RATE_THRESHOLD: Final[float] = 0.8
 CPU: Final[torch.device] = torch.device("cpu")
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -285,6 +290,25 @@ class PPOConfig(TrainConfig):
     def game_steps_per_update(self) -> int:
         return self.env_config.n_envs * self.steps_per_update
 
+    @property
+    def eval_device(self) -> torch.device:
+        # TODO: Configure this
+        return torch.device("cuda:1")
+
+    @property
+    def eval_games(self) -> int:
+        # TODO: Configure this
+        return 512
+
+    @property
+    def eval_env_config(self) -> EnvConfig:
+        return EnvConfig(
+            n_envs=min(self.eval_games // 2, self.env_config.n_envs),
+            frame_stack_len=self.env_config.frame_stack_len,
+            reward_space=RewardSpace.FINAL_WINNER,
+            jax_device=self.env_config.jax_device,
+        )
+
     def iter_updates(self) -> Generator[int, None, None]:
         if self.max_updates is None:
             return (i for i in itertools.count(1))
@@ -300,6 +324,14 @@ class PPOConfig(TrainConfig):
             data = yaml.safe_load(f)
 
         return self.teacher_path, ActorCriticConfig(**data["rl_model_config"])
+
+
+@dataclass
+class EvalState:
+    env: ParallelEnv
+    results: SimpleQueue[float]
+    model: ActorCritic
+    thread: threading.Thread | None = None
 
 
 @dataclass(frozen=True)
@@ -392,6 +424,8 @@ def main() -> None:
     logger.info("Loaded config from %s", args.config_file)
     env = ParallelEnv.from_config(cfg.env_config)
     model = build_model(env, cfg.rl_model_config).to(cfg.device).train()
+    last_best_model = build_model(env, cfg.rl_model_config).to(cfg.eval_device).eval()
+    eval_model = build_model(env, cfg.rl_model_config).to(cfg.eval_device).eval()
     if args.model_weights:
         load_model_weights(
             model,
@@ -399,6 +433,9 @@ def main() -> None:
             logger=logger,
         )
 
+    last_best_model.load_state_dict(
+        {remove_compile_prefix(key): value for key, value in model.state_dict().items()}
+    )
     logger.info(
         "Training model with %s parameters", f"{count_trainable_params(model):,d}"
     )
@@ -413,9 +450,15 @@ def main() -> None:
     train_state = TrainState(
         model=model,
         teacher_model=teacher_model,
+        last_best_model=last_best_model,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         scaler=GradScaler("cuda"),
+    )
+    eval_state = EvalState(
+        env=ParallelEnv.from_config(cfg.eval_env_config),
+        results=SimpleQueue(),
+        model=eval_model,
     )
     if args.checkpoint:
         wandb_init_config = (
@@ -444,17 +487,53 @@ def main() -> None:
     last_checkpoint = datetime.datetime.now()
     try:
         for _ in cfg.iter_updates():
+            extra_log_info = (
+                {}
+                if eval_state.results.empty()
+                else {"win_rate_vs_last_best": eval_state.results.get()}
+            )
             train_step(
                 env=env,
                 train_state=train_state,
                 cfg=cfg,
+                extra_log_info=extra_log_info,
             )
-            if (now := datetime.datetime.now()) - last_checkpoint >= CHECKPOINT_FREQ:
-                last_checkpoint = now
-                save_checkpoint(
-                    train_state,
-                    logger,
+            now = datetime.datetime.now()
+            if now - last_checkpoint < CHECKPOINT_FREQ:
+                continue
+
+            last_checkpoint = now
+            save_checkpoint(
+                train_state,
+                logger,
+            )
+            if eval_state.thread is not None and eval_state.thread.is_alive():
+                logger.warning("Interrupting training to wait on evaluation thread")
+                wait_start = datetime.datetime.now()
+                eval_state.thread.join()
+                wait_time = datetime.datetime.now() - wait_start
+                logger.warning(
+                    "Waited %s seconds for evaluation to complete",
+                    wait_time.total_seconds(),
                 )
+
+            eval_state.model.load_state_dict(
+                {
+                    remove_compile_prefix(key): value
+                    for key, value in train_state.model.state_dict().items()
+                }
+            )
+            eval_thread = threading.Thread(
+                target=evaluate_model,
+                args=(
+                    eval_state.env,
+                    eval_state.results,
+                    eval_state.model,
+                    train_state.last_best_model,
+                    cfg,
+                ),
+            )
+            eval_thread.start()
     finally:
         train_state.step += 1
         save_checkpoint(train_state, logger)
@@ -515,11 +594,12 @@ def train_step(
     env: ParallelEnv,
     train_state: TrainStateT,
     cfg: PPOConfig,
+    extra_log_info: dict[str, float],
 ) -> None:
     step_start_time = time.perf_counter()
     experience, stats = collect_trajectories(env, train_state.model, cfg)
     data_collection_time = time.perf_counter() - step_start_time
-    scalar_stats = update_model(experience, train_state, cfg)
+    scalar_stats = update_model(experience, train_state, cfg) | extra_log_info
     train_time = time.perf_counter() - step_start_time - data_collection_time
     array_stats = {}
     if stats:
@@ -559,6 +639,31 @@ def train_step(
     )
     train_state.lr_scheduler.step()
     train_state.step += 1
+
+
+@torch.no_grad()
+def evaluate_model(
+    eval_env: ParallelEnv,
+    queue: SimpleQueue[float],
+    model: ActorCritic,
+    last_best: ActorCritic,
+    cfg: PPOConfig,
+) -> None:
+    with torch.autocast(
+        device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
+    ):
+        wins, losses = run_match(
+            eval_env,
+            (model, last_best),
+            cfg.eval_games,
+            cfg.eval_device,
+        )
+
+    win_rate = wins / (wins + losses)
+    if win_rate >= WIN_RATE_THRESHOLD:
+        last_best.load_state_dict(model.state_dict())
+
+    queue.put(win_rate)
 
 
 @torch.no_grad()

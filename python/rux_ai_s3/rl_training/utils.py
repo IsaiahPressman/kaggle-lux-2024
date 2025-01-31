@@ -24,6 +24,7 @@ _ModelT = TypeVar("_ModelT", bound=nn.Module)
 class TrainState(Generic[_ModelT]):
     model: _ModelT
     teacher_model: _ModelT | None
+    last_best_model: _ModelT
     optimizer: Optimizer
     lr_scheduler: LRScheduler
     scaler: GradScaler
@@ -82,6 +83,7 @@ def save_checkpoint(
             "step": train_state.step,
             "run_id": wandb.run.id if wandb.run else None,
             "model": train_state.model.state_dict(),
+            "last_best_model": train_state.last_best_model.state_dict(),
             "optimizer": train_state.optimizer.state_dict(),
             "lr_scheduler": train_state.lr_scheduler.state_dict(),
             "scaler": train_state.scaler.state_dict(),
@@ -120,6 +122,14 @@ def load_checkpoint(
     )
     train_state.model.load_state_dict(checkpoint_state["model"])
     train_state.optimizer.load_state_dict(checkpoint_state["optimizer"])
+    # TODO: Remove this check
+    if "last_best_model" not in checkpoint_state:
+        checkpoint_state["last_best_model"] = {
+            remove_compile_prefix(key): value
+            for key, value in checkpoint_state["model"].items()
+        }
+
+    train_state.last_best_model.load_state_dict(checkpoint_state["last_best_model"])
     train_state.scaler.load_state_dict(checkpoint_state["scaler"])
     train_state.lr_scheduler.load_state_dict(checkpoint_state["lr_scheduler"])
     train_state.step = checkpoint_state["step"]
