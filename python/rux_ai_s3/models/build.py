@@ -1,6 +1,7 @@
-from typing import Literal, TypeVar
+import math
+from typing import Annotated, Literal, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from torch import nn
 from typing_extensions import assert_never
 
@@ -26,7 +27,16 @@ class ActorCriticConfig(BaseModel):
     d_model: int
     n_blocks: int
     kernel_size: int = 3
+    dropout: Annotated[float | None, Field(gt=0.0, le=0.2)] = None
     critic_mode: CriticMode = "standard"
+
+    @field_validator("d_model")
+    @classmethod
+    def _validate_d_model(cls, d_model: int) -> int:
+        if not math.log2(d_model).is_integer():
+            raise ValueError("d_model should be a power of 2")
+
+        return d_model
 
 
 def build_critic_head(
@@ -100,6 +110,7 @@ def build_actor_critic(
         d_model=config.d_model,
         n_blocks=config.n_blocks,
         kernel_size=config.kernel_size,
+        dropout=config.dropout,
         activation=activation,
     )
     actor_head = BasicActorHead(

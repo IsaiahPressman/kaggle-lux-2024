@@ -28,6 +28,7 @@ class ResidualBlock(nn.Module):
         out_channels: int,
         activation: ActivationFactory,
         kernel_size: int = 3,
+        dropout: float | None = None,
         squeeze_excitation: bool = True,
     ):
         super().__init__()
@@ -54,6 +55,11 @@ class ResidualBlock(nn.Module):
         else:
             self.change_n_channels = nn.Identity()
 
+        if dropout:
+            self.dropout: nn.Module = nn.Dropout2d(dropout)
+        else:
+            self.dropout = nn.Identity()
+
         if squeeze_excitation:
             self.squeeze_excitation: nn.Module = SELayer(out_channels)
         else:
@@ -65,5 +71,5 @@ class ResidualBlock(nn.Module):
         x = self.act1(x)
         x = self.conv2(x)
         x = self.squeeze_excitation(x)
-        x = x + self.change_n_channels(identity)
+        x = self.dropout(x) + self.change_n_channels(identity)
         return self.act2(x)

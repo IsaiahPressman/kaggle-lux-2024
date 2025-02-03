@@ -20,6 +20,7 @@ class ActorCriticBase(nn.Module):
         d_model: int,
         n_blocks: int,
         kernel_size: int,
+        dropout: float | None,
         activation: ActivationFactory,
     ) -> None:
         super().__init__()
@@ -39,6 +40,7 @@ class ActorCriticBase(nn.Module):
             n_blocks=n_blocks,
             activation=activation,
             kernel_size=kernel_size,
+            dropout=dropout,
         )
         self._init_weights()
 
@@ -102,6 +104,7 @@ class ActorCriticBase(nn.Module):
         n_blocks: int,
         activation: ActivationFactory,
         kernel_size: int,
+        dropout: float | None,
     ) -> nn.Module:
         return nn.Sequential(
             *(
@@ -110,6 +113,7 @@ class ActorCriticBase(nn.Module):
                     out_channels=d_model,
                     activation=activation,
                     kernel_size=kernel_size,
+                    dropout=dropout,
                     squeeze_excitation=True,
                 )
                 for _ in range(n_blocks)
