@@ -23,12 +23,11 @@ loss_coefficients:
   teacher_policy:
     start: 1.0
     end: 5e-4
-    steps: 20_000
+    steps: 10_000
   teacher_value:
     start: 0.5
     end: 0.0
-    steps: 20_000
-
+    steps: 10_000
 
 env_config:
   n_envs: 64
@@ -42,4 +41,6 @@ rl_model_config:
   n_blocks: 4
 
 device: cuda:0
+eval_games: 512
+eval_device: cuda:1
 log_histograms: false
