@@ -25,7 +25,7 @@ class ActorCriticOut(NamedTuple):
     """shape (batch, [players,])"""
 
     def to_device(self, device: torch.device) -> "ActorCriticOut":
-        return ActorCriticOut(*(t.to(device) for t in self))
+        return ActorCriticOut(*(t.to(device, non_blocking=True) for t in self))
 
     def to_env_actions(
         self,
@@ -94,7 +94,9 @@ class FactorizedActorCriticOut(NamedTuple):
     """shape (batch, [players,] units)"""
 
     def to_device(self, device: torch.device) -> "FactorizedActorCriticOut":
-        return FactorizedActorCriticOut(*(t.to(device) for t in self))
+        return FactorizedActorCriticOut(
+            *(t.to(device, non_blocking=True) for t in self)
+        )
 
     def to_env_actions(
         self,
