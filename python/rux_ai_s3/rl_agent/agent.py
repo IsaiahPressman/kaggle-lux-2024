@@ -60,6 +60,7 @@ class Agent:
         player: str,
         env_cfg: dict[str, Any],
     ) -> None:
+        self.env_cfg = env_cfg
         self.agent_config = load_from_yaml(AgentConfig, AGENT_CONFIG_FILE)
         self.train_config = load_from_yaml(TrainConfig, TRAIN_CONFIG_FILE)
         self.team_id = self.get_team_id(player)
@@ -68,15 +69,17 @@ class Agent:
             team_id=self.team_id,
             env_params=env_cfg,
         )
-        self.last_actions: ActionArray = np.zeros(
-            (env_cfg["max_units"], 3), dtype=np.int64
-        )
+        self.last_actions = self.get_empty_actions()
         self.device = self.get_device()
         self.model = self.build_model()
         self.data_augmenters = self.build_data_augmenters(
             self.agent_config.data_augmentations
         )
         self.temporal_global_feature_count = get_temporal_global_feature_count()
+
+    @property
+    def max_units(self) -> int:
+        return self.env_cfg["max_units"]
 
     @property
     def model_forward_kwargs(self) -> dict[str, Any]:
@@ -86,6 +89,9 @@ class Agent:
             omit_value=self.train_config.env_config.reward_space
             == RewardSpace.FINAL_WINNER,
         )
+
+    def get_empty_actions(self) -> ActionArray:
+        return np.zeros((self.max_units, 3), dtype=np.int64)
 
     def build_model(self) -> ModelTypes:
         example_obs = self.fe_env.get_frame_stacked_obs()
@@ -117,7 +123,11 @@ class Agent:
         raw_obs = json.dumps(to_json(obs))
         is_new_match = obs["match_steps"] == 0
         self.fe_env.step(raw_obs, self.last_actions, is_new_match=is_new_match)
-        self.last_actions = self.get_new_actions()
+        if is_new_match:
+            self.last_actions = self.get_empty_actions()
+        else:
+            self.last_actions = self.get_new_actions()
+
         # TODO: Log memory statuses and estimated value
         return self.last_actions
 
