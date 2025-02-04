@@ -25,16 +25,16 @@ rs-prepare: rs-format rs-lint rs-test
 
 build:
 	maturin develop
-
 build-release:
 	RUSTFLAGS="-C target-cpu=native" maturin develop --release
+build-agent:
+	maturin develop --release
 
 test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format check test
 prepare-rl: prepare build-release
-# TODO: build-release (without target-cpu=native) for agent (and disable memory_error panics)
-prepare-agent: prepare py-test-agent
+prepare-agent: prepare py-test-agent build-agent py-test-agent
 
 clean:
 	cargo clean

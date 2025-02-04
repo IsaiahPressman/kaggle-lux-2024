@@ -122,13 +122,6 @@ def load_checkpoint(
     )
     train_state.model.load_state_dict(checkpoint_state["model"])
     train_state.optimizer.load_state_dict(checkpoint_state["optimizer"])
-    # TODO: Remove this check
-    if "last_best_model" not in checkpoint_state:
-        checkpoint_state["last_best_model"] = {
-            remove_compile_prefix(key): value
-            for key, value in checkpoint_state["model"].items()
-        }
-
     train_state.last_best_model.load_state_dict(checkpoint_state["last_best_model"])
     train_state.scaler.load_state_dict(checkpoint_state["scaler"])
     train_state.lr_scheduler.load_state_dict(checkpoint_state["lr_scheduler"])
