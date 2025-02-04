@@ -9,7 +9,7 @@ from typing_extensions import assert_never
 
 from rux_ai_s3.constants import MAP_SIZE
 from rux_ai_s3.feature_engineering_env import FeatureEngineeringEnv
-from rux_ai_s3.lowlevel import RewardSpace
+from rux_ai_s3.lowlevel import RewardSpace, get_temporal_global_feature_count
 from rux_ai_s3.models.actor_critic import (
     ActorCritic,
     ActorCriticOut,
@@ -76,6 +76,7 @@ class Agent:
         self.data_augmenters = self.build_data_augmenters(
             self.agent_config.data_augmentations
         )
+        self.temporal_global_feature_count = get_temporal_global_feature_count()
 
     @property
     def model_forward_kwargs(self) -> dict[str, Any]:
@@ -163,43 +164,58 @@ class Agent:
         action_info: TorchActionInfo,
     ) -> tuple[TorchObs, TorchActionInfo]:
         augmented_obs = TorchObs(
-            spatial_obs=self.repeat_and_augment_spatial(obs.spatial_obs),
-            global_obs=self.repeat_for_augmentation(obs.global_obs),
+            spatial_obs=self.batch_and_augment_spatial(obs.spatial_obs),
+            global_obs=self.batch_and_augment_global_obs(obs.global_obs),
         )
         augmented_action_info = TorchActionInfo(
-            main_mask=self.repeat_and_augment_action(action_info.main_mask),
-            sap_mask=self.repeat_and_augment_spatial(action_info.sap_mask),
-            unit_indices=self.repeat_and_augment_coordinates(action_info.unit_indices),
-            unit_energies=self.repeat_for_augmentation(action_info.unit_energies),
-            units_mask=self.repeat_for_augmentation(action_info.units_mask),
+            main_mask=self.batch_and_augment_action(action_info.main_mask),
+            sap_mask=self.batch_and_augment_spatial(action_info.sap_mask),
+            unit_indices=self.batch_and_augment_coordinates(action_info.unit_indices),
+            unit_energies=self.batch_without_augmentation(action_info.unit_energies),
+            units_mask=self.batch_without_augmentation(action_info.units_mask),
         )
         return augmented_obs, augmented_action_info
 
-    def repeat_and_augment_spatial(
+    def batch_and_augment_spatial(
         self,
         spatial: torch.Tensor,
     ) -> torch.Tensor:
-        spatial = self.repeat_for_augmentation(spatial)
-        for i, augmenter in enumerate(self.data_augmenters, start=1):
-            spatial[i] = augmenter.transform_spatial(spatial[i]).clone()
+        augmented_batch = [spatial]
+        for augmenter in self.data_augmenters:
+            augmented_batch.append(augmenter.transform_spatial(spatial))
 
-        return spatial
+        return torch.cat(augmented_batch, dim=0)
 
-    def repeat_and_augment_action(self, action_space: torch.Tensor) -> torch.Tensor:
-        action_space = self.repeat_for_augmentation(action_space)
-        for i, augmenter in enumerate(self.data_augmenters, start=1):
-            action_space[i] = augmenter.transform_action_space(action_space[i])
+    def batch_and_augment_global_obs(self, global_obs: torch.Tensor) -> torch.Tensor:
+        augmented_batch = [global_obs]
+        for augmenter in self.data_augmenters:
+            augmented_batch.append(
+                augmenter.transform_global_obs(
+                    global_obs,
+                    frame_stack_len=self.train_config.env_config.frame_stack_len,
+                    temporal_feature_count=self.temporal_global_feature_count,
+                )
+            )
 
-        return action_space
+        return torch.cat(augmented_batch, dim=0)
 
-    def repeat_and_augment_coordinates(self, coordinates: torch.Tensor) -> torch.Tensor:
-        coordinates = self.repeat_for_augmentation(coordinates)
-        for i, augmenter in enumerate(self.data_augmenters, start=1):
-            coordinates[i] = augmenter.transform_coordinates(coordinates[i], MAP_SIZE)
+    def batch_and_augment_action(self, action_space: torch.Tensor) -> torch.Tensor:
+        augmented_batch = [action_space]
+        for augmenter in self.data_augmenters:
+            augmented_batch.append(augmenter.transform_action_space(action_space))
 
-        return coordinates
+        return torch.cat(augmented_batch, dim=0)
 
-    def repeat_for_augmentation(
+    def batch_and_augment_coordinates(self, coordinates: torch.Tensor) -> torch.Tensor:
+        augmented_batch = [coordinates]
+        for augmenter in self.data_augmenters:
+            augmented_batch.append(
+                augmenter.transform_coordinates(coordinates, MAP_SIZE)
+            )
+
+        return torch.cat(augmented_batch, dim=0)
+
+    def batch_without_augmentation(
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:

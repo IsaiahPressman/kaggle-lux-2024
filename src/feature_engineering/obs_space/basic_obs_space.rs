@@ -601,6 +601,7 @@ mod tests {
     use rstest::rstest;
     use std::cmp::Ordering;
     use std::path::PathBuf;
+    use crate::feature_engineering::obs_space::basic_obs_space::NontemporalGlobalFeature::NebulaTileDriftDirection;
 
     const TEST_FEATURE_BOUND: f32 = FEATURE_BOUND * 1.1;
 
@@ -705,7 +706,7 @@ mod tests {
                     );
                 },
                 NebulaTileDriftDirection => {
-                    assert_eq!(next_feature as isize - feature as isize, 2,);
+                    assert_eq!(next_feature as isize - feature as isize, 2);
                 },
                 EnergyNodeDriftSpeed => {
                     let option_count = PARAM_RANGES
@@ -725,6 +726,13 @@ mod tests {
                 },
             }
         }
+    }
+
+    #[test]
+    fn test_nebula_tile_drift_direction_index() {
+        // If this test breaks, fix NEBULA_TILE_DRIFT_DIRECTION_FEATURE_INDEX constant
+        // in Python rux_ai_s3.constants
+        assert_eq!(NebulaTileDriftDirection as isize, 43);
     }
 
     #[test]

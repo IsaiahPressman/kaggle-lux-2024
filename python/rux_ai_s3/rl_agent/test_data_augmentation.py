@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from rux_ai_s3.constants import MAP_SIZE
+from rux_ai_s3.constants import MAP_SIZE, MAX_UNITS
 from rux_ai_s3.rl_agent.data_augmentation import (
     DataAugmenter,
     DriftReflect,
@@ -21,21 +21,31 @@ _ALL_AUGMENTERS = [
 
 
 class TestBaseDataAugmenter:
-    def test_inner_inverse_transform_action_space(self) -> None:
-        x = torch.rand([1, 16, len(Action)])
-        action_map = Rot180.get_move_action_map()
-        transformed = DataAugmenter.inner_transform_action_space(x, action_map)
-        transformed_back = DataAugmenter.inner_inverse_transform_action_space(
-            transformed, action_map
-        )
-        assert torch.equal(transformed_back, x)
+    @pytest.mark.parametrize(
+        "augmenter",
+        _ALL_AUGMENTERS,
+    )
+    def test_drift_direction_flipped(self, augmenter: DataAugmenter) -> None:
+        transformed_coordinates = augmenter.transform_spatial(
+            torch.from_numpy(np.mgrid[0:MAP_SIZE, 0:MAP_SIZE])
+        ).permute(1, 2, 0)
+        top_right_coordinates = (0, MAP_SIZE - 1)
+        bottom_left_coordinates = (MAP_SIZE - 1, 0)
+        top_right = tuple(transformed_coordinates[top_right_coordinates].tolist())
+        bottom_left = tuple(transformed_coordinates[bottom_left_coordinates].tolist())
+        if augmenter.drift_direction_flipped:
+            assert top_right == bottom_left_coordinates
+            assert bottom_left == top_right_coordinates
+        else:
+            assert top_right == top_right_coordinates
+            assert bottom_left == bottom_left_coordinates
 
     @pytest.mark.parametrize(
         "augmenter",
         _ALL_AUGMENTERS,
     )
     def test_inverse_transform_spatial(self, augmenter: DataAugmenter) -> None:
-        x = torch.rand([5, 10, 10])
+        x = torch.rand([5, MAP_SIZE, MAP_SIZE])
         transformed = augmenter.transform_spatial(x)
         transformed_back = augmenter.inverse_transform_spatial(transformed)
         assert torch.equal(transformed_back, x)
@@ -73,21 +83,20 @@ class TestBaseDataAugmenter:
         _ALL_AUGMENTERS,
     )
     def test_move_action_map_matches(self, augmenter: DataAugmenter) -> None:
-        map_size = MAP_SIZE
         transformed_coordinates = augmenter.transform_spatial(
-            torch.from_numpy(np.mgrid[0:map_size, 0:map_size])
+            torch.from_numpy(np.mgrid[0:MAP_SIZE, 0:MAP_SIZE])
         ).permute(1, 2, 0)
         move_action_map = augmenter.get_move_action_map()
         for x, y, (a_orig, a_transformed) in itertools.product(
-            range(map_size), range(map_size), move_action_map
+            range(MAP_SIZE), range(MAP_SIZE), move_action_map
         ):
             translated_x, translated_y = translate((x, y), a_orig.as_move_delta())
-            if not in_bounds((translated_x, translated_y), map_size):
+            if not in_bounds((translated_x, translated_y), MAP_SIZE):
                 continue
 
             tx, ty = transformed_coordinates[x, y]
             tx_expected, ty_expected = augmenter.transform_coordinates(
-                torch.tensor([x, y]), map_size
+                torch.tensor([x, y]), MAP_SIZE
             )
             assert (tx, ty) == (tx_expected, ty_expected)
 
@@ -95,9 +104,18 @@ class TestBaseDataAugmenter:
                 (tx, ty), a_transformed.as_move_delta()
             )
             t_translated_x, t_translated_y = augmenter.transform_coordinates(
-                torch.tensor([translated_x, translated_y]), map_size
+                torch.tensor([translated_x, translated_y]), MAP_SIZE
             )
             assert (translated_tx, translated_ty) == (t_translated_x, t_translated_y)
+
+    def test_inner_inverse_transform_action_space(self) -> None:
+        x = torch.rand([1, MAX_UNITS, len(Action)])
+        action_map = Rot180.get_move_action_map()
+        transformed = DataAugmenter.inner_transform_action_space(x, action_map)
+        transformed_back = DataAugmenter.inner_inverse_transform_action_space(
+            transformed, action_map
+        )
+        assert torch.equal(transformed_back, x)
 
 
 def translate(pos: tuple[int, int], delta: tuple[int, int]) -> tuple[int, int]:

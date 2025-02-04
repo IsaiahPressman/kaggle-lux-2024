@@ -3,6 +3,7 @@ from collections.abc import Sequence
 
 import torch
 
+from rux_ai_s3.constants import NEBULA_TILE_DRIFT_DIRECTION_FEATURE_INDEX
 from rux_ai_s3.models.actor_critic import ActorCriticOut
 from rux_ai_s3.types import Action
 
@@ -10,6 +11,11 @@ MoveActionMapType = Sequence[tuple[Action, Action]]
 
 
 class DataAugmenter(ABC):
+    @property
+    @abstractmethod
+    def drift_direction_flipped(self) -> bool:
+        pass
+
     @abstractmethod
     def transform_spatial(self, x: torch.Tensor) -> torch.Tensor:
         pass
@@ -30,6 +36,36 @@ class DataAugmenter(ABC):
         """
         A list of (original, transformed) action pairs
         """
+
+    def transform_global_obs(
+        self,
+        global_obs: torch.Tensor,
+        frame_stack_len: int,
+        temporal_feature_count: int,
+    ) -> torch.Tensor:
+        if not self.drift_direction_flipped:
+            return global_obs
+
+        global_obs = global_obs.clone()
+        neg_drift = (
+            frame_stack_len * temporal_feature_count
+            + NEBULA_TILE_DRIFT_DIRECTION_FEATURE_INDEX
+        )
+        pos_drift = neg_drift + 1
+        neg_drift_value = global_obs[..., neg_drift].item()
+        pos_drift_value = global_obs[..., pos_drift].item()
+        if neg_drift_value == 0.0:
+            assert pos_drift_value == 1.0
+        elif neg_drift_value == 0.5:
+            assert pos_drift_value == 0.5
+        elif neg_drift_value == 1.0:
+            assert pos_drift_value == 0.0
+        else:
+            raise ValueError(f"Unexpected negative drift value: {neg_drift_value}")
+
+        global_obs[..., neg_drift] = pos_drift_value
+        global_obs[..., pos_drift] = neg_drift_value
+        return global_obs
 
     def transform_action_space(self, action_space: torch.Tensor) -> torch.Tensor:
         return self.inner_transform_action_space(
@@ -99,6 +135,10 @@ class DataAugmenter(ABC):
 
 
 class Rot180(DataAugmenter):
+    @property
+    def drift_direction_flipped(self) -> bool:
+        return True
+
     def transform_spatial(self, x: torch.Tensor) -> torch.Tensor:
         self._validate_spatial(x)
         return x.rot90(2, (-2, -1))
@@ -123,6 +163,10 @@ class Rot180(DataAugmenter):
 
 
 class PlayerReflect(DataAugmenter):
+    @property
+    def drift_direction_flipped(self) -> bool:
+        return False
+
     def transform_spatial(self, x: torch.Tensor) -> torch.Tensor:
         self._validate_spatial(x)
         return x.flip((-2, -1)).transpose(-2, -1)
@@ -147,6 +191,10 @@ class PlayerReflect(DataAugmenter):
 
 
 class DriftReflect(DataAugmenter):
+    @property
+    def drift_direction_flipped(self) -> bool:
+        return True
+
     def transform_spatial(self, x: torch.Tensor) -> torch.Tensor:
         self._validate_spatial(x)
         return x.transpose(-2, -1)
