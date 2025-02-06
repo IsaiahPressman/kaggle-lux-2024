@@ -4,6 +4,7 @@ mod hidden_parameter;
 mod masked_possibilities;
 mod relic_node;
 mod space_obstacle;
+mod action;
 
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
@@ -15,8 +16,10 @@ use itertools::Itertools;
 use numpy::ndarray::Array2;
 use relic_node::RelicNodeMemory;
 use space_obstacle::SpaceObstacleMemory;
+use action::ActionMemory;
 
 pub struct Memory {
+    action: ActionMemory,
     energy_field: EnergyFieldMemory,
     hidden_parameter: HiddenParameterMemory,
     relic_node: RelicNodeMemory,
@@ -25,15 +28,17 @@ pub struct Memory {
 
 impl Memory {
     pub fn new(param_ranges: &ParamRanges, map_size: [usize; 2]) -> Self {
+        let action = ActionMemory::new(map_size);
         let energy_field = EnergyFieldMemory::new(param_ranges, map_size);
-        let hidden_parameters = HiddenParameterMemory::new(param_ranges);
-        let relic_nodes = RelicNodeMemory::new(map_size);
-        let space_obstacles = SpaceObstacleMemory::new(param_ranges, map_size);
+        let hidden_parameter = HiddenParameterMemory::new(param_ranges);
+        let relic_node = RelicNodeMemory::new(map_size);
+        let space_obstacle = SpaceObstacleMemory::new(param_ranges, map_size);
         Self {
+            action,
             energy_field,
-            hidden_parameter: hidden_parameters,
-            relic_node: relic_nodes,
-            space_obstacle: space_obstacles,
+            hidden_parameter,
+            relic_node,
+            space_obstacle,
         }
     }
 
@@ -44,6 +49,7 @@ impl Memory {
         fixed_params: &FixedParams,
         params: &KnownVariableParams,
     ) {
+        self.action.update(obs, last_actions, fixed_params);
         self.energy_field.update(obs);
         self.space_obstacle.update(obs, params);
         let nebulae_could_have_moved = self
@@ -57,6 +63,14 @@ impl Memory {
             nebulae_could_have_moved,
         );
         self.relic_node.update(obs);
+    }
+
+    pub fn get_sapped_positions(&self) -> &[Pos] {
+        &self.action.sapped_positions
+    }
+
+    pub fn get_adjacent_sap_counts(&self) -> &Array2<u8> {
+        &self.action.adjacent_sap_count
     }
 
     pub fn get_energy_field(&self) -> &Array2<Option<i32>> {
@@ -81,6 +95,12 @@ impl Memory {
             .get_weighted_possibilities()
     }
 
+    pub fn get_unit_sap_dropoff_factor_weights(&self) -> Vec<f32> {
+        self.hidden_parameter
+            .unit_sap_dropoff_factor
+            .get_weighted_possibilities()
+    }
+
     pub fn iter_unmasked_nebula_tile_vision_reduction_options(
         &self,
     ) -> impl Iterator<Item = &i32> {
@@ -97,10 +117,11 @@ impl Memory {
             .iter_unmasked_options()
     }
 
-    pub fn get_unit_sap_dropoff_factor_weights(&self) -> Vec<f32> {
-        self.hidden_parameter
-            .unit_sap_dropoff_factor
-            .get_weighted_possibilities()
+    pub fn iter_unmasked_unit_sap_dropoff_factor_options(
+        &self,
+    ) -> impl Iterator<Item = &f32> {
+        self.hidden_parameter.unit_sap_dropoff_factor
+            .iter_unmasked_options()
     }
 
     pub fn get_relic_nodes(&self) -> &[Pos] {
