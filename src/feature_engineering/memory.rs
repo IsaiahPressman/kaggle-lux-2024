@@ -1,22 +1,22 @@
+mod action;
 mod cached_energy_fields;
 mod energy_field;
 mod hidden_parameter;
 mod masked_possibilities;
 mod relic_node;
 mod space_obstacle;
-mod action;
 
 use crate::rules_engine::action::Action;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::{FixedParams, KnownVariableParams};
 use crate::rules_engine::state::{Observation, Pos};
+use action::ActionMemory;
 use energy_field::EnergyFieldMemory;
 use hidden_parameter::HiddenParameterMemory;
 use itertools::Itertools;
 use numpy::ndarray::Array2;
 use relic_node::RelicNodeMemory;
 use space_obstacle::SpaceObstacleMemory;
-use action::ActionMemory;
 
 pub struct Memory {
     action: ActionMemory,
@@ -120,7 +120,8 @@ impl Memory {
     pub fn iter_unmasked_unit_sap_dropoff_factor_options(
         &self,
     ) -> impl Iterator<Item = &f32> {
-        self.hidden_parameter.unit_sap_dropoff_factor
+        self.hidden_parameter
+            .unit_sap_dropoff_factor
             .iter_unmasked_options()
     }
 

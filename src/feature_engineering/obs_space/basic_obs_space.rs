@@ -123,7 +123,8 @@ static UNIT_SAP_COST_MIN: LazyLock<i32> =
     LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().min().unwrap());
 static UNIT_SAP_COST_MAX: LazyLock<i32> =
     LazyLock::new(|| *PARAM_RANGES.unit_sap_cost.iter().max().unwrap());
-static SAP_DAMAGE_NORM: LazyLock<f32> = LazyLock::new(|| *UNIT_SAP_COST_MAX as f32 * 4.);
+static SAP_DAMAGE_NORM: LazyLock<f32> =
+    LazyLock::new(|| *UNIT_SAP_COST_MAX as f32 * 4.);
 
 pub const fn get_temporal_spatial_feature_count() -> usize {
     TemporalSpatialFeature::COUNT
@@ -245,15 +246,19 @@ fn write_temporal_spatial_out(
                     .min_by(|a, b| a.partial_cmp(b).unwrap())
                     .unwrap();
                 for pos in mem.get_sapped_positions() {
-                    slice[pos.as_index()] += params.unit_sap_cost as f32 / *SAP_DAMAGE_NORM;
+                    slice[pos.as_index()] +=
+                        params.unit_sap_cost as f32 / *SAP_DAMAGE_NORM;
                 }
                 Zip::from(&mut slice)
                     .and(mem.get_adjacent_sap_counts())
                     .for_each(|out, &adj_sap_count| {
-                        let damage = (i32::from(adj_sap_count) * params.unit_sap_cost) as f32 * sap_dropoff;
+                        let damage = (i32::from(adj_sap_count)
+                            * params.unit_sap_cost)
+                            as f32
+                            * sap_dropoff;
                         *out += damage.trunc() / *SAP_DAMAGE_NORM;
                     });
-            }
+            },
         }
     }
     clip_corners(temporal_spatial_out, FIXED_PARAMS.map_size);

@@ -1,8 +1,8 @@
-use itertools::Itertools;
-use numpy::ndarray::Array2;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::params::{FixedParams, FIXED_PARAMS};
 use crate::rules_engine::state::{Observation, Pos, Unit};
+use itertools::Itertools;
+use numpy::ndarray::Array2;
 
 #[derive(Debug)]
 pub struct ActionMemory {
@@ -28,19 +28,26 @@ impl ActionMemory {
     ) {
         self.sapped_positions.clear();
         self.adjacent_sap_count.fill(0);
-        for unit in self.units_last_turn {
+        for unit in &self.units_last_turn {
             let Action::Sap(sap_deltas) = last_actions[unit.id] else {
                 continue;
             };
 
-            let sap_target_pos = unit.pos.maybe_translate(sap_deltas, fixed_params.map_size).expect("Invalid sap_deltas");
+            let sap_target_pos = unit
+                .pos
+                .maybe_translate(sap_deltas, fixed_params.map_size)
+                .expect("Invalid sap_deltas");
             self.sapped_positions.push(sap_target_pos);
-            for adjacent_pos in (-1..=1).cartesian_product(-1..=1).filter_map(|(dx, dy)| {
-                if dx == 0 && dy == 0 {
-                    None
-                } else {
-                    sap_target_pos.maybe_translate([dx, dy], fixed_params.map_size)
-                }}) {
+            for adjacent_pos in
+                (-1..=1).cartesian_product(-1..=1).filter_map(|(dx, dy)| {
+                    if dx == 0 && dy == 0 {
+                        None
+                    } else {
+                        sap_target_pos
+                            .maybe_translate([dx, dy], fixed_params.map_size)
+                    }
+                })
+            {
                 self.adjacent_sap_count[adjacent_pos.as_index()] += 1;
             }
         }
