@@ -34,7 +34,7 @@ test: rs-test-full py-test-slow
 check: rs-lint py-lint py-static
 prepare: build rs-format py-format check test
 prepare-rl: prepare build-release
-prepare-agent: prepare py-test-agent build-agent
+prepare-agent: prepare build-agent py-test-agent
 
 clean:
 	cargo clean
