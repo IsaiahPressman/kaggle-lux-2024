@@ -646,6 +646,7 @@ def start_model_evaluation(
             cfg,
             train_state.step,
         ),
+        daemon=True,
     )
     eval_state.thread.start()
 
