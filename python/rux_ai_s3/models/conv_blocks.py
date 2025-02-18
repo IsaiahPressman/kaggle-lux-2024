@@ -21,7 +21,7 @@ class SELayer(nn.Module):
         return x * y.expand_as(x)
 
 
-class ResidualBlock(nn.Module):
+class ResidualConvBlock(nn.Module):
     def __init__(
         self,
         in_channels: int,

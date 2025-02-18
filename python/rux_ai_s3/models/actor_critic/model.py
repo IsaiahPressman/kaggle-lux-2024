@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from rux_ai_s3.models.actor_heads import BasicActorHead
-from rux_ai_s3.models.conv_blocks import ResidualBlock
+from rux_ai_s3.models.conv_blocks import ResidualConvBlock
 from rux_ai_s3.models.critic_heads import BaseCriticHead, BaseFactorizedCriticHead
 from rux_ai_s3.models.types import ActivationFactory, TorchActionInfo, TorchObs
 
@@ -108,7 +108,7 @@ class ActorCriticBase(nn.Module):
     ) -> nn.Module:
         return nn.Sequential(
             *(
-                ResidualBlock(
+                ResidualConvBlock(
                     in_channels=d_model,
                     out_channels=d_model,
                     activation=activation,
