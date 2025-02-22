@@ -9,10 +9,6 @@ from rux_ai_s3.types import Action
 
 
 class ActorCriticOut(NamedTuple):
-    # TODO: Is there a better way to decide when to sap? With this setup,
-    #  agents might be too conservative about sapping if they don't learn to
-    #  appropriately condition the sap action probability on the sap range
-    #  Could use attention module for sapping
     main_log_probs: torch.Tensor
     """shape (batch, [players,] units, actions)"""
     sap_log_probs: torch.Tensor

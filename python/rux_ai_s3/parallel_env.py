@@ -155,6 +155,10 @@ class ParallelEnv:
         self._soft_reset()
         self._update_frame_history()
 
+    def run_all_jit_compilations(self) -> None:
+        for i in range(1, self.n_envs):
+            self._gen_maps(i)
+
     @classmethod
     def from_config(cls, config: EnvConfig) -> "ParallelEnv":
         return ParallelEnv(
