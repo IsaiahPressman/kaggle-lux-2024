@@ -21,7 +21,8 @@ pub struct RelicNodeMemory {
     points_sum: Array2<f32>,
     points_count: Array2<u32>,
     points_last_turn: u32,
-    all_match_nodes_registered: bool,
+    match_nodes_registered: bool,
+    nodes_finished_spawning_early: bool,
     map_size: [usize; 2],
 }
 
@@ -36,7 +37,8 @@ impl RelicNodeMemory {
             points_sum: Array2::zeros(map_size),
             points_count: Array2::zeros(map_size),
             points_last_turn: 0,
-            all_match_nodes_registered: false,
+            match_nodes_registered: false,
+            nodes_finished_spawning_early: false,
             map_size,
         }
     }
@@ -51,11 +53,13 @@ impl RelicNodeMemory {
         obs.match_steps >= FIXED_PARAMS.max_steps_in_match / 2
             || !node_could_spawn_this_match(match_num)
             || self.relic_nodes.len() >= get_max_nodes_spawned_so_far(match_num)
+            || self.nodes_finished_spawning_early
     }
 
     pub fn update(&mut self, obs: &Observation) {
         if obs.is_new_match()
-            && (obs.get_match() as usize) < FIXED_PARAMS.max_relic_nodes / 2
+            && node_could_spawn_this_match(obs.get_match())
+            && !self.nodes_finished_spawning_early
         {
             self.prepare_for_new_relic_nodes_to_spawn();
         }
@@ -64,7 +68,7 @@ impl RelicNodeMemory {
     }
 
     fn prepare_for_new_relic_nodes_to_spawn(&mut self) {
-        self.all_match_nodes_registered = false;
+        self.match_nodes_registered = false;
         self.explored_nodes.fill(false);
         for node in &self.relic_nodes {
             self.explored_nodes[node.as_index()] = true
@@ -73,7 +77,7 @@ impl RelicNodeMemory {
     }
 
     fn update_explored_nodes(&mut self, obs: &Observation) {
-        if self.all_match_nodes_registered {
+        if self.match_nodes_registered {
             return;
         }
 
@@ -110,7 +114,7 @@ impl RelicNodeMemory {
         }
 
         if self.check_if_all_match_relic_nodes_found(obs.get_match()) {
-            self.register_all_relic_nodes_found()
+            self.register_all_relic_nodes_found(obs.get_match())
         }
     }
 
@@ -218,9 +222,13 @@ impl RelicNodeMemory {
         }
     }
 
-    fn register_all_relic_nodes_found(&mut self) {
-        self.all_match_nodes_registered = true;
+    fn register_all_relic_nodes_found(&mut self, match_num: u32) {
+        self.match_nodes_registered = true;
         self.explored_nodes.fill(true);
+        if self.relic_nodes.len() < get_max_nodes_spawned_so_far(match_num) {
+            self.nodes_finished_spawning_early = true;
+        }
+
         let mut potential_points_mask = Array2::default(self.map_size);
         for pos in self
             .relic_nodes
@@ -265,15 +273,13 @@ fn get_max_nodes_spawned_so_far(match_num: u32) -> usize {
 }
 
 fn node_could_spawn_this_match(match_num: u32) -> bool {
-    // TODO: Account for when no nodes spawn in the second match, this
-    //  means that no nodes will spawn in the third match either
     2 * (match_num as usize + 1) <= FIXED_PARAMS.max_relic_nodes
 }
 
 #[cfg(test)]
 impl RelicNodeMemory {
     pub fn get_all_nodes_registered(&self) -> bool {
-        self.all_match_nodes_registered
+        self.match_nodes_registered
     }
 }
 
@@ -282,6 +288,7 @@ mod tests {
     use super::*;
     use crate::rules_engine::state::Unit;
     use numpy::ndarray::arr2;
+    use rstest::rstest;
 
     #[test]
     fn test_relic_window() {
@@ -327,7 +334,7 @@ mod tests {
             ])
         );
         assert!(!memory.check_if_all_match_relic_nodes_found(4));
-        assert!(!memory.all_match_nodes_registered);
+        assert!(!memory.match_nodes_registered);
 
         let obs = Observation {
             sensor_mask: arr2(&[
@@ -372,7 +379,7 @@ mod tests {
         );
         assert!(memory.explored_nodes.iter().all(|explored| *explored));
         assert!(memory.check_if_all_match_relic_nodes_found(4));
-        assert!(memory.all_match_nodes_registered);
+        assert!(memory.match_nodes_registered);
     }
 
     #[test]
@@ -516,9 +523,10 @@ mod tests {
         memory.estimated_unexplored_points.fill(0.5);
 
         memory.set_known_points(Pos::new(0, 4), true);
-        memory.register_all_relic_nodes_found();
-        assert!(memory.all_match_nodes_registered);
+        memory.register_all_relic_nodes_found(0);
+        assert!(memory.match_nodes_registered);
         assert_eq!(memory.explored_nodes, Array2::from_elem(map_size, true));
+        assert!(!memory.nodes_finished_spawning_early);
         assert_eq!(
             memory.known_to_have_points,
             arr2(&[
@@ -548,6 +556,30 @@ mod tests {
                 [true, true, false, false, false],
                 [true, true, true, true, true],
             ])
+        );
+    }
+
+    #[rstest]
+    #[case(0, 2, false)]
+    #[case(1, 4, false)]
+    #[case(2, 6, false)]
+    #[case(3, 6, false)]
+    #[case(4, 6, false)]
+    #[case(1, 2, true)]
+    #[case(2, 2, true)]
+    #[case(2, 4, true)]
+    fn test_nodes_finished_spawning_early(
+        #[case] match_num: u32,
+        #[case] relic_node_count: usize,
+        #[case] expected_finished_spawning_early: bool,
+    ) {
+        let mut memory = RelicNodeMemory::new([5, 5]);
+        memory.relic_nodes =
+            (0..relic_node_count).map(|_| Pos::default()).collect();
+        memory.register_all_relic_nodes_found(match_num);
+        assert_eq!(
+            memory.nodes_finished_spawning_early,
+            expected_finished_spawning_early
         );
     }
 
