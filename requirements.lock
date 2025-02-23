@@ -39,6 +39,8 @@ docker-pycreds==0.4.0
     # via wandb
 docstring-parser==0.16
     # via tyro
+einops==0.8.1
+    # via rotary-embedding-torch
 etils==1.11.0
     # via optax
     # via orbax-checkpoint
@@ -99,7 +101,7 @@ jinja2==3.1.5
     # via torch
 kiwisolver==1.4.8
     # via matplotlib
-luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3@8188ad5cbb1fe1e6f6a8466ab5d703b38a1e0426#subdirectory=src
+luxai-s3 @ git+https://github.com/Lux-AI-Challenge/Lux-Design-S3@c6d1e665d12a467b299fb586b3f876e47847746b#subdirectory=src
     # via rux-ai-s3
 markdown-it-py==3.0.0
     # via rich
@@ -234,6 +236,8 @@ requests==2.32.3
 rich==13.9.4
     # via flax
     # via tyro
+rotary-embedding-torch==0.8.6
+    # via rux-ai-s3
 ruff==0.9.1
     # via rux-ai-s3
 scipy==1.15.1
@@ -267,6 +271,7 @@ tomli==2.2.1
 toolz==1.0.0
     # via chex
 torch==2.5.1
+    # via rotary-embedding-torch
     # via rux-ai-s3
 tqdm==4.67.1
     # via rux-ai-s3

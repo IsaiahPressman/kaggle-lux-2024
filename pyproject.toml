@@ -21,6 +21,7 @@ dependencies = [
     "wandb>=0.19.1",
     "coloredlogs>=15.0.1",
     "pandas>=2.2.3",
+    "rotary-embedding-torch>=0.8.6",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
