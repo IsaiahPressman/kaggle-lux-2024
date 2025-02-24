@@ -56,7 +56,9 @@ class ResidualConvBlock(nn.Module):
             self.change_n_channels = nn.Identity()
 
         self.dropout = nn.Dropout2d(dropout or 0.0)
-        self.squeeze_excitation = SELayer(out_channels) if squeeze_excitation else nn.Identity()
+        self.squeeze_excitation = (
+            SELayer(out_channels) if squeeze_excitation else nn.Identity()
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x

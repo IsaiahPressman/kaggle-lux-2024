@@ -16,7 +16,5 @@ def orthogonal_initialization_(
 
         return
 
-    # TODO: Init MHA weights
-
     if strict:
         raise ValueError(f"Unexpected layer type: {type(layer)}")

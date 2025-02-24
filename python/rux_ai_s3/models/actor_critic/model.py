@@ -6,6 +6,7 @@ from torch import nn
 from rux_ai_s3.models.actor_heads import BasicActorHead
 from rux_ai_s3.models.critic_heads import BaseCriticHead, BaseFactorizedCriticHead
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
+
 from .out import ActorCriticOut, FactorizedActorCriticOut
 
 

@@ -1,18 +1,21 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
+from rotary_embedding_torch import RotaryEmbedding, apply_rotary_emb
+from torch import nn
 
-from rotary_embedding_torch import (
-    RotaryEmbedding,
-    apply_rotary_emb
-)
+from rux_ai_s3.constants import MAP_SIZE
 
 from .types import ActivationFactory
-from rux_ai_s3.constants import MAP_SIZE
 
 
 class MLPBlock(nn.Module):
-    def __init__(self, d_model: int, d_mlp: int, activation: ActivationFactory, dropout: float | None) -> None:
+    def __init__(
+        self,
+        d_model: int,
+        d_mlp: int,
+        activation: ActivationFactory,
+        dropout: float | None,
+    ) -> None:
         super().__init__()
         self.self.lin1 = nn.Linear(d_model, d_mlp)
         self.activation = activation()
@@ -26,6 +29,7 @@ class MLPBlock(nn.Module):
         x = self.lin_dropout1(x)
         x = self.lin2(x)
         return self.lin_dropout2(x)
+
 
 class AttnBlock(nn.Module):
     def __init__(
@@ -50,6 +54,11 @@ class AttnBlock(nn.Module):
             activation=activation,
             dropout=dropout,
         )
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        # TODO
+        raise NotImplementedError("TODO")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -87,7 +96,8 @@ class SpatialAttnIn(nn.Module):
         )
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.d_head = d_model // num_heads
-        assert self.d_head % 2 == 0 and self.d_head / 2 >= 8
+        assert self.d_head % 2 == 0
+        assert self.d_head / 2 >= 8
         self.num_heads = num_heads
         self.dropout_p = dropout or 0.0
         self.rotary_emb = RotaryEmbedding(
@@ -102,6 +112,10 @@ class SpatialAttnIn(nn.Module):
             activation=activation,
             dropout=dropout,
         )
+
+    def _init_weights(self) -> None:
+        # TODO
+        raise NotImplementedError("TODO")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -122,16 +136,27 @@ class SpatialAttnIn(nn.Module):
         q = apply_rotary_emb(freqs, q).flatten(2, 3)
         k = apply_rotary_emb(freqs, k).flatten(2, 3)
         v = v.view(batch_size, seq_len, self.num_heads, self.d_head).permute(0, 2, 1, 3)
-        # v.shape is now also (batch_size, num_heads, seq_len, d_head), matching q/k
-        assert q.shape == k.shape == v.shape == (batch_size, self.num_heads, seq_len, self.d_head)
-        x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout_p if self.training else 0.0)
+        # v shape is now also (batch_size, num_heads, seq_len, d_head), matching q/k
+        assert (
+            q.shape
+            == k.shape
+            == v.shape
+            == (batch_size, self.num_heads, seq_len, self.d_head)
+        )
+        x = F.scaled_dot_product_attention(
+            q, k, v, dropout_p=self.dropout_p if self.training else 0.0
+        )
+        # x shape is now (batch_size, num_heads, seq_len, d_head)
+        x = x.permute(0, 2, 1, 3).flatten(2, 3)
+        # x shape is now (batch_size, seq_len, d_model)
         return x + self.mlp(x)
 
     def _get_freqs(self, dim: tuple[int, int]) -> torch.Tensor:
         if self.cached_freqs.shape[:-1] != dim:
             if self.cached_freqs.shape != ():
-                # This could be a warning for a more generalized implementation,
-                # but we expect the map size to never change, so we error
+                # This could be a warning for a more generalized implementation, but
+                # for this season of Lux the map size will never change, so if it does
+                # something has gone wrong
                 raise ValueError(
                     f"Incorrect shape of cached_freqs: "
                     f"{self.cached_freqs.shape}[:-1] != {dim}"

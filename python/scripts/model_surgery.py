@@ -33,7 +33,7 @@ def main() -> None:
     )["model"]
     model = load_model_from_state_dict(config, env, original_state_dict)
     print({k: v.shape for k, v in model.base.spatial_in.named_parameters()})
-    layer = model.base.spatial_in[0]  # type: ignore
+    layer = model.base.spatial_in[0]
     print(layer.weight.shape)
     new_channel = 6
     assert env.last_out.obs.temporal_spatial_obs.shape[-3] == new_channel
