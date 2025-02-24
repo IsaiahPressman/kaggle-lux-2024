@@ -7,7 +7,7 @@ from typing_extensions import assert_never
 
 from rux_ai_s3.lowlevel import RewardSpace
 
-from .actor_critic import ActorCritic, ActorCriticBase, FactorizedActorCritic
+from .actor_critic import ActorCritic, ActorCriticConvBase, FactorizedActorCritic
 from .actor_heads import BasicActorHead
 from .critic_heads import (
     BaseCriticHead,
@@ -104,7 +104,7 @@ def build_actor_critic(
     model_type: type[_ModelT] = nn.Module,  # type: ignore[assignment]
 ) -> _ModelT:
     activation: ActivationFactory = nn.GELU
-    base = ActorCriticBase(
+    base = ActorCriticConvBase(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
         d_model=config.d_model,

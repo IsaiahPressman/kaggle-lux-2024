@@ -1,9 +1,10 @@
-from .model import ActorCritic, ActorCriticBase, FactorizedActorCritic
+from .base import ActorCriticConvBase
+from .model import ActorCritic, FactorizedActorCritic
 from .out import ActorCriticOut, FactorizedActorCriticOut
 
 __all__ = [
     "ActorCritic",
-    "ActorCriticBase",
+    "ActorCriticConvBase",
     "ActorCriticOut",
     "FactorizedActorCritic",
     "FactorizedActorCriticOut",

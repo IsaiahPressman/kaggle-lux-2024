@@ -27,9 +27,9 @@ class ResidualConvBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         activation: ActivationFactory,
-        kernel_size: int = 3,
-        dropout: float | None = None,
-        squeeze_excitation: bool = True,
+        kernel_size: int,
+        dropout: float | None,
+        squeeze_excitation: bool,
     ):
         super().__init__()
         self.conv1 = nn.Conv2d(
@@ -55,15 +55,8 @@ class ResidualConvBlock(nn.Module):
         else:
             self.change_n_channels = nn.Identity()
 
-        if dropout:
-            self.dropout: nn.Module = nn.Dropout2d(dropout)
-        else:
-            self.dropout = nn.Identity()
-
-        if squeeze_excitation:
-            self.squeeze_excitation: nn.Module = SELayer(out_channels)
-        else:
-            self.squeeze_excitation = nn.Identity()
+        self.dropout = nn.Dropout2d(dropout or 0.0)
+        self.squeeze_excitation = SELayer(out_channels) if squeeze_excitation else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x
