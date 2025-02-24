@@ -6,6 +6,7 @@ from torch import nn
 from rux_ai_s3.constants import MAP_SIZE
 
 from .types import ActivationFactory
+from .weight_initialization import orthogonal_initialization_
 
 
 class MLPBlock(nn.Module):
@@ -22,6 +23,11 @@ class MLPBlock(nn.Module):
         self.lin_dropout1 = nn.Dropout(dropout or 0.0)
         self.lin2 = nn.Linear(d_mlp, d_model)
         self.lin_dropout2 = nn.Dropout(dropout or 0.0)
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        orthogonal_initialization_(self.lin1)
+        orthogonal_initialization_(self.lin2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.lin1(x)
@@ -57,8 +63,7 @@ class AttnBlock(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        # TODO
-        raise NotImplementedError("TODO")
+        orthogonal_initialization_(self.mha)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -112,10 +117,11 @@ class SpatialAttnIn(nn.Module):
             activation=activation,
             dropout=dropout,
         )
+        self._init_weights()
 
     def _init_weights(self) -> None:
-        # TODO
-        raise NotImplementedError("TODO")
+        orthogonal_initialization_(self.initial_proj)
+        orthogonal_initialization_(self.qkv_proj)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

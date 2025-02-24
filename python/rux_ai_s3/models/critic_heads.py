@@ -30,8 +30,8 @@ class BaseCriticHead(nn.Module, ABC):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        orthogonal_initialization_(self.conv_base, strict=True)
-        orthogonal_initialization_(self.conv_value, scale=1.0, strict=True)
+        orthogonal_initialization_(self.conv_base)
+        orthogonal_initialization_(self.conv_value, scale=1.0)
 
     def forward(self, x: torch.Tensor, _action_info: TorchActionInfo) -> torch.Tensor:
         x = self.activation(self.conv_base(x))

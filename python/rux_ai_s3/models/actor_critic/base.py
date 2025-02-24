@@ -40,7 +40,7 @@ class ActorCriticConvBase(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        self.apply(orthogonal_initialization_)
+        self.apply(lambda m: orthogonal_initialization_(m, strict=False))
 
     def forward(
         self,
@@ -153,7 +153,9 @@ class ActorCriticAttnBase(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        self.global_in.apply(orthogonal_initialization_)
+        in_, _, out_ = self.global_in.children()
+        orthogonal_initialization_(in_)
+        orthogonal_initialization_(out_)
 
     def forward(
         self,

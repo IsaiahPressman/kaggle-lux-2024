@@ -42,13 +42,13 @@ class BasicActorHead(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        self.apply(orthogonal_initialization_)
-        orthogonal_initialization_(
-            list(self.main_actor_linear.children())[-1], scale=0.01, strict=True
-        )
-        orthogonal_initialization_(
-            list(self.sap_actor_conv.children())[-1], scale=0.01, strict=True
-        )
+        linear_in, _, linear_out = self.main_actor_linear.children()
+        orthogonal_initialization_(linear_in)
+        orthogonal_initialization_(linear_out, scale=0.01)
+
+        conv_in, _, conv_out = self.sap_actor_conv.children()
+        orthogonal_initialization_(conv_in)
+        orthogonal_initialization_(conv_out, scale=0.01)
 
     def forward(
         self,
