@@ -319,7 +319,7 @@ class PPOConfig(TrainConfig):
         with open(teacher_config_path) as f:
             data = yaml.safe_load(f)
 
-        parsed_config = ActorCriticConfigWrapper(**data["rl_model_config"])
+        parsed_config = ActorCriticConfigWrapper(config=data["rl_model_config"])
         return self.teacher_path, parsed_config.config
 
 

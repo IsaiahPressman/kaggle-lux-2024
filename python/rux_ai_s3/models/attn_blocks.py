@@ -18,7 +18,7 @@ class MLPBlock(nn.Module):
         dropout: float | None,
     ) -> None:
         super().__init__()
-        self.self.lin1 = nn.Linear(d_model, d_mlp)
+        self.lin1 = nn.Linear(d_model, d_mlp)
         self.activation = activation()
         self.lin_dropout1 = nn.Dropout(dropout or 0.0)
         self.lin2 = nn.Linear(d_mlp, d_model)
@@ -73,8 +73,8 @@ class AttnBlock(nn.Module):
         return x + self.mlp(x)
 
     def _mha_block(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.mha(x, x, x, need_weights=False)
-        return self.mha_dropout(x)
+        x, _ = self.mha(x, x, x, need_weights=False)
+        return self.dropout(x)
 
 
 class SpatialAttnIn(nn.Module):
@@ -95,7 +95,7 @@ class SpatialAttnIn(nn.Module):
         )
         self.activation = activation()
         self.qkv_proj = nn.Conv2d(
-            in_channels=in_channels,
+            in_channels=d_model,
             out_channels=d_model * 3,
             kernel_size=1,
         )
@@ -126,6 +126,7 @@ class SpatialAttnIn(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x should have shape (batch_size, in_channels, map_width, map_height)
+        returns shape (batch_size, seq_len, d_model)
         """
         batch_size, _, width, height = x.shape
         seq_len = width * height
@@ -138,7 +139,7 @@ class SpatialAttnIn(nn.Module):
         q = q.unflatten(-1, (self.num_heads, self.d_head)).permute(0, 3, 1, 2, 4)
         k = k.unflatten(-1, (self.num_heads, self.d_head)).permute(0, 3, 1, 2, 4)
         # q/k shape is now (batch_size, num_heads, w, h, d_head)
-        assert q.shape[-1] == v.shape[-1] == freqs.shape[-1]
+        assert q.shape[-1] == k.shape[-1] == freqs.shape[-1]
         q = apply_rotary_emb(freqs, q).flatten(2, 3)
         k = apply_rotary_emb(freqs, k).flatten(2, 3)
         v = v.view(batch_size, seq_len, self.num_heads, self.d_head).permute(0, 2, 1, 3)

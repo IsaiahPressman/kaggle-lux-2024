@@ -164,7 +164,7 @@ class ActorCriticAttnBase(nn.Module):
         _, _, width, height = obs.spatial_obs.shape
         x = (
             self.spatial_in(obs.spatial_obs)
-            + self.global_in(obs.global_obs)[..., None, None]
+            + self.global_in(obs.global_obs)[:, None, :]
         )
         x = self.base(x)
         # x shape is currently (batch_size, seq_len, d_model)
