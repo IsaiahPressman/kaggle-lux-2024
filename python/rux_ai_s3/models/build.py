@@ -7,7 +7,12 @@ from typing_extensions import assert_never
 
 from rux_ai_s3.lowlevel import RewardSpace
 
-from .actor_critic import ActorCritic, ActorCriticConvBase, FactorizedActorCritic
+from .actor_critic import (
+    ActorCritic,
+    ActorCriticAttnBase,
+    ActorCriticConvBase,
+    FactorizedActorCritic,
+)
 from .actor_heads import BasicActorHead
 from .critic_heads import (
     BaseCriticHead,
@@ -23,7 +28,29 @@ CriticMode = Literal["standard", "unit_factorized"]
 _ModelT = TypeVar("_ModelT", bound=nn.Module)
 
 
-class ActorCriticConfig(BaseModel):
+class ActorCriticAttnConfig(BaseModel):
+    model_arch: Literal["attn"]
+    d_model: int
+    num_heads: int
+    n_blocks: int
+    dropout: Annotated[float | None, Field(gt=0.0, le=0.2)] = None
+    critic_mode: CriticMode = "standard"
+
+    @property
+    def d_mlp(self) -> int:
+        return self.d_model * 4
+
+    @field_validator("d_model")
+    @classmethod
+    def _validate_d_model(cls, d_model: int) -> int:
+        if not math.log2(d_model).is_integer():
+            raise ValueError("d_model should be a power of 2")
+
+        return d_model
+
+
+class ActorCriticConvConfig(BaseModel):
+    model_arch: Literal["conv"]
     d_model: int
     n_blocks: int
     kernel_size: int = 3
@@ -37,6 +64,16 @@ class ActorCriticConfig(BaseModel):
             raise ValueError("d_model should be a power of 2")
 
         return d_model
+
+
+ActorCriticConfigT = Annotated[
+    ActorCriticAttnConfig | ActorCriticConvConfig,
+    Field(discriminator="model_arch"),
+]
+
+
+class ActorCriticConfigWrapper(BaseModel):
+    config: ActorCriticConfigT
 
 
 def build_critic_head(
@@ -95,22 +132,51 @@ def build_factorized_critic_head(
     assert_never(reward_space)
 
 
+def build_base(
+    spatial_in_channels: int,
+    global_in_channels: int,
+    config: ActorCriticConfigT,
+    activation: ActivationFactory,
+) -> nn.Module:
+    if isinstance(config, ActorCriticAttnConfig):
+        return ActorCriticAttnBase(
+            spatial_in_channels=spatial_in_channels,
+            global_in_channels=global_in_channels,
+            d_model=config.d_model,
+            d_mlp=config.d_mlp,
+            num_heads=config.num_heads,
+            n_blocks=config.n_blocks,
+            activation=activation,
+            dropout=config.dropout,
+        )
+
+    if isinstance(config, ActorCriticConvConfig):
+        return ActorCriticConvBase(
+            spatial_in_channels=spatial_in_channels,
+            global_in_channels=global_in_channels,
+            d_model=config.d_model,
+            n_blocks=config.n_blocks,
+            kernel_size=config.kernel_size,
+            dropout=config.dropout,
+            activation=activation,
+        )
+
+    assert_never(config)
+
+
 def build_actor_critic(
     spatial_in_channels: int,
     global_in_channels: int,
     n_main_actions: int,
     reward_space: RewardSpace,
-    config: ActorCriticConfig,
+    config: ActorCriticConfigT,
     model_type: type[_ModelT] = nn.Module,  # type: ignore[assignment]
 ) -> _ModelT:
     activation: ActivationFactory = nn.GELU
-    base = ActorCriticConvBase(
+    base = build_base(
         spatial_in_channels=spatial_in_channels,
         global_in_channels=global_in_channels,
-        d_model=config.d_model,
-        n_blocks=config.n_blocks,
-        kernel_size=config.kernel_size,
-        dropout=config.dropout,
+        config=config,
         activation=activation,
     )
     actor_head = BasicActorHead(

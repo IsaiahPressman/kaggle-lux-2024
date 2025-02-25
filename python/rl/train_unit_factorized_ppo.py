@@ -21,7 +21,7 @@ from rux_ai_s3.models.actor_critic import (
     FactorizedActorCritic,
     FactorizedActorCriticOut,
 )
-from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
+from rux_ai_s3.models.build import ActorCriticConfigT, build_actor_critic
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
 from rux_ai_s3.rl_training.constants import PROJECT_NAME
@@ -135,7 +135,7 @@ class UnitFactorizedPPOConfig(TrainConfig):
 
     # Config objects
     env_config: EnvConfig
-    rl_model_config: ActorCriticConfig
+    rl_model_config: ActorCriticConfigT
 
     # Miscellaneous config
     device: torch.device

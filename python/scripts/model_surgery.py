@@ -3,7 +3,7 @@ from typing import Any, Final
 
 import torch
 from rux_ai_s3.models.actor_critic import ActorCritic
-from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
+from rux_ai_s3.models.build import ActorCriticConfigT, build_actor_critic
 from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.parallel_env import ParallelEnv
 from rux_ai_s3.rl_training.train_config import TrainConfig
@@ -60,7 +60,7 @@ def load_model_from_state_dict(
 
 
 def build_model(
-    config: ActorCriticConfig,
+    config: ActorCriticConfigT,
     env: ParallelEnv,
 ) -> ActorCritic:
     example_obs = env.get_frame_stacked_obs()

@@ -26,6 +26,7 @@ env_config:
   jax_device: cpu:0
 
 rl_model_config:
+  model_arch: conv
   d_model: 64
   n_blocks: 4
   critic_mode: unit_factorized

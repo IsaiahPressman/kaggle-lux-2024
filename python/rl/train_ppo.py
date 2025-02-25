@@ -28,7 +28,11 @@ from pydantic import (
 )
 from rux_ai_s3.lowlevel import RewardSpace, assert_release_build
 from rux_ai_s3.models.actor_critic import ActorCritic, ActorCriticOut
-from rux_ai_s3.models.build import ActorCriticConfig, build_actor_critic
+from rux_ai_s3.models.build import (
+    ActorCriticConfigT,
+    ActorCriticConfigWrapper,
+    build_actor_critic,
+)
 from rux_ai_s3.models.types import TorchActionInfo, TorchObs
 from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.parallel_env import EnvConfig, ParallelEnv
@@ -233,7 +237,7 @@ class PPOConfig(TrainConfig):
 
     # Config objects
     env_config: EnvConfig
-    rl_model_config: ActorCriticConfig
+    rl_model_config: ActorCriticConfigT
 
     # Miscellaneous config
     device: torch.device
@@ -307,7 +311,7 @@ class PPOConfig(TrainConfig):
 
         return (i for i in range(1, self.max_updates + 1))
 
-    def load_teacher_config(self) -> tuple[Path, ActorCriticConfig] | None:
+    def load_teacher_config(self) -> tuple[Path, ActorCriticConfigT] | None:
         if self.teacher_path is None:
             return None
 
@@ -315,7 +319,8 @@ class PPOConfig(TrainConfig):
         with open(teacher_config_path) as f:
             data = yaml.safe_load(f)
 
-        return self.teacher_path, ActorCriticConfig(**data["rl_model_config"])
+        parsed_config = ActorCriticConfigWrapper(**data["rl_model_config"])
+        return self.teacher_path, parsed_config.config
 
 
 @dataclass
@@ -512,7 +517,7 @@ def main() -> None:  # noqa: C901
 
 def build_model(
     env: ParallelEnv,
-    config: ActorCriticConfig,
+    config: ActorCriticConfigT,
 ) -> ActorCritic:
     example_obs = env.get_frame_stacked_obs()
     spatial_in_channels = example_obs.spatial_obs.shape[2]
