@@ -1,7 +1,16 @@
+"""
+This script is used to manually add an input feature channel to an existing
+RL model without changing its weights or behavior. Adapt it as needed on a
+case by case basis
+"""
+
+import argparse
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
 import torch
+from pydantic import BaseModel
+
 from rux_ai_s3.models.actor_critic import ActorCritic
 from rux_ai_s3.models.build import ActorCriticConfigT, build_actor_critic
 from rux_ai_s3.models.utils import remove_compile_prefix
@@ -11,23 +20,26 @@ from rux_ai_s3.rl_training.utils import get_config_path_from_checkpoint
 from rux_ai_s3.utils import load_from_yaml
 from torch import nn
 
-MODEL_CHECKPOINT: Final[Path] = Path(
-    "/home/isaiah/GitHub/rux-ai-s3/hall_of_fame/jolly-yogurt-134_031067/rux_ai_s3/rl_agent/checkpoint_031067_weights.pt"
-)
+
+class UserArgs(BaseModel):
+    model_checkpoint: Path
+
+    @classmethod
+    def from_argparse(cls) -> "UserArgs":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("model_checkpoint", type=Path)
+        args = parser.parse_args()
+        return cls(**vars(args))
 
 
 def main() -> None:
-    """
-    This script is used to manually add an input feature channel to an existing
-    RL model without changing its weights or behavior. Adapt it as needed on a
-    case by case basis
-    """
+    user_args = UserArgs.from_argparse()
     config = load_from_yaml(
-        TrainConfig, get_config_path_from_checkpoint(MODEL_CHECKPOINT)
+        TrainConfig, get_config_path_from_checkpoint(user_args.model_checkpoint)
     )
     env = ParallelEnv.from_config(config.env_config)
     original_state_dict = torch.load(
-        MODEL_CHECKPOINT,
+        user_args.model_checkpoint,
         map_location=torch.device("cpu"),
         weights_only=True,
     )["model"]
@@ -36,7 +48,7 @@ def main() -> None:
     layer = model.base.spatial_in[0]
     print(layer.weight.shape)
     new_channel = 6
-    assert env.last_out.obs.temporal_spatial_obs.shape[-3] == new_channel
+    assert env.last_out.obs.temporal_spatial_obs.shape[-3] - 1 == new_channel
     assert (
         layer.weight.shape[1]
         == new_channel * config.env_config.frame_stack_len
@@ -45,13 +57,16 @@ def main() -> None:
     layer.weight = modify_weights(layer.weight, new_channel, env)
     print(layer.weight.shape)
     print(layer.weight[:2, :, 0, 0])
-    torch.save({"model": model.state_dict()}, "weights_surgery.pt")
+    out_file = Path("weights_surgery.pt")
+    torch.save({"model": model.state_dict()}, out_file)
+    print(f"Saved updated model to {out_file.absolute()}")
 
 
 def load_model_from_state_dict(
     config: TrainConfig, env: ParallelEnv, state_dict: Any
 ) -> ActorCritic:
     model = build_model(config.rl_model_config, env)
+    restore_old_model_shape(model)
     state_dict = {
         remove_compile_prefix(key): value for key, value in state_dict.items()
     }
@@ -76,6 +91,10 @@ def build_model(
         model_type=ActorCritic,
     )
 
+
+def restore_old_model_shape(model: nn.Module) -> None:
+    layer = model.base.spatial_in[0]
+    layer.weight = nn.Parameter(layer.weight[:, :90, ...])
 
 def modify_weights(
     weights: torch.Tensor, new_channel: int, env: ParallelEnv
