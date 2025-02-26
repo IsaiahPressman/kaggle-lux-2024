@@ -319,7 +319,7 @@ def main() -> None:
                 last_checkpoint = now
                 save_checkpoint(train_state, logger)
     finally:
-        train_state.step += 1
+        train_state.increment_step()
         save_checkpoint(train_state, logger)
 
 
@@ -394,7 +394,7 @@ def train_step(
         logger=logger,
     )
     train_state.lr_scheduler.step()
-    train_state.step += 1
+    train_state.increment_step()
 
 
 @torch.no_grad()

@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Final, Generic, TypeVar
 
 import coloredlogs
 import torch
@@ -18,6 +18,7 @@ from rux_ai_s3.models.utils import remove_compile_prefix
 from rux_ai_s3.rl_training.constants import TRAIN_CONFIG_FILE_NAME, TRAIN_OUTPUTS_DIR
 
 _ModelT = TypeVar("_ModelT", bound=nn.Module)
+WARMUP_STEPS: Final[int] = 10
 
 
 @dataclass
@@ -29,6 +30,15 @@ class TrainState(Generic[_ModelT]):
     lr_scheduler: LRScheduler
     scaler: GradScaler
     step: int = 0
+    steps_this_run: int = 0
+
+    @property
+    def finished_warmup(self) -> bool:
+        return self.steps_this_run >= WARMUP_STEPS
+
+    def increment_step(self) -> None:
+        self.step += 1
+        self.steps_this_run += 1
 
 
 def count_trainable_params(model: nn.Module) -> int:

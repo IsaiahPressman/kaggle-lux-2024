@@ -72,22 +72,24 @@ class ParallelEnv:
         self.frame_stack_len = frame_stack_len
         self.reward_space = reward_space
         self.jax_device = jax_device
-        fixed_params = EnvParams()
 
-        self._random_state = jax.random.key(seed=42)
-        self._env = LowLevelEnv(n_envs, reward_space)
-        self._raw_gen_map_vmapped = jax.vmap(
-            functools.partial(
-                gen_map,
-                params=GEN_MAP_MOCK_PARAMS,
-                map_type=fixed_params.map_type,
-                map_height=fixed_params.map_height,
-                map_width=fixed_params.map_width,
-                max_energy_nodes=fixed_params.max_energy_nodes,
-                max_relic_nodes=fixed_params.max_relic_nodes,
-                relic_config_size=fixed_params.relic_config_size,
+        fixed_params = EnvParams()
+        with jax.default_device(self.jax_device):
+            self._random_state = jax.random.key(seed=42)
+            self._raw_gen_map_vmapped = jax.vmap(
+                functools.partial(
+                    gen_map,
+                    params=GEN_MAP_MOCK_PARAMS,
+                    map_type=fixed_params.map_type,
+                    map_height=fixed_params.map_height,
+                    map_width=fixed_params.map_width,
+                    max_energy_nodes=fixed_params.max_energy_nodes,
+                    max_relic_nodes=fixed_params.max_relic_nodes,
+                    relic_config_size=fixed_params.relic_config_size,
+                )
             )
-        )
+
+        self._env = LowLevelEnv(n_envs, reward_space)
         self._last_out: ParallelEnvOut = self._make_empty_out()
         self._frame_history: deque[Obs] = self._make_empty_frame_history()
         self.hard_reset()
