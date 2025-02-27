@@ -6,6 +6,6 @@
 main_action_temperature: 1.0
 sap_action_temperature: 1.0
 data_augmentations:
-  - rotate_180
   - player_reflect
+  - rotate_180
   - drift_reflect
