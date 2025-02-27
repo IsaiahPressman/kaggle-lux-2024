@@ -332,7 +332,8 @@ class EvalProcess:
     ) -> None:
         self.current_model = current_model
         self.start: mp.Queue[int] = mp.Queue(maxsize=1)
-        self.results: mp.Queue[tuple[float, int] | None] = mp.Queue(maxsize=1)
+        self.results: mp.Queue[tuple[float | None, int]] = mp.Queue(maxsize=1)
+        self.in_progress: list[int] = []
         self.process = mp.Process(
             target=model_evaluation_process,
             args=(
@@ -344,18 +345,21 @@ class EvalProcess:
             ),
             daemon=True,
         )
-        self.waiting_for_result = False
         self.process.start()
 
     def get_result_if_available(self) -> tuple[float, int] | None:
         if self.results.empty():
             return None
 
-        self.waiting_for_result = False
-        return self.results.get_nowait()
+        win_rate, step = self.results.get_nowait()
+        self.in_progress.remove(step)
+        if win_rate is None:
+            return None
+
+        return win_rate, step
 
     def start_evaluation(self, step: int, model: ActorCritic) -> None:
-        if self.waiting_for_result:
+        if self.in_progress:
             logger.warning("Interrupting training to wait on evaluation thread")
             wait_time = self._wait_for_result()
             logger.warning(
@@ -369,7 +373,7 @@ class EvalProcess:
                 for key, value in model.state_dict().items()
             }
         )
-        self.waiting_for_result = True
+        self.in_progress.append(step)
         self.start.put_nowait(step)
 
     def _wait_for_result(self) -> datetime.timedelta:
@@ -684,25 +688,23 @@ def model_evaluation_process(
     current_model: ActorCritic,
     last_best_model: ActorCritic,
     start: "mp.Queue[int]",
-    results: "mp.Queue[tuple[float, int] | None]",
+    results: "mp.Queue[tuple[float | None, int]]",
 ) -> None:
     cfg = PPOConfig.model_validate_json(cfg_json)
     env = ParallelEnv.from_config(cfg.eval_env_config)
     while True:
         step = start.get()
         if cfg.eval_games <= 0:
-            results.put(None)
+            results.put((None, step))
             continue
 
-        results.put(
-            evaluate_model(
-                env,
-                model=current_model,
-                last_best=last_best_model,
-                cfg=cfg,
-                step=step,
-            )
+        win_rate = evaluate_model(
+            env,
+            model=current_model,
+            last_best=last_best_model,
+            cfg=cfg,
         )
+        results.put((win_rate, step))
 
 
 @torch.no_grad()
@@ -711,8 +713,7 @@ def evaluate_model(
     model: ActorCritic,
     last_best: ActorCritic,
     cfg: PPOConfig,
-    step: int,
-) -> tuple[float, int]:
+) -> float:
     # Could use different spda kernel if eval GPU supports flash attention
     with torch.autocast(
         device_type="cuda", dtype=torch.float16, enabled=cfg.use_mixed_precision
@@ -730,8 +731,7 @@ def evaluate_model(
             cfg.eval_device,
         )
 
-    win_rate = (w1 + w2) / (w1 + w2 + l1 + l2)
-    return win_rate, step
+    return (w1 + w2) / (w1 + w2 + l1 + l2)
 
 
 @torch.no_grad()
