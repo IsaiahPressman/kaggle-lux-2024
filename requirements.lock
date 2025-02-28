@@ -40,7 +40,7 @@ docker-pycreds==0.4.0
 docstring-parser==0.16
     # via tyro
 einops==0.8.1
-    # via rotary-embedding-torch
+    # via rux-ai-s3
 etils==1.11.0
     # via optax
     # via orbax-checkpoint
@@ -236,8 +236,6 @@ requests==2.32.3
 rich==13.9.4
     # via flax
     # via tyro
-rotary-embedding-torch==0.8.6
-    # via rux-ai-s3
 ruff==0.9.1
     # via rux-ai-s3
 scipy==1.15.1
@@ -271,7 +269,6 @@ tomli==2.2.1
 toolz==1.0.0
     # via chex
 torch==2.5.1
-    # via rotary-embedding-torch
     # via rux-ai-s3
 tqdm==4.67.1
     # via rux-ai-s3
