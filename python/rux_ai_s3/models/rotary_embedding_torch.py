@@ -1,3 +1,4 @@
+# fmt: off
 # ruff: noqa
 # type: ignore
 

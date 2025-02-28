@@ -1,10 +1,13 @@
 import torch
 import torch.nn.functional as F
-from rotary_embedding_torch import RotaryEmbedding, apply_rotary_emb
 from torch import nn
 
 from rux_ai_s3.constants import MAP_SIZE
 
+from .rotary_embedding_torch import (  # type: ignore[attr-defined]
+    RotaryEmbedding,
+    apply_rotary_emb,
+)
 from .types import ActivationFactory
 from .weight_initialization import orthogonal_initialization_
 
