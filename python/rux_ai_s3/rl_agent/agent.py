@@ -129,10 +129,10 @@ class Agent:
         raw_obs = json.dumps(to_json(obs))
         is_new_match = obs["match_steps"] == 0
         self.fe_env.step(raw_obs, self.last_actions, is_new_match=is_new_match)
-        if is_new_match or (
-            self.low_on_time(remaining_overage_time)
-            and self.game_over(obs["team_wins"])
-        ):
+        stop_playing = self.low_on_time(remaining_overage_time) and self.game_over(
+            obs["team_wins"]
+        )
+        if is_new_match or stop_playing:
             self.last_actions = self.get_empty_actions()
         else:
             self.last_actions = self.get_new_actions()
