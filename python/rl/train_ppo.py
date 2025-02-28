@@ -496,6 +496,7 @@ def main() -> None:  # noqa: C901
     logger.info(
         "Training model with %s parameters", f"{count_trainable_params(model):,d}"
     )
+    # TODO: Use last_best as teacher model
     teacher_model = load_teacher_model(env, cfg)
     if args.release:
         model = torch.compile(model)  # type: ignore[assignment]
