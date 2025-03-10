@@ -89,7 +89,30 @@ Finally, I also disallowed blind sapping unless it was or was next to a known po
 
 ## Deep reinforcement learning
 
+The core decision-making component of my solution used deep reinforcement learning.
+While all of the feature engineering above was useful for extracting information from the available observations, on it's own it still fails to answer the most important question: given the available information, what action should I take?
+Deep reinforcement learning aims to answer this question by parameterizing a policy using a deep neural network, taking actions in the environment using that policy, receiving a reward or punishment, and then using gradient descent to gradually update the policy in order to maximize the expected cumulative reward.
+Given enough time to train in the simulation, the right hyperparameters and reward function, the model can learn a strong policy on its own, and often surprises me with the depth of its strategy.   
+
 ### Model architecture
+
+I experimented with two model architectures for this competition. 
+Both used the same input and output structures, but had a different model core.
+The one I had the most success with was a residual convolutional neural network (CNN) with squeeze-excitation layers, so this is what I submitted for my final agents.
+I also tried using a vision transformer base using rotary positional embeddings, but I only started working on it in the final few weeks and was struggling to stabilize training for a large enough model.
+Despite the fact that my final solution used a CNN, I was impressed by how quickly the transformer learned when imitating a teacher, and that it was able to reach a comparable performance with many fewer parameters.
+In the future, I may try a transformer architecture first, as it felt like it was one or two small tricks or hyperparameter adjustments away from outperforming the CNN.
+
+The model had two input layers, one each for the spatial and global features.
+For the spatial input, I concatenated the 10-frame stack of temporal spatial features with the nontemporal spatial features, which I then projected to the model's dimension using a 2-layer CNN.
+For the global input, I similarly concatenated the temporal and nontemporal features, and then used a 2-layer MLP to project it to the model's dimension.
+Finally, I broadcast the global features to match the shape of the spatial ones, and added the two information streams together.
+I fed this combined tensor into the core model - an 8-block 3x3 CNN with a hidden dimension of size 256.
+
+After the core model, I fed the output tensor into an actor and a value head.
+The value head used a 1x1 CNN 
+
+
 
 ### Reinforcement learning algorithm
 
