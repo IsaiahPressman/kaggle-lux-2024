@@ -1,7 +1,9 @@
+use crate::env_config::SapMasking;
 use crate::feature_engineering::utils::one_hot_bool_encode_param_range;
 use crate::izip_eq;
 use crate::rules_engine::action::Action;
 use crate::rules_engine::action::Action::{Down, Left, NoOp, Right, Sap, Up};
+use crate::rules_engine::env::get_spawn_position;
 use crate::rules_engine::param_ranges::ParamRanges;
 use crate::rules_engine::params::KnownVariableParams;
 use crate::rules_engine::state::{Observation, Pos, Unit};
@@ -24,6 +26,7 @@ pub fn write_basic_action_space(
     mut sap_mask: ArrayViewMut4<bool>,
     observations: &[Observation],
     known_valuable_points_map: &[ArrayView2<bool>],
+    sap_masking: SapMasking,
     params: &KnownVariableParams,
     param_ranges: &ParamRanges,
 ) {
@@ -38,6 +41,7 @@ pub fn write_basic_action_space(
             team_sap_mask,
             obs,
             known_valuable_points_map.view(),
+            sap_masking,
             params,
             param_ranges,
         );
@@ -49,6 +53,7 @@ fn write_team_actions(
     mut sap_mask: ArrayViewMut3<bool>,
     obs: &Observation,
     known_valuable_points_map: ArrayView2<bool>,
+    sap_masking: SapMasking,
     params: &KnownVariableParams,
     param_ranges: &ParamRanges,
 ) {
@@ -58,8 +63,16 @@ fn write_team_actions(
 
     let (_, width, height) = sap_mask.dim();
     let map_size = [width, height];
-    let sap_targets_map =
-        get_sap_targets_map(obs, known_valuable_points_map, map_size);
+    let sap_targets_map = match sap_masking {
+        SapMasking::PointTiles => get_point_tile_sap_targets_map(
+            obs,
+            known_valuable_points_map,
+            map_size,
+        ),
+        SapMasking::OppUnitFrontier => {
+            get_unit_frontier_sap_targets_map(obs, map_size)
+        },
+    };
     for unit in obs.get_my_units().iter().filter(|u| u.alive()) {
         let can_sap = write_sap_mask(
             sap_mask.index_axis_mut(Axis(0), unit.id),
@@ -121,13 +134,13 @@ fn write_sap_mask(
     }
 
     let (width, height) = sap_mask.dim();
-    let mut unit_can_sap = false;
     let [x, y]: [usize; 2] = unit.pos.into();
     let range = params.unit_sap_range as usize;
     let slice = s![
         x.saturating_sub(range)..=(x + range).min(width - 1),
         y.saturating_sub(range)..=(y + range).min(height - 1),
     ];
+    let mut unit_can_sap = false;
     Zip::from(sap_mask.slice_mut(slice))
         .and(sap_targets_map.slice(slice))
         .for_each(|sap_mask, &legal_sap| {
@@ -137,19 +150,17 @@ fn write_sap_mask(
     unit_can_sap
 }
 
-fn get_sap_targets_map(
+fn get_point_tile_sap_targets_map(
     obs: &Observation,
     known_valuable_points_map: ArrayView2<bool>,
     map_size: [usize; 2],
 ) -> Array2<bool> {
     let mut sap_targets = Array2::default(map_size);
     let [width, height] = map_size;
-    let mut enemy_unit_locations = BTreeSet::new();
-
+    let enemy_unit_locations = get_alive_enemy_unit_locations(obs);
     // All locations adjacent to enemy units are valid sap targets
-    for unit in obs.get_opp_units().iter().filter(|u| u.alive()) {
-        enemy_unit_locations.insert(unit.pos);
-        let [x, y]: [usize; 2] = unit.pos.into();
+    for &pos in &enemy_unit_locations {
+        let [x, y]: [usize; 2] = pos.into();
         let slice = s![
             x.saturating_sub(1)..=(x + 1).min(width - 1),
             y.saturating_sub(1)..=(y + 1).min(height - 1),
@@ -194,6 +205,47 @@ fn get_sap_targets_map(
     sap_targets
 }
 
+fn get_alive_enemy_unit_locations(obs: &Observation) -> BTreeSet<Pos> {
+    obs.get_opp_units()
+        .iter()
+        .filter_map(|u| u.alive().then_some(u.pos))
+        .collect()
+}
+
+fn get_unit_frontier_sap_targets_map(
+    obs: &Observation,
+    map_size: [usize; 2],
+) -> Array2<bool> {
+    let mut sap_targets = Array2::default(map_size);
+    let [width, height] = map_size;
+    let opp_spawn = get_spawn_position(obs.opp_team_id(), map_size);
+    let enemy_unit_locations = get_alive_enemy_unit_locations(obs);
+    for (_, can_sap) in sap_targets
+        .indexed_iter_mut()
+        .filter(|(xy, _)| {
+            opp_spawn.manhattan_distance(Pos::from(*xy))
+                < obs.match_steps as usize
+        })
+        .filter(|((x, y), _)| {
+            // Don't sap known empty space
+            (x.saturating_sub(1)..=(x + 1).min(width - 1))
+                .cartesian_product(
+                    y.saturating_sub(1)..=(y + 1).min(height - 1),
+                )
+                .any(|(adj_x, adj_y)| {
+                    might_have_sap_target(
+                        [adj_x, adj_y],
+                        &obs.sensor_mask,
+                        &enemy_unit_locations,
+                    )
+                })
+        })
+    {
+        *can_sap = true;
+    }
+    sap_targets
+}
+
 fn might_have_sap_target(
     xy: [usize; 2],
     sensor_mask: &Array2<bool>,
@@ -211,6 +263,7 @@ mod tests {
     use crate::rules_engine::state::Pos;
     use numpy::ndarray::{arr2, arr3, Array3};
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     #[test]
     fn test_sap_action_last() {
@@ -275,6 +328,7 @@ mod tests {
             sap_mask.view_mut(),
             &obs,
             known_valuable_points_map.view(),
+            SapMasking::PointTiles,
             &variable_params,
             &param_ranges,
         );
@@ -321,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_sap_targets_map() {
+    fn test_get_point_tile_sap_targets_map() {
         let map_size = [5, 5];
         let obs = Observation {
             units: [
@@ -336,7 +390,7 @@ mod tests {
             ..Default::default()
         };
         let known_valuable_points_map = Array2::default(map_size);
-        let sap_targets_mask = get_sap_targets_map(
+        let sap_targets_mask = get_point_tile_sap_targets_map(
             &obs,
             known_valuable_points_map.view(),
             map_size,
@@ -357,7 +411,7 @@ mod tests {
             [false, false, true, false, false],
             [true, false, false, false, false],
         ]);
-        let sap_targets_mask = get_sap_targets_map(
+        let sap_targets_mask = get_point_tile_sap_targets_map(
             &obs,
             known_valuable_points_map.view(),
             map_size,
@@ -369,6 +423,79 @@ mod tests {
             [false, true, true, true, true],
             [true, true, false, false, false],
         ]);
+        assert_eq!(sap_targets_mask, expected_sap_targets_mask);
+    }
+
+    #[rstest]
+    #[case(
+        Observation {
+            sensor_mask: Array2::default([5, 5]),
+            match_steps: 0,
+            ..Default::default()
+        },
+        Array2::from_elem([5, 5], false),
+    )]
+    #[case(
+        Observation {
+            sensor_mask: Array2::default([5, 5]),
+            team_id: 0,
+            match_steps: 1,
+            ..Default::default()
+        },
+        arr2(&[
+            [false; 5],
+            [false; 5],
+            [false; 5],
+            [false; 5],
+            [false, false, false, false, true],
+        ]),
+    )]
+    #[case(
+        Observation {
+            sensor_mask: Array2::default([5, 5]),
+            team_id: 1,
+            match_steps: 3,
+            ..Default::default()
+        },
+        arr2(&[
+            [true, true, true, false, false],
+            [true, true, false, false, false],
+            [true, false, false, false, false],
+            [false; 5],
+            [false; 5],
+        ]),
+    )]
+    #[case(
+        Observation {
+            sensor_mask: arr2(&[
+                [true; 5],
+                [true; 5],
+                [true; 5],
+                [false; 5],
+                [false; 5],
+            ]),
+            team_id: 1,
+            match_steps: 7,
+            ..Default::default()
+            },
+        arr2(&[
+            [false; 5],
+            [false; 5],
+            [true; 5],
+            [true, true, true, true, false],
+            [true, true, true, false, false],
+        ]),
+    )]
+    fn test_get_unit_frontier_sap_targets_map(
+        #[case] obs: Observation,
+        #[case] expected_sap_targets_mask: Array2<bool>,
+    ) {
+        assert_eq!(obs.sensor_mask.dim(), expected_sap_targets_mask.dim());
+
+        let (width, height) = expected_sap_targets_mask.dim();
+        let map_size = [width, height];
+        let sap_targets_mask =
+            get_unit_frontier_sap_targets_map(&obs, map_size);
         assert_eq!(sap_targets_mask, expected_sap_targets_mask);
     }
 }

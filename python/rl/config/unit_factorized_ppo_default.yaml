@@ -21,6 +21,8 @@ loss_coefficients:
 env_config:
   n_envs: 64
   frame_stack_len: 4
+  # POINT_TILES or OPP_UNIT_FRONTIER
+  sap_masking: POINT_TILES
   # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
   reward_space: MATCH_WINNER
   jax_device: cpu:0

@@ -7,7 +7,7 @@ import numpy as np
 import tqdm
 from pydantic import BaseModel
 from rux_ai_s3.constants import MAX_UNITS
-from rux_ai_s3.lowlevel import RewardSpace, assert_release_build
+from rux_ai_s3.lowlevel import RewardSpace, SapMasking, assert_release_build
 from rux_ai_s3.parallel_env import ParallelEnv
 from rux_ai_s3.types import ActionArray
 
@@ -41,6 +41,7 @@ def main() -> None:
     env = ParallelEnv(
         n_envs=user_args.n_envs,
         frame_stack_len=FRAME_STACK_LEN,
+        sap_masking=SapMasking.POINT_TILES,
         reward_space=RewardSpace.FINAL_WINNER,
         jax_device=JAX_CPU,
     )

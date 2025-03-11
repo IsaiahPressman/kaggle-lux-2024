@@ -1,4 +1,5 @@
 use crate::env_api::env_data::{ActionInfoArraysView, ObsArraysView};
+use crate::env_config::SapMasking;
 use crate::feature_engineering::action_space::write_basic_action_space;
 use crate::feature_engineering::memory::Memory;
 use crate::feature_engineering::obs_space::basic_obs_space::write_obs_arrays;
@@ -37,6 +38,7 @@ pub fn update_memories_and_write_output_arrays(
     memories: &mut [Memory],
     observations: &[Observation],
     last_actions: &[Vec<Action>],
+    sap_masking: SapMasking,
     params: &KnownVariableParams,
 ) {
     for ((mem, obs), last_actions) in memories
@@ -64,6 +66,7 @@ pub fn update_memories_and_write_output_arrays(
         action_info_slice.sap_mask.view_mut(),
         observations,
         &known_valuable_points_maps,
+        sap_masking,
         params,
         &PARAM_RANGES,
     );

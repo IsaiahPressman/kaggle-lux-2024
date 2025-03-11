@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+from rux_ai_s3.lowlevel import SapMasking
 from rux_ai_s3.models.build import (
     ActorCriticConfigT,
 )
@@ -13,3 +14,7 @@ class TrainConfig(BaseModel):
     @property
     def frame_stack_len(self) -> int:
         return self.env_config.frame_stack_len
+
+    @property
+    def sap_masking(self) -> SapMasking:
+        return self.env_config.sap_masking

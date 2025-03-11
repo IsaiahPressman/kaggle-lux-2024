@@ -3,6 +3,7 @@ from collections import deque
 from typing import Any
 
 from rux_ai_s3.lowlevel import FeatureEngineeringEnv as LowLevelEnv
+from rux_ai_s3.lowlevel import SapMasking
 from rux_ai_s3.types import ActionArray, FeatureEngineeringOut, FrameStackedObs, Obs
 
 
@@ -11,11 +12,13 @@ class FeatureEngineeringEnv:
         self,
         frame_stack_len: int,
         team_id: int,
+        sap_masking: SapMasking,
         env_params: dict[str, Any],
     ) -> None:
         self.frame_stack_len = frame_stack_len
         self._env = LowLevelEnv(
             team_id=team_id,
+            sap_masking=sap_masking,
             env_params=env_params,
         )
         self._last_out: FeatureEngineeringOut = FeatureEngineeringOut.from_raw(

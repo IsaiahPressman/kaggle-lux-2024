@@ -4,6 +4,7 @@ use crate::env_api::env_data::{
 use crate::env_api::utils::{
     player_action_array_to_vec, update_memories_and_write_output_arrays,
 };
+use crate::env_config::SapMasking;
 use crate::feature_engineering::action_space::get_main_action_count;
 use crate::feature_engineering::obs_space::basic_obs_space::{
     get_nontemporal_global_feature_count,
@@ -38,13 +39,18 @@ type PyEnvOutputs<'py> = (
 #[pyclass]
 pub struct FeatureEngineeringEnv {
     player_data: PlayerData,
+    sap_masking: SapMasking,
     team_id: usize,
 }
 
 #[pymethods]
 impl FeatureEngineeringEnv {
     #[new]
-    fn new(team_id: usize, env_params: Bound<'_, PyDict>) -> PyResult<Self> {
+    fn new(
+        team_id: usize,
+        sap_masking: SapMasking,
+        env_params: Bound<'_, PyDict>,
+    ) -> PyResult<Self> {
         let env_params = env_params.as_any();
         let unit_move_cost =
             env_params.get_item("unit_move_cost")?.extract()?;
@@ -62,6 +68,7 @@ impl FeatureEngineeringEnv {
         let player_data = PlayerData::from_player_count_known_params(1, params);
         Ok(Self {
             team_id,
+            sap_masking,
             player_data,
         })
     }
@@ -101,6 +108,7 @@ impl FeatureEngineeringEnv {
             &mut self.player_data.memories,
             &[obs],
             &[last_actions],
+            self.sap_masking,
             &self.player_data.known_params,
         );
         out.into_pyarray_bound(py)

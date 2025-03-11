@@ -28,6 +28,7 @@ enum TemporalSpatialFeature {
     MyUnitEnergy,
     OppUnitEnergy,
     InflictedSapDamage,
+    MyUnitCountReflected,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter)]
@@ -258,6 +259,12 @@ fn write_temporal_spatial_out(
                             * sap_dropoff;
                         *out += damage.trunc() / *SAP_DAMAGE_NORM;
                     });
+            },
+            MyUnitCountReflected => {
+                for u in obs.get_my_units().iter().filter(|u| u.alive()) {
+                    slice[u.pos.reflect(FIXED_PARAMS.map_size).as_index()] +=
+                        1. / UNIT_COUNT_NORM
+                }
             },
         }
     }

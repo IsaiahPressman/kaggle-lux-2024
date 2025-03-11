@@ -1,11 +1,12 @@
 mod env_api;
+mod env_config;
 mod feature_engineering;
 pub mod izip_eq;
 mod rules_engine;
 
 use crate::env_api::FeatureEngineeringEnv;
+use crate::env_config::{RewardSpace, SapMasking};
 use crate::feature_engineering::obs_space::basic_obs_space;
-use crate::feature_engineering::reward_space::RewardSpace;
 use env_api::ParallelEnv;
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
@@ -58,6 +59,7 @@ fn lowlevel(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_numpy_world, m)?)?;
 
     m.add_class::<RewardSpace>()?;
+    m.add_class::<SapMasking>()?;
     m.add_class::<ParallelEnv>()?;
     m.add_class::<FeatureEngineeringEnv>()?;
     m.add_function(wrap_pyfunction!(assert_release_build, m)?)?;

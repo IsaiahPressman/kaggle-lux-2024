@@ -33,6 +33,8 @@ loss_coefficients:
 env_config:
   n_envs: 64
   frame_stack_len: 10
+  # POINT_TILES or OPP_UNIT_FRONTIER
+  sap_masking: POINT_TILES
   # FINAL_WINNER, MATCH_WINNER, or POINTS_SCORED
   reward_space: MATCH_WINNER
   jax_device: cpu:0
@@ -43,6 +45,6 @@ rl_model_config:
   n_blocks: 4
 
 device: cuda:0
-eval_games: 512
+eval_games: 256
 eval_device: cuda:1
 log_histograms: false

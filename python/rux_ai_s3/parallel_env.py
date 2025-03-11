@@ -10,7 +10,7 @@ from luxai_s3.state import gen_map
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 from rux_ai_s3.lowlevel import ParallelEnv as LowLevelEnv
-from rux_ai_s3.lowlevel import RewardSpace
+from rux_ai_s3.lowlevel import RewardSpace, SapMasking
 from rux_ai_s3.types import ActionArray, FrameStackedObs
 
 from .types import Obs, ParallelEnvOut
@@ -20,6 +20,7 @@ from .utils import GEN_MAP_MOCK_PARAMS
 class EnvConfig(BaseModel):
     n_envs: int
     frame_stack_len: int
+    sap_masking: SapMasking
     reward_space: RewardSpace
     jax_device: str
 
@@ -38,8 +39,20 @@ class EnvConfig(BaseModel):
         return reward_space
 
     @field_serializer("reward_space")
-    def serialize_reward_space(self, reward_space: RewardSpace) -> str:
+    def _serialize_reward_space(self, reward_space: RewardSpace) -> str:
         return str(reward_space)
+
+    @field_validator("sap_masking", mode="before")
+    @classmethod
+    def _validate_sap_masking(cls, sap_masking: SapMasking | str) -> SapMasking:
+        if isinstance(sap_masking, str):
+            return SapMasking.from_str(sap_masking)
+
+        return sap_masking
+
+    @field_serializer("sap_masking")
+    def _serialize_sap_masking(self, sap_masking: SapMasking) -> str:
+        return str(sap_masking)
 
     @field_validator("jax_device")
     @classmethod
@@ -65,6 +78,7 @@ class ParallelEnv:
         self,
         n_envs: int,
         frame_stack_len: int,
+        sap_masking: SapMasking,
         reward_space: RewardSpace,
         jax_device: jax.Device,
     ) -> None:
@@ -89,7 +103,7 @@ class ParallelEnv:
                 )
             )
 
-        self._env = LowLevelEnv(n_envs, reward_space)
+        self._env = LowLevelEnv(n_envs, sap_masking, reward_space)
         self._last_out: ParallelEnvOut = self._make_empty_out()
         self._frame_history: deque[Obs] = self._make_empty_frame_history()
         self.hard_reset()
@@ -165,7 +179,8 @@ class ParallelEnv:
     def from_config(cls, config: EnvConfig) -> "ParallelEnv":
         return ParallelEnv(
             n_envs=config.n_envs,
-            reward_space=config.reward_space,
             frame_stack_len=config.frame_stack_len,
+            sap_masking=config.sap_masking,
+            reward_space=config.reward_space,
             jax_device=config.get_jax_device(),
         )
