@@ -175,4 +175,6 @@ It was a humbling reminder that writing lots of code is not hard, but writing co
 TODO:
 - This has been a great competition + experience
 - Thanks to organizers again, plus thank competitors + discord discussions
+- Look forward to reading other solutions
+- Look forward to next season
 - Happy to answer questions in comments

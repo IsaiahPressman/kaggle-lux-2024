@@ -1,0 +1,62 @@
+flowchart LR
+    subgraph input_encoder[Input Encoder]
+        direction TB
+        spatial_in["Spatial Observations\n (N<sub>spatial</sub>, 24, 24)"] --> conv_s1["3x3 Conv2D Projection\n (D<sub>model</sub>, 24, 24)"]
+        conv_s1 --> s_act[GELU]
+        s_act --> conv_s2[3x3 Conv2D]
+        conv_s2 --> in_sum["Sum (D<sub>model</sub>, 24, 24)"]
+        global_in["Global Observations\n (N<sub>global</sub>,)"] --> lin_g1["Linear Projection\n (D<sub>model</sub>,)"]
+        lin_g1 --> g_act[GELU]
+        g_act --> lin_g2[Linear]
+        lin_g2 --> in_sum
+        in_sum --> core_model_in[Core Model Input]
+    end
+
+    subgraph conv_block["Convolutional Block (x8)"]
+        direction TB
+        input["Input (D<sub>model</sub>, 24, 24)"] --> conv_sum[Sum]
+        input --> conv1[3x3 Conv2D]
+        conv1 --> act1[GELU]
+        act1 --> conv2[3x3 Conv2D]
+        conv2 --> se[Squeeze Excitation]
+        se --> conv_sum
+        conv_sum --> act2[GELU]
+        act2 --> out_block["Output (D<sub>model</sub>, 24, 24)"]
+    end
+
+    subgraph output_heads[Output Heads]
+        direction TB
+        subgraph actor_head[Actor Head]
+            direction TB
+            unit_energies[Unit Energies] --> actor_concat["Concatenate\n (N<sub>units</sub>, D<sub>model</sub> + 1,)"]
+            core_model_actor_out["Core Model Output\n (D<sub>model</sub>, 24, 24)"] --> actor_index["Index Unit Locations\n (N<sub>units</sub>, D<sub>model</sub>,)"]
+            actor_index --> actor_concat
+            actor_concat --> actor_lin1["Linear Projection\n (N<sub>units</sub>, D<sub>model</sub>,)"]
+            actor_lin1 --> main_actor_act[GELU]
+            main_actor_act --> actor_lin2["Linear Projection\n (N<sub>units</sub>, N<sub>actions</sub>,)"]
+            actor_lin2 --> main_actor_mask[Illegal Action Masking]
+            main_actor_mask --> main_actor_softmax[Softmax]
+            main_actor_softmax --> actions_output[Random Action Selection]
+
+            core_model_actor_out --> actor_conv1[3x3 Conv2D]
+            actor_conv1 --> sap_actor_act[GELU]
+            sap_actor_act --> actor_conv2["3x3 Conv2D Projection\n (1, 24, 24)"]
+            actor_conv2 --> sap_actor_expand["Expand (N<sub>units</sub>, 24, 24)"]
+            sap_actor_expand --> sap_actor_mask[Illegal Action Masking]
+            sap_actor_mask --> sap_actor_softmax[Softmax]
+            sap_actor_softmax --> actions_output
+        end
+
+        subgraph critic_head[Critic Head]
+            direction TB
+            core_model_critic_out["Core Model Output\n (D<sub>model</sub>, 24, 24)"] --> critic_conv1[3x3 Conv2D]
+            critic_conv1 --> critic_act[GELU]
+            critic_act --> critic_conv2["3x3 Conv2D Projection\n (1, 24, 24)"]
+            critic_conv2 --> critic_mean["Spatial Mean (1,)"]
+            critic_mean --> critic_post[Value Normalization]
+            critic_post --> critic_output["Win Probability"]
+        end
+    end
+
+    input_encoder --> conv_block
+    conv_block --> output_heads
