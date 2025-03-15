@@ -14,6 +14,7 @@ Considering the first two factors, the solution was obvious, if a bit daunting a
 Additionally, to address the time constraints, I planned to write all the involved/difficult code using a rigorous test-driven approach, so that I would hopefully spend as little of my time as possible bug-hunting.
 
 The final system consisted of three main components: the rules engine rewritten in Rust, the feature engineering code also in Rust, and the model and reinforcement learning code, written in Python.
+I have published the full open source code on GitHub: https://github.com/IsaiahPressman/kaggle-lux-2024
 
 ## Rules engine
 
@@ -85,12 +86,14 @@ For example, I asserted that in >99% of observations I could infer exactly the f
 
 Action masking was quite a bit simpler. I disallowed irrelevant actions such as moving off the map or into an asteroid.
 Similarly, I disallowed an action if the ship didn't have enough energy to pay for it.
-Finally, I also disallowed blind sapping unless it was or was next to a known point tile, but this may have been a mistake, as team Flat Neurons made incredible use of such blind saps on tiles that would otherwise seem irrelevant.
+Finally, I also disallowed blind sapping unless it was targeting a square on or next to a known point tile.
+However, this may have been a mistake, as team Flat Neurons made excellent use of such blind saps on tiles that would otherwise seem irrelevant.
+For this reason, next time I would use less restrictive action masking, only banning actions that are certain to be useless or meaningless, such as moving off the map.
 
 ## Deep reinforcement learning
 
 The core decision-making component of my solution used deep reinforcement learning.
-While all of the feature engineering above was useful for extracting information from the available observations, on it's own it still fails to answer the most important question: given the available information, what action should I take?
+While all the feature engineering above was useful for extracting information from the available observations, on its own it still fails to answer the most important question: given the available information, what action should I take?
 Deep reinforcement learning aims to answer this question by parameterizing a policy using a deep neural network, taking actions in the environment using that policy, receiving a reward or punishment, and then using gradient descent to gradually update the policy in order to maximize the expected cumulative reward.
 Given enough time to train in the simulation, the right hyperparameters and reward function, the model can learn a strong policy on its own, and often surprises me with the depth of its strategy.   
 
@@ -99,7 +102,7 @@ Given enough time to train in the simulation, the right hyperparameters and rewa
 I experimented with two model architectures for this competition. 
 Both used the same input and output structures, but had a different model core.
 The one I had the most success with was a residual convolutional neural network (CNN) with squeeze-excitation layers, so this is what I submitted for my final agents.
-I also tried using a vision transformer base using rotary positional embeddings, but I only started working on it in the final few weeks and was struggling to stabilize training for a large enough model.
+I also tried using a vision transformer base using rotary positional embeddings, but I only started working on it in the final month and was struggling to stabilize training for a large enough model.
 Despite the fact that my final solution used a CNN, I was impressed by how quickly the transformer learned when imitating a teacher, and that it was able to reach a comparable performance with many fewer parameters.
 In the future, I may try a transformer architecture first, as it felt like it was one or two small tricks or hyperparameter adjustments away from outperforming the CNN.
 
@@ -107,22 +110,69 @@ The model had two input layers, one each for the spatial and global features.
 For the spatial input, I concatenated the 10-frame stack of temporal spatial features with the nontemporal spatial features, which I then projected to the model's dimension using a 2-layer CNN.
 For the global input, I similarly concatenated the temporal and nontemporal features, and then used a 2-layer MLP to project it to the model's dimension.
 Finally, I broadcast the global features to match the shape of the spatial ones, and added the two information streams together.
-I fed this combined tensor into the core model - an 8-block 3x3 CNN with a hidden dimension of size 256.
+I fed this combined tensor into the core model - an 8-block 3x3 CNN with a hidden dimension of size 256 (`d_model`). 
+After the core model, I fed the output tensor into a value and an actor head.
 
-After the core model, I fed the output tensor into an actor and a value head.
-The value head used a 1x1 CNN 
+The value head used a 2-layer 1x1 CNN to project the output to shape 1x24x24, which it then took the mean of to produce a single non-normalized value.
+This value was passed through a normalization layer depending on the reward space used.
+As soon as training was running stably, and for most of the competition I used the sparse win/loss (+1/-1) reward with early stopping once a team reached 3 match points.
+The value normalization function took the softmax of the two teams' values to estimate the win likelihood.
+Notably, this value formulation "cheats" in that it's able to see the perspective of both teams at once in order to estimate either team's value.
+However, this helped to stabilize training, and is okay to do because the value is not computed at test time.
 
-
+The actor head consisted of two parts: the main actor head and the sap actor head.
+The main actor head indexed the location of all alive units to product a matrix with shape `n_units x d_model`.
+I then appended each unit's normalized energy to this matrix, before passing it to a 2-layer MLP which projected it to shape `n_units x n_actions`.
+Note that the energies were provided at this step as well as to the main input so that units on the same square could learn independent policies conditioned on their energy levels.
+Finally, the main actions were sampled independently for each unit, with the action space containing 10 options: NoOp, 4 move actions, and 5 sap actions - one for each possible sap range.
+For units which selected a sap action, the sap actor head used a 2-layer CNN to project the core output to shape 1x24x24, representing the non-normalized probability of sapping that square, and shared among all units.
+Illegal sap actions were masked out on a per-unit basis, taking into account that unit's location and sap range.
 
 ### Reinforcement learning algorithm
 
+I used a relatively vanilla implementation of PPO with clipping, illegal action masking, and additional entropy and teacher-KL loss terms.
+I also used GAE-Lambda for estimating the value, with a high gamma. (0.9999-1.0)
+Since win/loss rewards were assigned at a player level, I summed the log-probabilities from all units across the main and sap action distributions to get the joint log-probabilities when computing the policy loss.
+I made some attempts early on to factorize the value function on a per-unit level, but was unable to figure out how to make it work successfully, so I gave up and focused on other things.
+I'd be very curious to know if anyone got a per-unit value factorization (and policy optimization) approach working!
+
+### Test-time implementation
+
+Unlike in Lux Season 1, I used random action sampling at test time, as performance was better with a stochastic policy.
+I imagine this is because a mixed strategy helps the agent with blind sapping and dodging opposing blind saps.
+At test-time, I also used three data augmentations - both diagonal reflections and a 180-degree rotation - and took the average policy before sampling.
+
 ## Miscellaneous engineering notes
 
+I ran all experiments on my local machine with a 16-core/32-thread AMD Ryzen 9950X CPU and two GPUs: an RTX 3090 and RTX 2070 Super.
+Using the custom simulator with all-core multithreading, I was able to achieve speeds of 110,000 steps/second when ignoring the time to compute the actions taken.
+As a result, the simulation and feature-engineering was near-instantaneous compared to the time taken to move memory to and from the GPU and run inference and backpropagation for training the model.
+Since GPU-compute was the bottleneck, the training speed varied dramatically based on the model size and architecture.
+
+Early on, I experimented with small 420,000 parameter models, which trained at 2800 steps/second.
+For the final model, I trained a convolutional network with 10,000,000 parameters, which trained at 430 steps/second.
+I could, and probably should, have scaled this up further, since I was still 62MB shy of the 100MB submission file size limit, but I wanted to experiment with the transformer architecture, so I did that instead in the final month.
+I'd estimate that the final model trained for around 300,000,000 game steps, totalling 600,000,000 per-player observations, and corresponding to about 8 days of continuous training. 
+It had mostly plateaued by around step 200,000,000, but it continued to exhibit small gradual improvements after that. 
+To monitor performance, I logged a bunch of metrics using Wandb, such as various loss terms, average points scored, action frequencies, and winrate against the previous best model.
+
+I used Rye for Python package management, and Maturin and PyO3 to add Python bindings to the Rust code.
+Compiling the code and configuring the bindings in a way that was cross-compatible with the competition runtime environment on Kaggle's servers was painful at first, but eventually I figured out that the problem was due to a GLIBC version mismatch.
+I was able to resolve this by compiling and building the submission in Docker using a Kaggle image, and after that building the submission presented no further difficulties.
+
+Some other tools that I used to help keep things organized and error-free included:
+- Rustfmt and Ruff to automatically format the Rust and Python code, respectively
+- Clippy and Ruff, again, to perform code linting
+- Mypy to statically type check the Python code 
+
+In the end, the final codebase including tests consisted of ~10,800 lines of Rust and ~6,500 lines of Python.
+Though I wrote considerably more code and more complicated code for this season than season 1, I was able to do so in less time.
+This is certainly in part due to experience, but I also credit the test-driven approach with saving me a considerable amount of time fixing my mistakes.
+It was a humbling reminder that writing lots of code is not hard, but writing correct code is.
+
 ## Conclusion
-# TODO
-- Simulation speed + parallelism
-- Package manager
-- Docker for Kaggle compilation
-- In the end, the final solution including tests consisted of ~X lines of Rust and ~Y lines of Python. Though I wrote considerably more code and more complicated code for this season than season 1, I was able to do so in less time. 
-This is certainly in part due to experience, but I also credit the test-driven approach with saving me a considerable amount of time fixing my own mistakes.
-It was a humbling reminder that writing lots of code is not hard, but writing correct code is.  
+
+TODO:
+- This has been a great competition + experience
+- Thanks to organizers again, plus thank competitors + discord discussions
+- Happy to answer questions in comments
