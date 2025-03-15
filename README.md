@@ -1,5 +1,8 @@
 # Rux-AI-S3
 
+This repository contains all the code used for team Frog Parade's gold medal approach for [Lux AI Season 3](https://www.kaggle.com/competitions/lux-ai-season-3), hosted on Kaggle.
+The full write-up describing the approach can be found in [write-up.md](https://github.com/IsaiahPressman/kaggle-lux-2024/blob/main/write-up.md).
+
 ### Setup instructions
 1. [Install rust](https://www.rust-lang.org/tools/install) and add nightly toolchain for `rustfmt`:
    1. `rustup update nightly`
@@ -31,28 +34,3 @@ replay.json, observations_0.json, and observations_1.json files.
 
 ### Creating a submission file
 `./scripts/make_submission.sh`
-
-
-### Parameter meta-learning (as of 11-2) [source](https://github.com/Lux-AI-Challenge/Lux-Design-S3/blob/main/src/luxai_s3/params.py)
-Fixed parameters:
-- max_units
-- match_count_per_episode
-- max_steps_in_match
-- map_height
-- map_width
-- num_teams
-
-Parameters provided at game start:
-- unit_move_cost [1, 6)
-- unit_sap_cost [30, 51)
-- unit_sap_range [3, 8)
-- unit_sensor_range [2, 5)
-
-Parameters that must be learned:
-- nebula_tile_vision_reduction [0, 4)
-- nebula_tile_energy_reduction [0, 0, 10, 25]
-- unit_sap_dropoff_factor [0.25, 0.5, 1]
-- unit_energy_void_factor [0.0625, 0.125, 0.25, 0.375]
-- nebula_tile_drift_speed [-0.05, -0.025, 0.025, 0.05]
-- energy_node_drift_speed [0.01, 0.02, 0.03, 0.04, 0.05]
-- energy_node_drift_magnitude [3, 6)
