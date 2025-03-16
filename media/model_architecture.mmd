@@ -54,7 +54,7 @@ flowchart LR
             critic_act --> critic_conv2["3x3 Conv2D Projection\n (1, 24, 24)"]
             critic_conv2 --> critic_mean["Spatial Mean (1,)"]
             critic_mean --> critic_post[Value Normalization]
-            critic_post --> critic_output["Win Probability"]
+            critic_post --> critic_output["Estimated Win Probability"]
         end
     end
 

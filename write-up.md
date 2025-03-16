@@ -10,7 +10,7 @@ My approach for this competition was motivated by a few key factors:
 2. I wanted to get better at Rust, and learn how to run Rust code from Python.
 3. I had much less time to spend than in previous competitions, so I needed to be efficient in the code that I wrote.
 
-Considering the first two factors, the solution was obvious, if a bit daunting at first: I would to rewrite the environment, plus all feature engineering, in Rust.
+Considering the first two factors, the solution was obvious, if a bit daunting at first: I would rewrite the environment and perform all feature engineering in Rust.
 Additionally, to address the time constraints, I planned to write all the involved/difficult code using a rigorous test-driven approach, so that I would hopefully spend as little of my time as possible bug-hunting.
 
 The final system consisted of three main components: the rules engine rewritten in Rust, the feature engineering code also in Rust, and the model and reinforcement learning code, written in Python.
@@ -25,27 +25,27 @@ For those who are unfamiliar, I recommend checking out the [full rules](https://
 - There is fog of war, meaning that players cannot see beyond a small area around each of their ships, so you don't know what your opponent is doing, except for right near your ships.
 - The map is procedurally generated, so the location of the points, obstacles, and energy field varies from game to game.
 - Some of the rules themselves vary from game to game, though never within a given 5-match set.
-So, for example, the cost to move or the effectiveness of the lasers may vary from one game to the next, but will be fixed for the matches within that game. 
+So, for example, the cost to move or the effectiveness of the lasers (known in-game as sap actions) may vary from one game to the next, but will be fixed for the matches within that game. 
 It's up to the players to figure out exactly which parameters they're playing with over the course of the game.
 
 Most of the code to run the simulation in Rust is straightforward, but the interesting part was ensuring its correctness. 
 This was made more difficult by the fact that the rules engine changed somewhat over the course of the competition, mainly due to a large mid-competition rules change.
-In order to make sure as best as I could that my simulation matched the real one, I wrote two types of tests: small unit tests to check that the individual components of the simulation worked as expected, and larger integration tests where I checked that my simulation matched the real one over a range of seeds.
-This way, when the rules changed, if I missed any changes, the tests failed and alerted me to the issue.
+In order to make sure as best as I could that my simulation matched the real one, I wrote two types of tests: smaller unit tests to check that the individual components of the simulation worked as expected, and larger integration tests where I checked that my simulation matched the real one over a range of seeds.
+This way when the rules changed, if I missed any changes, the tests failed and alerted me to the issue.
 
-I figured that a test-driven approach would be helpful, but it still surprised me and greatly exceeded my expectations.
+I figured that a test-driven approach would be helpful, but it greatly exceeded my expectations.
 Not only did I spend no time debugging the simulation once the tests were passing, but I also found and was able to quickly help fix a few bugs in the competition rules engine itself.
-Though writing code in such a methodical fashion slowed me down at first, the time spent absolutely paid for itself in the long run, which was exciting. 
+Though writing code in such a methodical fashion slowed me down at first, the time spent absolutely paid for itself in the long run.
 
 ## Feature engineering and action masking
 
-I wrote all the feature engineering code in Rust as well, so that it would not be a bottleneck and would be easily parallelized.
+I wrote all the feature engineering code in Rust as well, so that it would not be a bottleneck.
 I separated the features into four types along two lines: global vs. spatial, and temporal vs. nontemporal.
-- Global features included features that didn't have a spatial component, such as my and opponent's score, known rules, inferred rules, and the current step.   
+- Global features included features that were not associated with any particular location on the map, such as my and opponent's score, known rules, inferred rules, and the current step.   
 - Spatial features included features like my ships, opponent ships, relic nodes, known point tiles, and the value of the energy field. 
 - Temporal features were features that changed over time, such as my and opponent's ships, or my and my opponent's score.    
 - Nontemporal features were features that either didn't change over time, such as relic node locations and known rules, or features features that I felt it wasn't necessary to provide a history of, such as the energy field or asteroid and nebula movements.
-I'll note here that though I didn't provide a _history_ of asteroid and nebula positions, I did provide the model with the predicted future locations, once they were known.
+I'll note here that though I didn't provide a history of asteroid and nebula positions, I did provide the model with the predicted future locations, once they were known.
 
 For all temporal features, I tracked a history of the last 10 observations which I combined with their nontemporal counterparts. 
 More details of how the features were fed to the model can be found in the model architecture section.
@@ -93,9 +93,10 @@ For this reason, next time I would use less restrictive action masking, only ban
 ## Deep reinforcement learning
 
 The core decision-making component of my solution used deep reinforcement learning.
-While all the feature engineering above was useful for extracting information from the available observations, on its own it still fails to answer the most important question: given the available information, what action should I take?
-Deep reinforcement learning aims to answer this question by parameterizing a policy using a deep neural network, taking actions in the environment using that policy, receiving a reward or punishment, and then using gradient descent to gradually update the policy in order to maximize the expected cumulative reward.
-Given enough time to train in the simulation, the right hyperparameters and reward function, the model can learn a strong policy on its own, and often surprises me with the depth of its strategy.   
+While all the feature engineering above was useful for extracting information from the available observations, on its own it still fails to answer the most important question: given the available information, which actions should I take?
+Deep reinforcement learning aims to answer this question by parameterizing a policy using a deep neural network, taking actions in the environment using that policy, receiving a reward (or punishment), and then using gradient descent to gradually update the policy in order to maximize the expected cumulative reward.
+Given enough time to train in the simulation, the right hyperparameters, and an appropriate reward function, the model can learn a strong policy on its own. 
+Furthermore, deep reinforcement learning agents often play in a surprisingly nuanced tactical and strategic fashion that would be difficult or impossible to emulate using traditional hand-coded heuristic-based approaches.   
 
 ### Model architecture
 
@@ -144,18 +145,24 @@ At test-time, I also used three data augmentations - both diagonal reflections a
 
 ## Miscellaneous engineering notes
 
-I ran all experiments on my local machine with a 16-core/32-thread AMD Ryzen 9950X CPU and two GPUs: an RTX 3090 and RTX 2070 Super.
+### Training system
+
+I ran all experiments on my local machine with a 16-core/32-thread AMD Ryzen 9950X CPU, 64GB RAM, and two GPUs: an RTX 3090 and RTX 2070 Super.
 Using the custom simulator with all-core multithreading, I was able to achieve speeds of 110,000 steps/second when ignoring the time to compute the actions taken.
 As a result, the simulation and feature-engineering was near-instantaneous compared to the time taken to move memory to and from the GPU and run inference and backpropagation for training the model.
 Since GPU-compute was the bottleneck, the training speed varied dramatically based on the model size and architecture.
 
+### Model sizes
 Early on, I experimented with small 420,000 parameter models, which trained at 2800 steps/second.
 For the final model, I trained a convolutional network with 10,000,000 parameters, which trained at 430 steps/second.
 I could, and probably should, have scaled this up further, since I was still 62MB shy of the 100MB submission file size limit, but I wanted to experiment with the transformer architecture, so I did that instead in the final month.
 I'd estimate that the final model trained for around 300,000,000 game steps, totalling 600,000,000 per-player observations, and corresponding to about 8 days of continuous training. 
 It had mostly plateaued by around step 200,000,000, but it continued to exhibit small gradual improvements after that. 
-To monitor performance, I logged a bunch of metrics using Wandb, such as various loss terms, average points scored, action frequencies, and winrate against the previous best model.
+To monitor performance, I logged a bunch of metrics, including various loss terms, average points scored, action frequencies, and winrate against the previous best model.
 
+### Tools used
+
+I logged all performance metrics and tracked experiments using Wandb. 
 I used Rye for Python package management, and Maturin and PyO3 to add Python bindings to the Rust code.
 Compiling the code and configuring the bindings in a way that was cross-compatible with the competition runtime environment on Kaggle's servers was painful at first, but eventually I figured out that the problem was due to a GLIBC version mismatch.
 I was able to resolve this by compiling and building the submission in Docker using a Kaggle image, and after that building the submission presented no further difficulties.
@@ -165,16 +172,13 @@ Some other tools that I used to help keep things organized and error-free includ
 - Clippy and Ruff, again, to perform code linting
 - Mypy to statically type check the Python code 
 
-In the end, the final codebase including tests consisted of ~10,800 lines of Rust and ~6,500 lines of Python.
-Though I wrote considerably more code and more complicated code for this season than season 1, I was able to do so in less time.
-This is certainly in part due to experience, but I also credit the test-driven approach with saving me a considerable amount of time fixing my mistakes.
-It was a humbling reminder that writing lots of code is not hard, but writing correct code is.
-
 ## Conclusion
 
-TODO:
-- This has been a great competition + experience
-- Thanks to organizers again, plus thank competitors + discord discussions
-- Look forward to reading other solutions
-- Look forward to next season
-- Happy to answer questions in comments
+In the end, the final codebase including tests consisted of ~10,800 lines of Rust and ~6,500 lines of Python.
+Though I wrote considerably more code and more complicated code for this season than season 1, I felt I was able to do so more efficiently.
+This is certainly in part due to experience, but I also credit the test-driven approach with saving me a considerable amount of time in fixing my mistakes.
+It was a humbling reminder that writing lots of code isn't hard, but writing correct code is.
+
+Feel free to reach out with any questions or post them in the comments below and I'll do my best to answer them.
+This experience has been a ton of fun, and I want to again thank the organizers, my teammate, and the other competitors for a lively discussion and exciting competition.
+I look forward to reading through and learning from the other teams' solutions over the coming days, and I eagerly await Lux season 4!
