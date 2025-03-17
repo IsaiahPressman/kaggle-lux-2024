@@ -179,6 +179,6 @@ Though I wrote considerably more code and more complicated code for this season 
 This is certainly in part due to experience, but I also credit the test-driven approach with saving me a considerable amount of time in fixing my mistakes.
 It was a humbling reminder that writing lots of code isn't hard, but writing correct code is.
 
-Feel free to reach out with any questions or post them in the comments below and I'll do my best to answer them.
-This experience has been a ton of fun, and I want to again thank the organizers, my teammate, and the other competitors for a lively discussion and exciting competition.
+Feel free to reach out with any questions or post them in the comments below, and I'll do my best to answer them.
+This experience has been a ton of fun, and I want to again thank the organizers, my teammate Garrett, and the other competitors for a lively discussion and exciting competition.
 I look forward to reading through and learning from the other teams' solutions over the coming days, and I eagerly await Lux season 4!
